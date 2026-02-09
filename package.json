@@ -1,0 +1,17 @@
+{
+  "name": "agentops",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Control Plane for Autonomous Agent Teams",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces --if-present",
+    "dev": "npm run dev --workspace=packages/web"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
