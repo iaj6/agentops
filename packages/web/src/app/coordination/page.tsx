@@ -12,19 +12,10 @@ export default function CoordinationPage() {
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-foreground">Coordination</h1>
         <p className="text-sm text-muted">
-          {locks.length} lock{locks.length !== 1 ? "s" : ""}
+          Resource lock management and conflict detection
         </p>
       </div>
-      {locks.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-surface py-20">
-          <p className="text-sm font-medium text-foreground">No locks</p>
-          <p className="text-xs text-muted mt-1">
-            Resource locks will appear here when agents acquire them.
-          </p>
-        </div>
-      ) : (
-        <CoordinationView locks={JSON.parse(JSON.stringify(locks))} />
-      )}
+      <CoordinationView locks={JSON.parse(JSON.stringify(locks))} />
     </div>
   );
 }

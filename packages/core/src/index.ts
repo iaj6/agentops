@@ -151,3 +151,17 @@ export {
   generateWorkBranch,
   partitionByPath,
 } from "./coordination.js";
+
+// Orchestrator (Sprint 5)
+export type { DispatchResult, ExecutionResult, OrchestratorDb } from "./orchestrator.js";
+
+export {
+  submitAndQueueJob,
+  dispatchNextJob,
+  startJobExecution,
+  completeJobExecution,
+  failJobExecution,
+  terminateSessionGracefully,
+  cleanupStaleSessions,
+  cleanupExpiredLocks,
+} from "./orchestrator.js";

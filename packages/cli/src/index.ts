@@ -13,6 +13,7 @@ import { registerJobCommands } from "./commands/job.js";
 import { registerSessionCommands } from "./commands/session.js";
 import { registerEventsCommands } from "./commands/events.js";
 import { registerLockCommands } from "./commands/lock.js";
+import { registerDispatchCommands } from "./commands/dispatch.js";
 
 const program = new Command();
 
@@ -34,5 +35,6 @@ registerJobCommands(program);
 registerSessionCommands(program);
 registerEventsCommands(program);
 registerLockCommands(program);
+registerDispatchCommands(program);
 
 program.parse();

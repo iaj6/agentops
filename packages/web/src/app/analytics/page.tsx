@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { listRuns } from "@agentops/db";
+import { listRuns, listJobs, listSessions } from "@agentops/db";
 import { db } from "@/lib/db";
 import { AnalyticsDashboard } from "./AnalyticsDashboard";
 
@@ -11,7 +11,8 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default function AnalyticsPage() {
-  const runs = listRuns(db(), { limit: 1000 });
+  const d = db();
+  const runs = listRuns(d, { limit: 1000 });
 
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -22,8 +23,8 @@ export default function AnalyticsPage() {
   const repoCounts = new Map<string, { count: number; totalCost: number }>();
 
   for (let i = 0; i < 30; i++) {
-    const d = new Date(thirtyDaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
-    const key = d.toISOString().slice(0, 10);
+    const dd = new Date(thirtyDaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
+    const key = dd.toISOString().slice(0, 10);
     dailyCost.set(key, 0);
     dailyCounts.set(key, { completed: 0, failed: 0 });
   }
@@ -86,6 +87,60 @@ export default function AnalyticsPage() {
       ? runs.reduce((s, r) => s + r.metrics.wallTimeMs, 0) / runs.length
       : 0;
 
+  // Job throughput data
+  const allJobs = listJobs(d, { limit: 10000 });
+  const dailyJobCompleted = new Map<string, number>();
+  for (let i = 0; i < 30; i++) {
+    const dd = new Date(thirtyDaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
+    dailyJobCompleted.set(dd.toISOString().slice(0, 10), 0);
+  }
+  for (const job of allJobs) {
+    if (job.completedAt) {
+      const completed = new Date(job.completedAt);
+      if (completed >= thirtyDaysAgo) {
+        const key = completed.toISOString().slice(0, 10);
+        dailyJobCompleted.set(key, (dailyJobCompleted.get(key) ?? 0) + 1);
+      }
+    }
+  }
+  const jobThroughput = Array.from(dailyJobCompleted.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, completed]) => ({ date, completed }));
+
+  // Cost by priority
+  const costByPriority: Record<string, number> = { critical: 0, high: 0, normal: 0, low: 0 };
+  for (const job of allJobs) {
+    if (job.priority in costByPriority) {
+      costByPriority[job.priority]++;
+    }
+  }
+  const priorityData = Object.entries(costByPriority).map(([priority, count]) => ({
+    priority: priority.charAt(0).toUpperCase() + priority.slice(1),
+    count,
+  }));
+
+  // Session utilization
+  const allSessions = listSessions(d, { limit: 10000 });
+  const dailySessionActive = new Map<string, number>();
+  for (let i = 0; i < 30; i++) {
+    const dd = new Date(thirtyDaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
+    dailySessionActive.set(dd.toISOString().slice(0, 10), 0);
+  }
+  for (const session of allSessions) {
+    const start = new Date(session.startedAt);
+    const end = session.terminatedAt ? new Date(session.terminatedAt) : now;
+    for (const [dateStr] of dailySessionActive) {
+      const dayStart = new Date(dateStr);
+      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+      if (start < dayEnd && end >= dayStart) {
+        dailySessionActive.set(dateStr, (dailySessionActive.get(dateStr) ?? 0) + 1);
+      }
+    }
+  }
+  const sessionActivity = Array.from(dailySessionActive.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, active]) => ({ date, active }));
+
   if (runs.length === 0) {
     return (
       <div className="p-6">
@@ -121,6 +176,9 @@ export default function AnalyticsPage() {
       totalCompleted={totalCompleted}
       totalFailed={totalFailed}
       avgDuration={avgDuration}
+      jobThroughput={jobThroughput}
+      priorityData={priorityData}
+      sessionActivity={sessionActivity}
     />
   );
 }
