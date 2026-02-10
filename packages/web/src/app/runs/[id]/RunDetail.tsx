@@ -7,9 +7,11 @@ import { MetricCard } from "@/components/MetricCard";
 import { ScoreBar } from "@/components/ScoreBar";
 import { DiffViewer } from "@/components/DiffViewer";
 import { ActionTimeline } from "@/components/ActionTimeline";
+import { ConnectionStatus } from "@/components/ConnectionStatus";
+import { useRunDetail } from "@/hooks/useRunDetail";
 import Link from "next/link";
 
-type Tab = "overview" | "actions" | "artifacts" | "metrics" | "policy" | "decision";
+type Tab = "overview" | "actions" | "artifacts" | "metrics" | "policy" | "decision" | "github";
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -31,7 +33,12 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-export function RunDetail({ run }: { run: Run }) {
+export function RunDetail({ run: initialRun }: { run: Run }) {
+  const { run: liveRun, connected } = useRunDetail(
+    initialRun.id as string,
+    initialRun,
+  );
+  const run = liveRun ?? initialRun;
   const [tab, setTab] = useState<Tab>("overview");
 
   const tabs: { key: Tab; label: string }[] = [
@@ -41,19 +48,21 @@ export function RunDetail({ run }: { run: Run }) {
     { key: "metrics", label: "Metrics" },
     { key: "policy", label: "Policy" },
     { key: "decision", label: "Decision" },
+    { key: "github", label: "GitHub" },
   ];
 
   return (
     <div className="p-6">
       {/* Header */}
       <div className="mb-6">
-        <div className="mb-2">
+        <div className="mb-2 flex items-center justify-between">
           <Link
             href="/"
             className="text-xs text-muted hover:text-foreground transition-colors"
           >
             &larr; Back to Runs
           </Link>
+          <ConnectionStatus connected={connected} />
         </div>
         <div className="flex items-center gap-3">
           <h1 className="font-mono text-lg font-semibold text-foreground">
@@ -62,7 +71,7 @@ export function RunDetail({ run }: { run: Run }) {
           <StatusBadge status={run.status} />
         </div>
         <p className="mt-1 text-sm text-foreground">{run.goal.humanReadable}</p>
-        <div className="mt-2 flex items-center gap-4 text-xs text-muted">
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
           <span>
             <span className="text-muted/70">Repo</span>{" "}
             <span className="font-mono">{run.environment.repo}</span>
@@ -83,12 +92,12 @@ export function RunDetail({ run }: { run: Run }) {
       </div>
 
       {/* Tabs */}
-      <div className="mb-6 flex gap-1 border-b border-border">
+      <div className="mb-6 flex gap-1 border-b border-border overflow-x-auto">
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
+            className={`whitespace-nowrap px-4 py-2 text-sm font-medium transition-colors ${
               tab === t.key
                 ? "border-b-2 border-accent text-accent"
                 : "text-muted hover:text-foreground"
@@ -106,6 +115,7 @@ export function RunDetail({ run }: { run: Run }) {
       {tab === "metrics" && <MetricsTab run={run} />}
       {tab === "policy" && <PolicyTab run={run} />}
       {tab === "decision" && <DecisionTab run={run} />}
+      {tab === "github" && <GitHubTab run={run} />}
     </div>
   );
 }
@@ -114,7 +124,7 @@ function OverviewTab({ run }: { run: Run }) {
   return (
     <div className="space-y-6">
       {/* Quick metrics */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           label="Cost"
           value={formatCost(run.metrics.costUsd)}
@@ -341,7 +351,7 @@ function ArtifactsTab({ run }: { run: Run }) {
 function MetricsTab({ run }: { run: Run }) {
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           label="Total Cost"
           value={formatCost(run.metrics.costUsd)}
@@ -360,7 +370,7 @@ function MetricsTab({ run }: { run: Run }) {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="rounded-lg border border-border bg-surface p-4">
           <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
             Token Breakdown
@@ -566,6 +576,159 @@ function DecisionTab({ run }: { run: Run }) {
           <p className="text-sm text-muted">{decision.reason}</p>
         </div>
       ))}
+    </div>
+  );
+}
+
+function GitHubTab({ run }: { run: Run }) {
+  const gh = run.github;
+
+  if (!gh || (!gh.pr && !gh.issue && (!gh.checks || gh.checks.length === 0))) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-surface py-16">
+        <p className="text-sm text-muted mb-2">No GitHub integration for this run.</p>
+        <p className="text-xs text-muted/70">
+          Use <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono">agentops link pr {'<runId>'}</code> or{" "}
+          <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono">agentops pr {'<runId>'}</code> to connect GitHub.
+        </p>
+      </div>
+    );
+  }
+
+  const checkConclusion = (conclusion: string | null) => {
+    switch (conclusion) {
+      case "success":
+        return "bg-green/15 text-green border-green/30";
+      case "failure":
+        return "bg-red/15 text-red border-red/30";
+      case "neutral":
+      case "skipped":
+        return "bg-muted/15 text-muted border-muted/30";
+      default:
+        return "bg-yellow/15 text-yellow border-yellow/30";
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Linked PR */}
+      {gh.pr && (
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+            Pull Request
+          </h3>
+          <div className="flex items-start gap-3">
+            <span
+              className={`mt-0.5 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                gh.pr.state === "open"
+                  ? "bg-green/15 text-green border-green/30"
+                  : gh.pr.state === "merged"
+                    ? "bg-purple/15 text-purple border-purple/30"
+                    : "bg-red/15 text-red border-red/30"
+              }`}
+            >
+              {gh.pr.state}
+            </span>
+            <div className="flex-1 min-w-0">
+              <a
+                href={gh.pr.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-medium text-accent hover:underline"
+              >
+                #{gh.pr.number} {gh.pr.title}
+              </a>
+              <div className="mt-1 flex items-center gap-4 text-xs text-muted">
+                <span>
+                  <span className="font-mono">{gh.pr.headBranch}</span>
+                  {" -> "}
+                  <span className="font-mono">{gh.pr.baseBranch}</span>
+                </span>
+                <span className="text-green">+{gh.pr.additions}</span>
+                <span className="text-red">-{gh.pr.deletions}</span>
+                <span>{gh.pr.changedFiles} file(s)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Linked Issue */}
+      {gh.issue && (
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+            Issue
+          </h3>
+          <div className="flex items-start gap-3">
+            <span
+              className={`mt-0.5 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                gh.issue.state === "open"
+                  ? "bg-green/15 text-green border-green/30"
+                  : "bg-red/15 text-red border-red/30"
+              }`}
+            >
+              {gh.issue.state}
+            </span>
+            <div className="flex-1 min-w-0">
+              <a
+                href={gh.issue.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-medium text-accent hover:underline"
+              >
+                #{gh.issue.number} {gh.issue.title}
+              </a>
+              {gh.issue.labels.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {gh.issue.labels.map((label) => (
+                    <span
+                      key={label}
+                      className="rounded-full border border-border bg-surface-2 px-2 py-0.5 text-xs text-muted"
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Check Runs */}
+      {gh.checks && gh.checks.length > 0 && (
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+            Check Runs
+          </h3>
+          <div className="space-y-2">
+            {gh.checks.map((check, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-3 rounded bg-surface-2 px-3 py-2 text-sm"
+              >
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-xs font-medium ${checkConclusion(check.conclusion)}`}
+                >
+                  {check.conclusion ?? check.status}
+                </span>
+                <span className="text-foreground">{check.name}</span>
+                <span className="ml-auto text-xs text-muted">{check.status}</span>
+                {check.url && (
+                  <a
+                    href={check.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-accent hover:underline"
+                  >
+                    Details
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

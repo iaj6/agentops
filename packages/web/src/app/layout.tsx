@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Sidebar } from "@/components/Sidebar";
+import { ToastContainer } from "@/components/Toast";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { KeyboardProvider } from "@/components/KeyboardProvider";
+import { GlobalCommandPalette } from "@/components/GlobalCommandPalette";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,8 +18,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AgentOps",
+  title: {
+    default: "AgentOps",
+    template: "%s | AgentOps",
+  },
   description: "Mission control for autonomous agent runs",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({
@@ -28,10 +38,16 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
-        <div className="flex h-screen overflow-hidden">
-          <Sidebar />
-          <main className="flex-1 overflow-auto">{children}</main>
-        </div>
+        <KeyboardProvider>
+          <div className="flex h-screen overflow-hidden">
+            <Sidebar />
+            <main className="flex-1 overflow-auto animate-in">
+              <ErrorBoundary>{children}</ErrorBoundary>
+            </main>
+          </div>
+          <ToastContainer />
+          <GlobalCommandPalette />
+        </KeyboardProvider>
       </body>
     </html>
   );

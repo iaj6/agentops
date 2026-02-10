@@ -19,6 +19,7 @@ export function migrate(sqlite: Database.Database): void {
       metrics TEXT NOT NULL,
       evaluations TEXT NOT NULL,
       decisions TEXT NOT NULL,
+      github TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -64,4 +65,11 @@ export function migrate(sqlite: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_run_metrics_run_id ON run_metrics(run_id);
   `);
+
+  // Add github column to existing runs tables (safe to run multiple times)
+  try {
+    sqlite.exec(`ALTER TABLE runs ADD COLUMN github TEXT`);
+  } catch {
+    // Column already exists - ignore
+  }
 }

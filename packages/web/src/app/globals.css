@@ -56,3 +56,66 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted);
 }
+
+/* Animations */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes score-fill {
+  from { width: 0; }
+}
+
+.animate-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.animate-score-fill {
+  animation: score-fill 0.8s ease-out;
+}
+
+/* Button press feedback */
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Sidebar responsive collapse */
+@media (max-width: 768px) {
+  .sidebar-label {
+    display: none;
+  }
+}
+
+/* Mobile card layout for tables */
+@media (max-width: 768px) {
+  .responsive-table thead {
+    display: none;
+  }
+  .responsive-table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .responsive-table tbody td {
+    padding: 0;
+    border: none;
+  }
+  .responsive-table tbody td.mobile-full {
+    width: 100%;
+  }
+  .responsive-table tbody td.mobile-hide {
+    display: none;
+  }
+}

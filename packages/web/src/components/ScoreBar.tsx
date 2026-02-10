@@ -23,7 +23,7 @@ export function ScoreBar({
       </div>
       <div className="h-1.5 w-full rounded-full bg-surface-2">
         <div
-          className={`h-1.5 rounded-full ${color}`}
+          className={`h-1.5 rounded-full ${color} animate-score-fill`}
           style={{ width: `${pct}%` }}
         />
       </div>

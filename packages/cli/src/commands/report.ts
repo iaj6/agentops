@@ -141,6 +141,32 @@ function generateReport(run: Run, score: ScoreCard): string {
   lines.push(`| Unknowns           | ${fmtScore(score.unknowns.score)} | ${score.unknowns.rationale} |`);
   lines.push("");
 
+  // GitHub
+  if (run.github) {
+    lines.push("## GitHub");
+    lines.push("");
+    if (run.github.pr) {
+      const pr = run.github.pr;
+      lines.push(`- **PR:** [#${pr.number} ${pr.title}](${pr.url}) (${pr.state})`);
+      lines.push(`  - +${pr.additions} / -${pr.deletions} across ${pr.changedFiles} file(s)`);
+    }
+    if (run.github.issue) {
+      const issue = run.github.issue;
+      lines.push(`- **Issue:** [#${issue.number} ${issue.title}](${issue.url}) (${issue.state})`);
+      if (issue.labels.length > 0) {
+        lines.push(`  - Labels: ${issue.labels.join(", ")}`);
+      }
+    }
+    if (run.github.checks && run.github.checks.length > 0) {
+      lines.push(`- **Checks:**`);
+      for (const check of run.github.checks) {
+        const conclusion = check.conclusion ? ` - ${check.conclusion}` : "";
+        lines.push(`  - ${check.name}: ${check.status}${conclusion}`);
+      }
+    }
+    lines.push("");
+  }
+
   // Merge Recommendation
   lines.push("## Merge Recommendation");
   lines.push("");

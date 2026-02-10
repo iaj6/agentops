@@ -124,7 +124,7 @@ export function PolicyDetail({
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <MetricCard label="Total Evaluations" value={String(stats.total)} />
         <MetricCard label="Passed" value={String(stats.passed)} />
         <MetricCard label="Failed" value={String(stats.failed)} />
@@ -160,7 +160,7 @@ export function PolicyDetail({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-6 mb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* Config */}
         <div className="rounded-lg border border-border bg-surface p-4">
           <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">

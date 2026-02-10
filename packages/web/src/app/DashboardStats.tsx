@@ -12,7 +12,7 @@ interface Stats {
 
 export function DashboardStats({ stats }: { stats: Stats }) {
   return (
-    <div className="mb-6 grid grid-cols-5 gap-4">
+    <div className="mb-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
       <MetricCard label="Total Runs" value={stats.totalRuns} />
       <MetricCard label="Running Now" value={stats.running} />
       <MetricCard label="Success Rate" value={stats.successRate} />

@@ -6,6 +6,8 @@ import { registerPolicyCommands } from "./commands/policy.js";
 import { registerReportCommand } from "./commands/report.js";
 import { registerWrapCommand } from "./commands/wrap.js";
 import { registerWatchCommand } from "./commands/watch.js";
+import { registerLinkCommands } from "./commands/link.js";
+import { registerPRCommand } from "./commands/pr.js";
 
 const program = new Command();
 
@@ -21,5 +23,7 @@ registerPolicyCommands(program);
 registerReportCommand(program);
 registerWrapCommand(program);
 registerWatchCommand(program);
+registerLinkCommands(program);
+registerPRCommand(program);
 
 program.parse();

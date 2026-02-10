@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Settings",
+  description: "Configure your AgentOps instance",
+};
+
 export default function SettingsPage() {
   return (
     <div className="p-6">

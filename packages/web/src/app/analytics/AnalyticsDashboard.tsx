@@ -68,7 +68,7 @@ export function AnalyticsDashboard({
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <MetricCard label="Total Runs" value={String(totalRuns)} />
         <MetricCard label="Total Cost" value={formatCost(totalCost)} />
         <MetricCard
@@ -85,13 +85,13 @@ export function AnalyticsDashboard({
       </div>
 
       {/* Charts row */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <CostChart data={costData} />
         <SuccessChart data={successData} />
       </div>
 
       {/* Bottom row */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Top Repos */}
         <div className="rounded-lg border border-border bg-surface p-4">
           <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">

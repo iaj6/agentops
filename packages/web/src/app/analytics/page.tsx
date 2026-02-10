@@ -1,6 +1,12 @@
+import type { Metadata } from "next";
 import { listRuns } from "@agentops/db";
 import { db } from "@/lib/db";
 import { AnalyticsDashboard } from "./AnalyticsDashboard";
+
+export const metadata: Metadata = {
+  title: "Analytics",
+  description: "Aggregate metrics and cost analysis across all agent runs",
+};
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +85,30 @@ export default function AnalyticsPage() {
     runs.length > 0
       ? runs.reduce((s, r) => s + r.metrics.wallTimeMs, 0) / runs.length
       : 0;
+
+  if (runs.length === 0) {
+    return (
+      <div className="p-6">
+        <div className="mb-6">
+          <h1 className="text-xl font-semibold text-foreground">Analytics</h1>
+          <p className="text-sm text-muted">Aggregate metrics across all runs</p>
+        </div>
+        <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-surface py-20">
+          <div className="text-4xl text-muted mb-3">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <rect x="6" y="24" width="9" height="18" rx="1.5" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+              <rect x="19.5" y="15" width="9" height="27" rx="1.5" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+              <rect x="33" y="6" width="9" height="36" rx="1.5" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+            </svg>
+          </div>
+          <p className="text-sm font-medium text-foreground">Not enough data</p>
+          <p className="text-xs text-muted mt-1">
+            Run some agents to see analytics here.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <AnalyticsDashboard

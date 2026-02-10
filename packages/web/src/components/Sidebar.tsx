@@ -14,14 +14,19 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-screen w-56 flex-col border-r border-border bg-surface">
-      <div className="flex h-14 items-center gap-2 border-b border-border px-4">
-        <div className="h-6 w-6 rounded bg-accent" />
-        <span className="text-sm font-semibold tracking-tight text-foreground">
+    <aside className="flex h-screen w-14 md:w-56 flex-col border-r border-border bg-surface transition-all duration-200">
+      <div className="flex h-14 items-center gap-2 border-b border-border px-3 md:px-4">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="shrink-0">
+          <rect x="2" y="2" width="9" height="9" rx="2" fill="var(--accent)" opacity="0.9" />
+          <rect x="13" y="2" width="9" height="9" rx="2" fill="var(--accent)" opacity="0.6" />
+          <rect x="2" y="13" width="9" height="9" rx="2" fill="var(--accent)" opacity="0.6" />
+          <rect x="13" y="13" width="9" height="9" rx="2" fill="var(--accent)" opacity="0.3" />
+        </svg>
+        <span className="hidden md:inline text-sm font-semibold tracking-tight text-foreground">
           AgentOps
         </span>
       </div>
-      <nav className="flex-1 space-y-0.5 px-2 py-3">
+      <nav className="flex-1 space-y-0.5 px-1.5 md:px-2 py-3">
         {navItems.map((item) => {
           const isActive =
             item.href === "/"
@@ -31,20 +36,21 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${
+              title={item.label}
+              className={`flex items-center justify-center md:justify-start gap-2.5 rounded-md px-2.5 md:px-3 py-2 text-sm transition-colors ${
                 isActive
                   ? "bg-accent/10 text-accent"
                   : "text-muted hover:bg-surface-2 hover:text-foreground"
               }`}
             >
               <item.icon active={isActive} />
-              {item.label}
+              <span className="hidden md:inline">{item.label}</span>
             </Link>
           );
         })}
       </nav>
-      <div className="border-t border-border px-4 py-3">
-        <p className="text-xs text-muted">v0.1.0</p>
+      <div className="border-t border-border px-3 md:px-4 py-3">
+        <p className="hidden md:block text-xs text-muted">v0.1.0</p>
       </div>
     </aside>
   );

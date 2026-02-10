@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { listRuns } from "@agentops/db";
 import { db } from "@/lib/db";
 import { RunsTable } from "./RunsTable";
@@ -69,7 +70,9 @@ export default function HomePage() {
           </p>
         </div>
       ) : (
-        <RunsTable runs={JSON.parse(JSON.stringify(runs))} />
+        <Suspense fallback={<div className="py-8 text-center text-sm text-muted">Loading runs...</div>}>
+          <RunsTable runs={JSON.parse(JSON.stringify(runs))} />
+        </Suspense>
       )}
     </div>
   );

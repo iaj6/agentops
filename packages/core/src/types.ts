@@ -178,6 +178,8 @@ export interface Decision {
 
 // ─── Run ─────────────────────────────────────────────────────────────────────
 
+import type { GitHubInfo } from "./github.js";
+
 export interface Run {
   readonly id: RunId;
   readonly status: RunStatus;
@@ -189,6 +191,7 @@ export interface Run {
   readonly metrics: Metrics;
   readonly evaluations: ReadonlyArray<Evaluation>;
   readonly decisions: ReadonlyArray<Decision>;
+  readonly github?: GitHubInfo;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

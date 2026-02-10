@@ -56,6 +56,15 @@ export { PolicyType, PolicySeverity, PolicyEngine } from "./policy.js";
 export type { ScoreDimension, ScoreCard } from "./scoring.js";
 export { MergeRecommendation, computeScore } from "./scoring.js";
 
+// GitHub
+export type {
+  GitHubPR,
+  GitHubIssue,
+  GitHubCheck,
+  GitHubLink,
+  GitHubInfo,
+} from "./github.js";
+
 // Run builder
 export {
   createRun,
