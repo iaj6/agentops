@@ -10,16 +10,22 @@ import {
   createActionId,
   createArtifactId,
   createDecisionId,
+  createSessionId,
+  createEventId,
+  SessionStatus,
   PolicyType,
   PolicySeverity,
   PolicyEngine,
+  EventCategory,
 } from "@agentops/core";
 import type { Policy } from "@agentops/core";
 import type { AgentOpsDb } from "./connection.js";
 import { getDb } from "./connection.js";
 import { insertRun } from "./runs.js";
 import { insertPolicy } from "./policies.js";
-import { policyResults, runMetrics } from "./schema.js";
+import { insertEvent } from "./events.js";
+import { insertSession } from "./sessions.js";
+import { policyResults, runMetrics, jobs, sessions, events, locks } from "./schema.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1275,9 +1281,339 @@ function generateRun(
   };
 }
 
+// ─── Orchestration seed functions (populated by workstream agents) ──────────
+
+function seedJobs(db: AgentOpsDb): number {
+  const JOB_STATUSES = ["queued", "dispatched", "running", "completed", "failed", "cancelled"] as const;
+  const JOB_PRIORITIES = ["critical", "high", "normal", "low"] as const;
+
+  interface JobBlueprint {
+    status: (typeof JOB_STATUSES)[number];
+    priority: (typeof JOB_PRIORITIES)[number];
+  }
+
+  const blueprints: JobBlueprint[] = [
+    // 5 queued
+    { status: "queued", priority: "critical" },
+    { status: "queued", priority: "high" },
+    { status: "queued", priority: "normal" },
+    { status: "queued", priority: "normal" },
+    { status: "queued", priority: "low" },
+    // 3 dispatched
+    { status: "dispatched", priority: "high" },
+    { status: "dispatched", priority: "normal" },
+    { status: "dispatched", priority: "normal" },
+    // 4 running
+    { status: "running", priority: "critical" },
+    { status: "running", priority: "high" },
+    { status: "running", priority: "normal" },
+    { status: "running", priority: "normal" },
+    // 10 completed
+    { status: "completed", priority: "critical" },
+    { status: "completed", priority: "high" },
+    { status: "completed", priority: "high" },
+    { status: "completed", priority: "normal" },
+    { status: "completed", priority: "normal" },
+    { status: "completed", priority: "normal" },
+    { status: "completed", priority: "normal" },
+    { status: "completed", priority: "normal" },
+    { status: "completed", priority: "low" },
+    { status: "completed", priority: "low" },
+    // 4 failed
+    { status: "failed", priority: "high" },
+    { status: "failed", priority: "normal" },
+    { status: "failed", priority: "normal" },
+    { status: "failed", priority: "low" },
+    // 2 cancelled
+    { status: "cancelled", priority: "normal" },
+    { status: "cancelled", priority: "low" },
+  ];
+
+  let count = 0;
+  for (let i = 0; i < blueprints.length; i++) {
+    const bp = blueprints[i]!;
+    const goal = GOALS[i % GOALS.length]!;
+    const createdAt = daysAgo(randInt(0, 21));
+    const branch = pick(BRANCHES);
+
+    const queuedAt = createdAt;
+    const dispatchedAt = ["dispatched", "running", "completed", "failed"].includes(bp.status)
+      ? minutesAfter(createdAt, 1, 5)
+      : null;
+    const completedAt = bp.status === "completed"
+      ? minutesAfter(createdAt, 10, 30)
+      : null;
+
+    const attempt = bp.status === "failed" ? randInt(1, 3) : 0;
+    const maxAttempts = 3;
+
+    db.insert(jobs)
+      .values({
+        id: `job_${uid()}`,
+        status: bp.status,
+        priority: bp.priority,
+        goal: {
+          humanReadable: goal.human,
+          structured: { type: goal.type, description: goal.desc, parameters: {} },
+        } as unknown as Record<string, unknown>,
+        environment: {
+          repo: goal.repo,
+          branch,
+          permissions: ["read", "write"],
+          sandbox: { enabled: true, isolationLevel: "container" },
+        } as unknown as Record<string, unknown>,
+        repo: goal.repo,
+        branch,
+        retryPolicy: {
+          maxRetries: 3,
+          backoffMs: 1000,
+          backoffMultiplier: 2,
+        } as unknown as Record<string, unknown>,
+        concurrencyLimits: {
+          perRepo: 5,
+          perOrg: 10,
+          global: 50,
+        } as unknown as Record<string, unknown>,
+        runIds: (bp.status === "running" || bp.status === "completed" || bp.status === "failed"
+          ? [`run_${uid()}`]
+          : []) as unknown as Record<string, unknown>,
+        sessionId: ["dispatched", "running"].includes(bp.status) ? `session_${uid()}` : null,
+        attempt,
+        maxAttempts,
+        queuedAt: queuedAt.toISOString(),
+        dispatchedAt: dispatchedAt?.toISOString() ?? null,
+        completedAt: completedAt?.toISOString() ?? null,
+        createdAt: createdAt.toISOString(),
+        updatedAt: (completedAt ?? dispatchedAt ?? createdAt).toISOString(),
+      })
+      .run();
+    count++;
+  }
+
+  return count;
+}
+
+function seedSessions(db: AgentOpsDb): number {
+  const AGENT_NAMES = [
+    "claude-lead-01",
+    "claude-impl-02",
+    "claude-impl-03",
+    "gpt4o-reviewer-01",
+    "claude-ci-01",
+    "claude-impl-04",
+    "gpt4o-impl-05",
+    "claude-lead-02",
+    "claude-reviewer-02",
+    "claude-impl-06",
+  ] as const;
+
+  interface SessionBlueprint {
+    status: SessionStatus;
+    daysAgoRange: [number, number];
+    hasCurrentRun: boolean;
+    completedRunCount: number;
+  }
+
+  const blueprints: SessionBlueprint[] = [
+    // 5 active
+    { status: SessionStatus.Active, daysAgoRange: [0, 1], hasCurrentRun: true, completedRunCount: randInt(1, 5) },
+    { status: SessionStatus.Active, daysAgoRange: [0, 1], hasCurrentRun: true, completedRunCount: randInt(0, 3) },
+    { status: SessionStatus.Active, daysAgoRange: [0, 2], hasCurrentRun: false, completedRunCount: randInt(2, 6) },
+    { status: SessionStatus.Active, daysAgoRange: [0, 1], hasCurrentRun: true, completedRunCount: randInt(0, 2) },
+    { status: SessionStatus.Active, daysAgoRange: [0, 3], hasCurrentRun: false, completedRunCount: randInt(3, 8) },
+    // 2 paused
+    { status: SessionStatus.Paused, daysAgoRange: [1, 5], hasCurrentRun: false, completedRunCount: randInt(1, 4) },
+    { status: SessionStatus.Paused, daysAgoRange: [2, 7], hasCurrentRun: false, completedRunCount: randInt(2, 5) },
+    // 3 terminated
+    { status: SessionStatus.Terminated, daysAgoRange: [3, 14], hasCurrentRun: false, completedRunCount: randInt(3, 10) },
+    { status: SessionStatus.Terminated, daysAgoRange: [5, 20], hasCurrentRun: false, completedRunCount: randInt(1, 6) },
+    { status: SessionStatus.Terminated, daysAgoRange: [7, 25], hasCurrentRun: false, completedRunCount: randInt(4, 12) },
+  ];
+
+  for (let i = 0; i < blueprints.length; i++) {
+    const bp = blueprints[i]!;
+    const agentName = AGENT_NAMES[i % AGENT_NAMES.length]!;
+    const createdAt = daysAgo(randInt(bp.daysAgoRange[0], bp.daysAgoRange[1]));
+    const startedAt = minutesAfter(createdAt, 0, 2);
+
+    const completedRunIds: string[] = [];
+    for (let j = 0; j < bp.completedRunCount; j++) {
+      completedRunIds.push(`run_sess_${uid()}`);
+    }
+
+    const currentRunId = bp.hasCurrentRun ? `run_sess_current_${uid()}` : null;
+
+    const lastHeartbeatAt = bp.status === SessionStatus.Active
+      ? minutesAfter(new Date(), -randInt(0, 5), 0)
+      : bp.status === SessionStatus.Paused
+        ? minutesAfter(createdAt, 60, 180)
+        : minutesAfter(createdAt, 30, 120);
+
+    const terminatedAt = bp.status === SessionStatus.Terminated
+      ? minutesAfter(createdAt, 30, 240)
+      : null;
+
+    const updatedAt = terminatedAt
+      ? terminatedAt
+      : bp.status === SessionStatus.Active
+        ? lastHeartbeatAt
+        : minutesAfter(createdAt, 20, 60);
+
+    insertSession(db, {
+      id: createSessionId(`session_${uid()}`),
+      status: bp.status,
+      agentId: createAgentId(agentName),
+      currentRunId: currentRunId ? createRunId(currentRunId) : null,
+      completedRunIds: completedRunIds.map(createRunId),
+      resourceUsage: {
+        memoryMb: randInt(128, 1024),
+        cpuPercent: randFloat(5, 85),
+        tokensBudgetRemaining: randInt(10000, 400000),
+        costBudgetRemaining: randFloat(1, 25),
+      },
+      metadata: {
+        environment: pick(["development", "staging", "production"]),
+        model: pick(MODELS),
+      },
+      startedAt: startedAt.toISOString(),
+      lastHeartbeatAt: lastHeartbeatAt.toISOString(),
+      terminatedAt: terminatedAt ? terminatedAt.toISOString() : null,
+      createdAt: createdAt.toISOString(),
+      updatedAt: updatedAt.toISOString(),
+    });
+  }
+
+  return blueprints.length;
+}
+
+function seedEvents(db: AgentOpsDb): number {
+  const EVENT_DEFS: Array<{ category: string; type: string; sourcePrefix: string; payloadFn: () => Record<string, unknown> }> = [
+    { category: EventCategory.Job, type: "job.queued", sourcePrefix: "job_", payloadFn: () => ({ priority: pick(["critical", "high", "normal", "low"]), repo: pick(REPOS) }) },
+    { category: EventCategory.Job, type: "job.dispatched", sourcePrefix: "job_", payloadFn: () => ({ sessionId: `session_${uid()}`, dispatchedAt: new Date().toISOString() }) },
+    { category: EventCategory.Job, type: "job.completed", sourcePrefix: "job_", payloadFn: () => ({ durationMs: randInt(30000, 600000), runCount: randInt(1, 5) }) },
+    { category: EventCategory.Job, type: "job.failed", sourcePrefix: "job_", payloadFn: () => ({ reason: pick(["timeout", "crash", "policy violation", "resource exhaustion"]), attempt: randInt(1, 3) }) },
+    { category: EventCategory.Run, type: "run.started", sourcePrefix: "run_", payloadFn: () => ({ repo: pick(REPOS), branch: pick(BRANCHES) }) },
+    { category: EventCategory.Run, type: "run.completed", sourcePrefix: "run_", payloadFn: () => ({ durationMs: randInt(30000, 900000), costUsd: randFloat(0.10, 4.50) }) },
+    { category: EventCategory.Run, type: "run.failed", sourcePrefix: "run_", payloadFn: () => ({ error: pick(["test failure", "build error", "lint violation", "timeout"]), testsRun: randInt(5, 50) }) },
+    { category: EventCategory.Session, type: "session.started", sourcePrefix: "session_", payloadFn: () => ({ agentId: `agent_${uid()}`, model: pick(MODELS) }) },
+    { category: EventCategory.Session, type: "session.paused", sourcePrefix: "session_", payloadFn: () => ({ reason: pick(["cost limit", "manual pause", "awaiting approval"]) }) },
+    { category: EventCategory.Session, type: "session.terminated", sourcePrefix: "session_", payloadFn: () => ({ reason: pick(["completed", "idle timeout", "manual termination", "error"]) }) },
+    { category: EventCategory.Policy, type: "policy.violated", sourcePrefix: "run_", payloadFn: () => ({ policyName: pick(["cost ceiling", "path restriction", "file limit", "test enforcement"]), severity: pick(["error", "warning"]) }) },
+    { category: EventCategory.Cost, type: "cost.threshold", sourcePrefix: "run_", payloadFn: () => ({ currentCost: randFloat(3.00, 8.00), threshold: 5.00, currency: "USD" }) },
+    { category: EventCategory.Action, type: "action.taken", sourcePrefix: "run_", payloadFn: () => ({ actionType: pick(["file_edit", "command", "tool_call"]), fileCount: randInt(1, 10) }) },
+  ];
+
+  const TARGET_COUNT = 130;
+  let count = 0;
+
+  for (let i = 0; i < TARGET_COUNT; i++) {
+    const def = pick(EVENT_DEFS);
+    const daysBack = randInt(0, 28);
+    const ts = daysAgo(daysBack, randInt(0, 23));
+
+    insertEvent(db, {
+      id: createEventId(`evt_${uid()}`),
+      category: def.category as EventCategory,
+      type: def.type,
+      sourceId: `${def.sourcePrefix}${uid()}`,
+      payload: def.payloadFn(),
+      timestamp: ts.toISOString(),
+    });
+    count++;
+  }
+
+  return count;
+}
+
+function seedLocks(db: AgentOpsDb): number {
+  const LOCK_TYPES = ["repo", "path", "branch"] as const;
+  const LOCK_RESOURCES = [
+    "acme/backend",
+    "acme/frontend",
+    "acme/infra",
+    "acme/backend/src/routes/",
+    "acme/backend/src/services/",
+    "acme/frontend/src/components/",
+    "main",
+    "develop",
+    "feat/add-pagination",
+    "fix/n-plus-one-query",
+    "refactor/auth-to-jwt",
+  ] as const;
+  const LOCK_HOLDERS = [
+    "agent_lead_01",
+    "agent_impl_02",
+    "agent_impl_03",
+    "agent_review_04",
+    "agent_ci_05",
+  ] as const;
+
+  interface LockBlueprint {
+    state: "active" | "expired" | "released";
+  }
+
+  const blueprints: LockBlueprint[] = [
+    { state: "active" },
+    { state: "active" },
+    { state: "active" },
+    { state: "active" },
+    { state: "active" },
+    { state: "expired" },
+    { state: "expired" },
+    { state: "expired" },
+    { state: "released" },
+    { state: "released" },
+    { state: "released" },
+    { state: "released" },
+  ];
+
+  let count = 0;
+  for (const bp of blueprints) {
+    const lockType = pick(LOCK_TYPES);
+    let resource: string;
+    if (lockType === "repo") {
+      resource = pick(LOCK_RESOURCES.slice(0, 3));
+    } else if (lockType === "path") {
+      resource = pick(LOCK_RESOURCES.slice(3, 6));
+    } else {
+      resource = pick(LOCK_RESOURCES.slice(6));
+    }
+
+    const acquiredAt = daysAgo(randInt(0, 7));
+    let expiresAt: Date;
+    let released: boolean;
+
+    if (bp.state === "active") {
+      expiresAt = minutesAfter(new Date(), randInt(30, 480), randInt(481, 1440));
+      released = false;
+    } else if (bp.state === "expired") {
+      expiresAt = minutesAfter(acquiredAt, 5, 60);
+      released = false;
+    } else {
+      expiresAt = minutesAfter(acquiredAt, 60, 480);
+      released = true;
+    }
+
+    db.insert(locks)
+      .values({
+        id: `lock_${uid()}`,
+        lockType,
+        resource,
+        holderId: pick(LOCK_HOLDERS),
+        acquiredAt: acquiredAt.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        released,
+      })
+      .run();
+    count++;
+  }
+
+  return count;
+}
+
 // ─── Seed function ──────────────────────────────────────────────────────────
 
-export async function seed(db: AgentOpsDb): Promise<{ runs: number; policies: number; policyResults: number }> {
+export async function seed(db: AgentOpsDb): Promise<{ runs: number; policies: number; policyResults: number; jobs: number; sessions: number; events: number; locks: number }> {
   const allPolicies = buildPolicies();
 
   // Insert policies
@@ -1366,10 +1702,20 @@ export async function seed(db: AgentOpsDb): Promise<{ runs: number; policies: nu
     }
   }
 
+  // Seed orchestration tables
+  const jobCount = seedJobs(db);
+  const sessionCount = seedSessions(db);
+  const eventCount = seedEvents(db);
+  const lockCount = seedLocks(db);
+
   return {
     runs: blueprints.length,
     policies: allPolicies.length,
     policyResults: policyResultCount,
+    jobs: jobCount,
+    sessions: sessionCount,
+    events: eventCount,
+    locks: lockCount,
   };
 }
 
@@ -1381,6 +1727,10 @@ async function main() {
 
   // Clear existing seed data
   const { sql } = await import("drizzle-orm");
+  db.run(sql`DELETE FROM locks`);
+  db.run(sql`DELETE FROM events`);
+  db.run(sql`DELETE FROM sessions`);
+  db.run(sql`DELETE FROM jobs`);
   db.run(sql`DELETE FROM policy_results`);
   db.run(sql`DELETE FROM run_metrics`);
   db.run(sql`DELETE FROM runs`);
@@ -1391,6 +1741,10 @@ async function main() {
   console.log(`  Policies:       ${counts.policies}`);
   console.log(`  Runs:           ${counts.runs}`);
   console.log(`  Policy results: ${counts.policyResults}`);
+  console.log(`  Jobs:           ${counts.jobs}`);
+  console.log(`  Sessions:       ${counts.sessions}`);
+  console.log(`  Events:         ${counts.events}`);
+  console.log(`  Locks:          ${counts.locks}`);
   console.log("\nDone.");
 }
 

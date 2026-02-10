@@ -39,7 +39,9 @@ export function useRunDetail(
   }, [runId]);
 
   const onEvent = useCallback((event: SSEEvent) => {
-    setRun(event.data);
+    if ("status" in event.data && "goal" in event.data) {
+      setRun(event.data as Run);
+    }
   }, []);
 
   const { connected } = useEventSource({ runId, onEvent });

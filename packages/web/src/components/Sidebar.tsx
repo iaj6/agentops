@@ -5,6 +5,10 @@ import { usePathname } from "next/navigation";
 
 const navItems = [
   { href: "/", label: "Runs", icon: RunsIcon },
+  { href: "/jobs", label: "Jobs", icon: JobsIcon },
+  { href: "/sessions", label: "Sessions", icon: SessionsIcon },
+  { href: "/events", label: "Events", icon: EventsIcon },
+  { href: "/coordination", label: "Coordination", icon: CoordinationIcon },
   { href: "/analytics", label: "Analytics", icon: AnalyticsIcon },
   { href: "/policies", label: "Policies", icon: PoliciesIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
@@ -69,6 +73,78 @@ function RunsIcon({ active }: { active: boolean }) {
       <rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" />
       <rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" />
       <rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function JobsIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      className={active ? "text-accent" : "text-muted"}
+    >
+      <rect x="2" y="2" width="12" height="3" rx="1" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="2" y="6.5" width="12" height="3" rx="1" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="2" y="11" width="12" height="3" rx="1" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function SessionsIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      className={active ? "text-accent" : "text-muted"}
+    >
+      <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M3 14c0-2.76 2.24-5 5-5s5 2.24 5 5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function EventsIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      className={active ? "text-accent" : "text-muted"}
+    >
+      <path
+        d="M9 1.5L4 9h4l-1 5.5L12 7H8l1-5.5z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CoordinationIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      className={active ? "text-accent" : "text-muted"}
+    >
+      <circle cx="4" cy="4" r="2" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="12" cy="4" r="2" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="8" cy="12" r="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M5.5 5.5L7 10.5M10.5 5.5L9 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }

@@ -8,6 +8,11 @@ import { registerWrapCommand } from "./commands/wrap.js";
 import { registerWatchCommand } from "./commands/watch.js";
 import { registerLinkCommands } from "./commands/link.js";
 import { registerPRCommand } from "./commands/pr.js";
+// Orchestration commands — uncomment as workstreams land
+import { registerJobCommands } from "./commands/job.js";
+import { registerSessionCommands } from "./commands/session.js";
+import { registerEventsCommands } from "./commands/events.js";
+import { registerLockCommands } from "./commands/lock.js";
 
 const program = new Command();
 
@@ -25,5 +30,9 @@ registerWrapCommand(program);
 registerWatchCommand(program);
 registerLinkCommands(program);
 registerPRCommand(program);
+registerJobCommands(program);
+registerSessionCommands(program);
+registerEventsCommands(program);
+registerLockCommands(program);
 
 program.parse();

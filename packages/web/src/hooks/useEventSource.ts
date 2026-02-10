@@ -1,24 +1,41 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
-import type { Run } from "@agentops/core";
+import type { Run, AgentEvent } from "@agentops/core";
 
 export type SSEEventType =
   | "connected"
   | "run_created"
   | "run_updated"
   | "run_completed"
-  | "run_failed";
+  | "run_failed"
+  | "job.queued"
+  | "job.dispatched"
+  | "job.completed"
+  | "job.failed"
+  | "run.started"
+  | "run.completed"
+  | "run.failed"
+  | "action.taken"
+  | "policy.violated"
+  | "cost.threshold"
+  | "session.started"
+  | "session.paused"
+  | "session.terminated";
 
 export interface SSEEvent {
   type: SSEEventType;
-  data: Run;
+  data: Run | AgentEvent;
   timestamp: number;
 }
 
 interface UseEventSourceOptions {
   /** Optional runId to filter events to a single run */
   runId?: string;
+  /** Optional category filter for persisted events */
+  category?: string;
+  /** Optional type filter for persisted events */
+  eventType?: string;
   /** Callback for each event received */
   onEvent?: (event: SSEEvent) => void;
 }
@@ -32,10 +49,30 @@ const MAX_RETRIES = 10;
 const BASE_DELAY_MS = 1000;
 const MAX_DELAY_MS = 30000;
 
+const ALL_EVENT_TYPES: SSEEventType[] = [
+  "run_created",
+  "run_updated",
+  "run_completed",
+  "run_failed",
+  "job.queued",
+  "job.dispatched",
+  "job.completed",
+  "job.failed",
+  "run.started",
+  "run.completed",
+  "run.failed",
+  "action.taken",
+  "policy.violated",
+  "cost.threshold",
+  "session.started",
+  "session.paused",
+  "session.terminated",
+];
+
 export function useEventSource(
   options: UseEventSourceOptions = {},
 ): UseEventSourceReturn {
-  const { runId, onEvent } = options;
+  const { runId, category, eventType, onEvent } = options;
   const [connected, setConnected] = useState(false);
   const [lastEvent, setLastEvent] = useState<SSEEvent | null>(null);
   const retriesRef = useRef(0);
@@ -50,14 +87,20 @@ export function useEventSource(
       eventSourceRef.current = null;
     }
 
-    const url = runId ? `/api/events?runId=${runId}` : "/api/events";
+    const params = new URLSearchParams();
+    if (runId) params.set("runId", runId);
+    if (category) params.set("category", category);
+    if (eventType) params.set("type", eventType);
+
+    const qs = params.toString();
+    const url = qs ? `/api/events?${qs}` : "/api/events";
     const es = new EventSource(url);
     eventSourceRef.current = es;
 
     function handleEvent(type: SSEEventType) {
       return (e: MessageEvent) => {
         try {
-          const data = JSON.parse(e.data) as Run;
+          const data = JSON.parse(e.data);
           const event: SSEEvent = { type, data, timestamp: Date.now() };
           setLastEvent(event);
           onEventRef.current?.(event);
@@ -72,10 +115,9 @@ export function useEventSource(
       retriesRef.current = 0;
     });
 
-    es.addEventListener("run_created", handleEvent("run_created"));
-    es.addEventListener("run_updated", handleEvent("run_updated"));
-    es.addEventListener("run_completed", handleEvent("run_completed"));
-    es.addEventListener("run_failed", handleEvent("run_failed"));
+    for (const type of ALL_EVENT_TYPES) {
+      es.addEventListener(type, handleEvent(type));
+    }
 
     es.onerror = () => {
       setConnected(false);
@@ -92,7 +134,7 @@ export function useEventSource(
         setTimeout(connect, delay);
       }
     };
-  }, [runId]);
+  }, [runId, category, eventType]);
 
   useEffect(() => {
     connect();

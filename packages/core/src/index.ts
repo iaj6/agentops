@@ -6,6 +6,10 @@ export type {
   ActionId,
   ArtifactId,
   DecisionId,
+  JobId,
+  SessionId,
+  EventId,
+  LockId,
   Goal,
   StructuredTask,
   Agent,
@@ -23,18 +27,34 @@ export type {
   Evaluation,
   Decision,
   Run,
+  ConcurrencyLimits,
+  RetryPolicy,
+  Job,
+  ResourceUsage,
+  Session,
+  AgentEvent,
+  ResourceLock,
 } from "./types.js";
 
 export {
   RunStatus,
   AgentRole,
   DecisionType,
+  JobStatus,
+  JobPriority,
+  SessionStatus,
+  EventCategory,
+  LockType,
   createRunId,
   createPolicyId,
   createAgentId,
   createActionId,
   createArtifactId,
   createDecisionId,
+  createJobId,
+  createSessionId,
+  createEventId,
+  createLockId,
 } from "./types.js";
 
 // Policy
@@ -76,3 +96,58 @@ export {
   blockRun,
   cancelRun,
 } from "./run.js";
+
+// Job builder (WS1)
+export {
+  createJob,
+  dispatchJob,
+  startJobRun,
+  completeJob,
+  failJob,
+  cancelJob,
+  retryJob,
+} from "./job.js";
+export type { CreateJobOptions } from "./job.js";
+
+// Dispatcher (WS1)
+export {
+  evaluateDispatch,
+  selectNextJob,
+  matchSession,
+} from "./dispatcher.js";
+export type { DispatchConfig, DispatchDecision } from "./dispatcher.js";
+
+// Session builder (WS2)
+export {
+  createSession,
+  activateSession,
+  assignRun,
+  completeSessionRun,
+  updateHeartbeat,
+  updateResourceUsage,
+  pauseSession,
+  resumeSession,
+  terminateSession,
+} from "./session.js";
+
+// Event system (WS3)
+export { EVENT_TYPES, createEvent, EventBus } from "./events.js";
+export type { EventType } from "./events.js";
+
+// Coordination (WS4)
+export type {
+  ConflictCheckResult,
+  BranchStrategy,
+  PathPartition,
+  PartitionStrategy,
+} from "./coordination.js";
+
+export {
+  createLock,
+  releaseLock,
+  isLockExpired,
+  isLockHeld,
+  checkConflicts,
+  generateWorkBranch,
+  partitionByPath,
+} from "./coordination.js";

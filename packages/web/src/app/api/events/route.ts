@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { listRuns, getRun } from "@agentops/db";
+import { listRuns, getRun, listEvents } from "@agentops/db";
 import { createRunId } from "@agentops/core";
-import type { Run } from "@agentops/core";
+import type { Run, AgentEvent } from "@agentops/core";
 import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +29,8 @@ function detectEventType(
 
 export async function GET(request: NextRequest) {
   const runIdParam = request.nextUrl.searchParams.get("runId");
+  const categoryParam = request.nextUrl.searchParams.get("category");
+  const typeParam = request.nextUrl.searchParams.get("type");
 
   const encoder = new TextEncoder();
   let closed = false;
@@ -37,6 +39,7 @@ export async function GET(request: NextRequest) {
     async start(controller) {
       // Snapshot: track known state
       const knownRuns = new Map<string, Run>();
+      let lastEventTimestamp = new Date().toISOString();
 
       function loadSnapshot() {
         if (runIdParam) {
@@ -73,6 +76,23 @@ export async function GET(request: NextRequest) {
         }
 
         try {
+          // Poll persisted events from events table
+          const eventFilters: { since?: string; category?: string; type?: string; limit?: number } = {
+            since: lastEventTimestamp,
+            limit: 100,
+          };
+          if (categoryParam) eventFilters.category = categoryParam;
+          if (typeParam) eventFilters.type = typeParam;
+
+          const newEvents = listEvents(db(), eventFilters);
+          for (const evt of newEvents.reverse()) {
+            controller.enqueue(
+              encoder.encode(sseMessage(evt.type, evt)),
+            );
+            lastEventTimestamp = evt.timestamp;
+          }
+
+          // Backward compat: still detect run changes via diffing
           if (runIdParam) {
             const current = getRun(db(), createRunId(runIdParam));
             if (!current) return;

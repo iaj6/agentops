@@ -64,7 +64,9 @@ export function useRuns(initialRuns: Run[]): UseRunsReturn {
 
   const onEvent = useCallback(
     (event: SSEEvent) => {
-      const run = event.data;
+      // Only handle run events (not AgentEvents from the event bus)
+      if (!("status" in event.data && "goal" in event.data)) return;
+      const run = event.data as Run;
       const runId = run.id as string;
 
       setRuns((prev) => {
