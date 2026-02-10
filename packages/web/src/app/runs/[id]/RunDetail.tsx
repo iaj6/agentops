@@ -5,6 +5,8 @@ import type { Run } from "@agentops/core";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MetricCard } from "@/components/MetricCard";
 import { ScoreBar } from "@/components/ScoreBar";
+import { DiffViewer } from "@/components/DiffViewer";
+import { ActionTimeline } from "@/components/ActionTimeline";
 import Link from "next/link";
 
 type Tab = "overview" | "actions" | "artifacts" | "metrics" | "policy" | "decision";
@@ -204,24 +206,33 @@ function OverviewTab({ run }: { run: Run }) {
           <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
             Score Card
           </h3>
-          <div className="space-y-3">
+          <div className="space-y-4">
             {run.evaluations.map((evaluation, i) => (
               <div key={i}>
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="text-foreground">
-                    Confidence: {(evaluation.confidenceScore * 100).toFixed(0)}%
-                  </span>
-                </div>
-                <div className="mt-2 space-y-1">
+                <ScoreBar
+                  label="Confidence"
+                  score={evaluation.confidenceScore}
+                  rationale={`${(evaluation.confidenceScore * 100).toFixed(0)}% confidence based on ${evaluation.testResults.length} tests`}
+                />
+                <div className="mt-3 space-y-1.5">
                   {evaluation.testResults.map((test, j) => (
                     <div
                       key={j}
                       className="flex items-center gap-2 text-xs"
                     >
                       <span
-                        className={`inline-block h-1.5 w-1.5 rounded-full ${test.passed ? "bg-green" : "bg-red"}`}
-                      />
+                        className={`inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium border ${
+                          test.passed
+                            ? "bg-green/15 text-green border-green/30"
+                            : "bg-red/15 text-red border-red/30"
+                        }`}
+                      >
+                        {test.passed ? "PASS" : "FAIL"}
+                      </span>
                       <span className="text-foreground">{test.name}</span>
+                      {test.message && (
+                        <span className="text-muted truncate max-w-[300px]">{test.message}</span>
+                      )}
                       <span className="ml-auto font-mono text-muted">
                         {test.duration}ms
                       </span>
@@ -242,109 +253,7 @@ function ActionsTab({ run }: { run: Run }) {
     return <EmptyState message="No actions recorded for this run." />;
   }
 
-  return (
-    <div className="space-y-4">
-      {run.actions.map((action, i) => (
-        <div key={action.id as string} className="rounded-lg border border-border bg-surface">
-          <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-            <span className="rounded bg-accent/15 px-1.5 py-0.5 text-xs font-medium text-accent">
-              Action {i + 1}
-            </span>
-            <span className="text-xs text-muted">
-              {new Date(action.timestamp).toLocaleTimeString()}
-            </span>
-          </div>
-
-          {/* Tool calls */}
-          {action.toolCalls.length > 0 && (
-            <div className="border-b border-border p-4">
-              <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted">
-                Tool Calls ({action.toolCalls.length})
-              </h4>
-              <div className="space-y-2">
-                {action.toolCalls.map((tc, j) => (
-                  <div key={j} className="rounded bg-surface-2 p-3">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="font-mono text-cyan">{tc.name}</span>
-                      <span className="text-xs text-muted">
-                        {new Date(tc.timestamp).toLocaleTimeString()}
-                      </span>
-                    </div>
-                    <pre className="mt-1 overflow-x-auto text-xs text-muted">
-                      {JSON.stringify(tc.input, null, 2)}
-                    </pre>
-                    {tc.output && (
-                      <pre className="mt-1 max-h-40 overflow-auto rounded bg-background p-2 text-xs text-foreground">
-                        {tc.output}
-                      </pre>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* File edits */}
-          {action.fileEdits.length > 0 && (
-            <div className="border-b border-border p-4">
-              <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted">
-                File Edits ({action.fileEdits.length})
-              </h4>
-              <div className="space-y-2">
-                {action.fileEdits.map((edit, j) => (
-                  <div key={j} className="rounded bg-surface-2 p-3">
-                    <div className="font-mono text-sm text-orange">{edit.path}</div>
-                    <pre className="mt-1 max-h-60 overflow-auto rounded bg-background p-2 text-xs text-foreground">
-                      {edit.diff}
-                    </pre>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Commands */}
-          {action.commands.length > 0 && (
-            <div className="p-4">
-              <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted">
-                Commands ({action.commands.length})
-              </h4>
-              <div className="space-y-2">
-                {action.commands.map((cmd, j) => (
-                  <div key={j} className="rounded bg-surface-2 p-3">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="font-mono text-foreground">
-                        $ {cmd.command}
-                      </span>
-                      <span
-                        className={`ml-auto rounded px-1.5 py-0.5 text-xs font-mono ${
-                          cmd.exitCode === 0
-                            ? "bg-green/15 text-green"
-                            : "bg-red/15 text-red"
-                        }`}
-                      >
-                        exit {cmd.exitCode}
-                      </span>
-                    </div>
-                    {cmd.stdout && (
-                      <pre className="mt-1 max-h-40 overflow-auto rounded bg-background p-2 text-xs text-green/80">
-                        {cmd.stdout}
-                      </pre>
-                    )}
-                    {cmd.stderr && (
-                      <pre className="mt-1 max-h-40 overflow-auto rounded bg-background p-2 text-xs text-red/80">
-                        {cmd.stderr}
-                      </pre>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
+  return <ActionTimeline actions={run.actions} />;
 }
 
 function ArtifactsTab({ run }: { run: Run }) {
@@ -371,12 +280,9 @@ function ArtifactsTab({ run }: { run: Run }) {
                   Diffs ({artifact.diffs.length})
                 </h4>
                 {artifact.diffs.map((diff, i) => (
-                  <pre
-                    key={i}
-                    className="mb-2 max-h-60 overflow-auto rounded bg-surface-2 p-3 text-xs text-foreground font-mono"
-                  >
-                    {diff}
-                  </pre>
+                  <div key={i} className="mb-3">
+                    <DiffViewer diff={diff} />
+                  </div>
                 ))}
               </div>
             )}
@@ -524,39 +430,104 @@ function PolicyTab({ run }: { run: Run }) {
     return <EmptyState message="No policy results for this run." />;
   }
 
+  const passCount = policyChecks.filter((c) => c.passed).length;
+  const failCount = policyChecks.length - passCount;
+
+  // Infer severity from policy naming convention
+  function inferSeverity(policyId: string): string {
+    if (policyId.includes("risky") || policyId.includes("flag") || policyId.includes("deploy")) return "warning";
+    if (policyId.includes("info")) return "info";
+    return "error";
+  }
+
+  const severityStyles: Record<string, { border: string; bg: string; icon: string; badge: string }> = {
+    error: {
+      border: "border-l-red",
+      bg: "bg-red/5",
+      icon: "bg-red/15 text-red",
+      badge: "border-red/30 bg-red/15 text-red",
+    },
+    warning: {
+      border: "border-l-yellow",
+      bg: "bg-yellow/5",
+      icon: "bg-yellow/15 text-yellow",
+      badge: "border-yellow/30 bg-yellow/15 text-yellow",
+    },
+    info: {
+      border: "border-l-blue",
+      bg: "bg-blue/5",
+      icon: "bg-blue/15 text-blue",
+      badge: "border-blue/30 bg-blue/15 text-blue",
+    },
+  };
+
   return (
-    <div className="space-y-3">
-      {policyChecks.map((check, i) => (
-        <div
-          key={i}
-          className="flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3"
-        >
-          <span
-            className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
-              check.passed
-                ? "bg-green/15 text-green"
-                : "bg-red/15 text-red"
-            }`}
-          >
-            {check.passed ? "\u2713" : "\u2717"}
+    <div className="space-y-4">
+      {/* Summary */}
+      <div className="flex items-center gap-4 rounded-lg border border-border bg-surface px-4 py-3">
+        <span className="text-xs font-medium uppercase tracking-wider text-muted">
+          Policy Results
+        </span>
+        <div className="flex items-center gap-3 ml-auto">
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green">
+            <span className="h-2 w-2 rounded-full bg-green" />
+            {passCount} passed
           </span>
-          <div className="flex-1">
-            <span className="text-sm font-mono text-foreground">
-              {check.policyId as string}
-            </span>
-            <p className="text-xs text-muted">{check.message}</p>
-          </div>
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-              check.passed
-                ? "bg-green/15 text-green border border-green/30"
-                : "bg-red/15 text-red border border-red/30"
-            }`}
-          >
-            {check.passed ? "PASS" : "FAIL"}
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red">
+            <span className="h-2 w-2 rounded-full bg-red" />
+            {failCount} failed
           </span>
         </div>
-      ))}
+      </div>
+
+      {/* Individual checks */}
+      {policyChecks.map((check, i) => {
+        const severity = inferSeverity(check.policyId as string);
+        const styles = severityStyles[severity] ?? severityStyles["error"]!;
+        const isFail = !check.passed;
+
+        return (
+          <div
+            key={i}
+            className={`rounded-lg border border-border border-l-4 ${isFail ? `${styles.bg} ${styles.border}` : "bg-surface border-l-green"}`}
+          >
+            <div className="flex items-center gap-3 px-4 py-3">
+              <span
+                className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+                  check.passed ? "bg-green/15 text-green" : styles.icon
+                }`}
+              >
+                {check.passed ? "\u2713" : "\u2717"}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/policies/${check.policyId as string}`}
+                    className="text-sm font-mono text-accent hover:underline"
+                  >
+                    {check.policyId as string}
+                  </Link>
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-xs font-medium ${styles.badge}`}
+                  >
+                    {severity}
+                  </span>
+                </div>
+                <p className="text-xs text-muted mt-0.5">{check.message}</p>
+              </div>
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                  check.passed
+                    ? "bg-green/15 text-green border border-green/30"
+                    : "bg-red/15 text-red border border-red/30"
+                }`}
+              >
+                {check.passed ? "PASS" : "FAIL"}
+              </span>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

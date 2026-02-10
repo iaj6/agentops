@@ -4,6 +4,8 @@ import { Command } from "commander";
 import { registerRunCommands } from "./commands/run.js";
 import { registerPolicyCommands } from "./commands/policy.js";
 import { registerReportCommand } from "./commands/report.js";
+import { registerWrapCommand } from "./commands/wrap.js";
+import { registerWatchCommand } from "./commands/watch.js";
 
 const program = new Command();
 
@@ -17,5 +19,7 @@ program
 registerRunCommands(program);
 registerPolicyCommands(program);
 registerReportCommand(program);
+registerWrapCommand(program);
+registerWatchCommand(program);
 
 program.parse();

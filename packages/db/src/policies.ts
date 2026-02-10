@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { PolicyId, RunId } from "@agentops/core";
 import { createPolicyId } from "@agentops/core";
 import type { Policy, PolicySeverity } from "@agentops/core";
@@ -98,6 +98,106 @@ export function getPolicyResults(
     .select()
     .from(policyResults)
     .where(eq(policyResults.runId, runId as string))
+    .all() as DbPolicyResult[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    runId: row.runId,
+    policyId: row.policyId,
+    passed: row.passed,
+    message: row.message,
+    details: row.details as Record<string, unknown>,
+    evaluatedAt: row.evaluatedAt,
+  }));
+}
+
+export function getPolicy(
+  db: AgentOpsDb,
+  id: PolicyId,
+): (Policy & { enabled: boolean; createdAt: string }) | null {
+  const row = db
+    .select()
+    .from(policies)
+    .where(eq(policies.id, id as string))
+    .get() as DbPolicy | undefined;
+
+  if (!row) return null;
+
+  return {
+    id: createPolicyId(row.id),
+    name: row.name,
+    type: row.type as Policy["type"],
+    config: row.config as Policy["config"],
+    severity: row.severity as PolicySeverity,
+    enabled: row.enabled,
+    createdAt: row.createdAt,
+  };
+}
+
+export function updatePolicy(
+  db: AgentOpsDb,
+  id: PolicyId,
+  updates: {
+    name?: string;
+    config?: unknown;
+    severity?: string;
+    enabled?: boolean;
+  },
+): void {
+  const values: Record<string, unknown> = {};
+  if (updates.name !== undefined) values["name"] = updates.name;
+  if (updates.config !== undefined) values["config"] = updates.config;
+  if (updates.severity !== undefined) values["severity"] = updates.severity;
+  if (updates.enabled !== undefined) values["enabled"] = updates.enabled;
+
+  if (Object.keys(values).length > 0) {
+    db.update(policies).set(values).where(eq(policies.id, id as string)).run();
+  }
+}
+
+export function getPolicyStats(
+  db: AgentOpsDb,
+  policyId: PolicyId,
+): { total: number; passed: number; failed: number } {
+  const rows = db
+    .select({
+      passed: policyResults.passed,
+      count: sql<number>`count(*)`,
+    })
+    .from(policyResults)
+    .where(eq(policyResults.policyId, policyId as string))
+    .groupBy(policyResults.passed)
+    .all();
+
+  let passed = 0;
+  let failed = 0;
+  for (const row of rows) {
+    if (row.passed) {
+      passed = Number(row.count);
+    } else {
+      failed = Number(row.count);
+    }
+  }
+
+  return { total: passed + failed, passed, failed };
+}
+
+export function getPolicyResultsForPolicy(
+  db: AgentOpsDb,
+  policyId: PolicyId,
+): Array<{
+  id: string;
+  runId: string;
+  policyId: string;
+  passed: boolean;
+  message: string;
+  details: Record<string, unknown>;
+  evaluatedAt: string;
+}> {
+  const rows = db
+    .select()
+    .from(policyResults)
+    .where(eq(policyResults.policyId, policyId as string))
     .all() as DbPolicyResult[];
 
   return rows.map((row) => ({

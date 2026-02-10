@@ -7,9 +7,11 @@ import {
   completeRun,
   failRun,
   PolicyEngine,
+  MergeRecommendation,
+  computeScore,
 } from "@agentops/core";
 import type { Run } from "@agentops/core";
-import { getDb, insertRun, getRun, listRuns, updateRun } from "@agentops/db";
+import { getDb, insertRun, getRun, listRuns, updateRun, listPolicies } from "@agentops/db";
 import { table, colorStatus, colorBool } from "../format.js";
 
 export function registerRunCommands(program: Command): void {
@@ -75,28 +77,117 @@ export function registerRunCommands(program: Command): void {
       console.log(`Branch:  ${r.environment.branch}`);
       console.log(`Created: ${r.createdAt}`);
       console.log(`Updated: ${r.updatedAt}`);
+
+      // Agent info
+      if (r.agents.length > 0) {
+        console.log();
+        console.log(`Agents:`);
+        for (const agent of r.agents) {
+          console.log(`  ${agent.role}: ${agent.model} (${agent.id})`);
+        }
+      }
+
+      // Actions breakdown
+      const totalToolCalls = r.actions.reduce(
+        (sum, a) => sum + a.toolCalls.length,
+        0,
+      );
+      const totalFileEdits = r.actions.reduce(
+        (sum, a) => sum + a.fileEdits.length,
+        0,
+      );
+      const totalCommands = r.actions.reduce(
+        (sum, a) => sum + a.commands.length,
+        0,
+      );
+      console.log();
+      console.log(`Actions: ${r.actions.length}`);
+      console.log(`  Tool calls:  ${totalToolCalls}`);
+      console.log(`  File edits:  ${totalFileEdits}`);
+      console.log(`  Commands:    ${totalCommands}`);
+
+      // Recent actions (last 5)
+      if (r.actions.length > 0) {
+        console.log();
+        console.log(`Recent actions:`);
+        const recent = r.actions.slice(-5);
+        for (const action of recent) {
+          const parts: string[] = [];
+          if (action.commands.length > 0) {
+            for (const cmd of action.commands) {
+              parts.push(cmd.command);
+            }
+          }
+          if (action.fileEdits.length > 0) {
+            parts.push(`${action.fileEdits.length} file edits`);
+          }
+          if (action.toolCalls.length > 0) {
+            for (const tc of action.toolCalls) {
+              parts.push(`${tc.name}()`);
+            }
+          }
+          console.log(`  ${action.id} [${action.timestamp}] ${parts.join(", ")}`);
+        }
+      }
+
       console.log();
       console.log(`Metrics:`);
       console.log(`  Tokens: ${r.metrics.tokenUsage.total}`);
       console.log(`  Cost:   $${r.metrics.costUsd.toFixed(2)}`);
       console.log(`  Time:   ${r.metrics.wallTimeMs}ms`);
 
-      if (r.evaluations.length > 0) {
+      // Test results summary
+      const allTests = r.evaluations.flatMap((e) => e.testResults);
+      if (allTests.length > 0) {
+        const passed = allTests.filter((t) => t.passed).length;
+        const failed = allTests.length - passed;
         console.log();
-        console.log(`Evaluations:`);
-        for (const ev of r.evaluations) {
-          for (const t of ev.testResults) {
-            console.log(`  ${colorBool(t.passed)} ${t.name} (${t.duration}ms)`);
-          }
-          for (const p of ev.policyChecks) {
-            console.log(`  ${colorBool(p.passed)} Policy ${p.policyId}: ${p.message}`);
-          }
+        console.log(`Tests: ${passed} passed, ${failed} failed`);
+        for (const t of allTests) {
+          console.log(`  ${colorBool(t.passed)} ${t.name} (${t.duration}ms)`);
         }
+      }
+
+      // Policy results summary
+      const allPolicyChecks = r.evaluations.flatMap((e) => e.policyChecks);
+      if (allPolicyChecks.length > 0) {
+        const passed = allPolicyChecks.filter((p) => p.passed).length;
+        const failed = allPolicyChecks.length - passed;
+        console.log();
+        console.log(`Policies: ${passed} passed, ${failed} failed`);
+        for (const p of allPolicyChecks) {
+          console.log(`  ${colorBool(p.passed)} ${p.policyId}: ${p.message}`);
+        }
+      }
+
+      // Score card and merge recommendation
+      try {
+        const activePolicies = listPolicies(db, { enabled: true });
+        const score = computeScore(r, activePolicies);
+        console.log();
+        console.log(`Score Card:`);
+        console.log(`  Correctness:       ${fmtPct(score.correctness.score)}`);
+        console.log(`  Regression Risk:   ${fmtPct(score.regressionRisk.score)}`);
+        console.log(`  Scope Risk:        ${fmtPct(score.scopeRisk.score)}`);
+        console.log(`  Policy Compliance: ${fmtPct(score.policyCompliance.score)}`);
+        console.log(`  Unknowns:          ${fmtPct(score.unknowns.score)}`);
+        console.log();
+        const rec = score.mergeRecommendation;
+        const label =
+          rec === MergeRecommendation.Merge
+            ? "\x1b[32mMERGE - Safe to merge\x1b[0m"
+            : rec === MergeRecommendation.Block
+              ? "\x1b[31mBLOCK - Do not merge\x1b[0m"
+              : "\x1b[33mREVIEW - Manual review required\x1b[0m";
+        console.log(`Merge Recommendation: ${label}`);
+      } catch {
+        // Score computation may fail if no evaluations - that's ok
       }
     });
 
   run
     .command("list")
+
     .description("List recent runs")
     .option("--status <status>", "Filter by status")
     .option("--repo <repo>", "Filter by repo")
@@ -195,4 +286,8 @@ export function registerRunCommands(program: Command): void {
         console.log(`Run ${runId} marked as failed: ${opts.reason}`);
       }
     });
+}
+
+function fmtPct(score: number): string {
+  return `${(score * 100).toFixed(0)}%`;
 }

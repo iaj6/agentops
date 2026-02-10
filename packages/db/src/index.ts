@@ -9,4 +9,7 @@ export { runs, policies, policyResults, runMetrics } from "./schema.js";
 export { insertRun, getRun, listRuns, updateRun, getRunMetrics } from "./runs.js";
 
 // Policy repository
-export { insertPolicy, listPolicies, getPolicyResults } from "./policies.js";
+export { insertPolicy, listPolicies, getPolicyResults, getPolicy, updatePolicy, getPolicyStats, getPolicyResultsForPolicy } from "./policies.js";
+
+// Seed
+export { seed } from "./seed.js";
