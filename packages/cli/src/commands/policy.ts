@@ -5,6 +5,7 @@ import {
   PolicyEngine,
   PolicyType,
   PolicySeverity,
+  getPolicyMode,
 } from "@agentops/core";
 import type { Policy, PolicyConfig } from "@agentops/core";
 import { getDb, getRun, listPolicies, insertPolicy, getPolicyResults } from "@agentops/db";
@@ -33,21 +34,23 @@ export function registerPolicyCommands(program: Command): void {
         return;
       }
 
+      const knownTypes = new Set(Object.values(PolicyType) as string[]);
       const rows = results.map((p) => [
         p.id as string,
         p.name,
         p.type,
+        knownTypes.has(p.type) ? getPolicyMode(p.type as PolicyType) : "deprecated",
         p.severity,
         p.enabled ? "yes" : "no",
       ]);
 
-      console.log(table(["ID", "Name", "Type", "Severity", "Enabled"], rows));
+      console.log(table(["ID", "Name", "Type", "Mode", "Severity", "Enabled"], rows));
     });
 
   policy
     .command("add")
     .description("Add a new policy")
-    .argument("<type>", "Policy type (e.g. pathRestriction, costCeiling)")
+    .argument("<type>", "Policy type (e.g. pathRestriction, riskyOpFlag)")
     .requiredOption("--name <name>", "Policy name")
     .requiredOption("--config <json>", "Policy config as JSON")
     .option("--severity <severity>", "Policy severity", "error")

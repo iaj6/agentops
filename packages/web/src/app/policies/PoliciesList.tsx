@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { PolicyType, PolicyMode, getPolicyMode } from "@agentops/core";
 import type { Policy } from "@agentops/core";
 import { toast } from "@/hooks/useToast";
 import { CreatePolicyForm } from "./CreatePolicyForm";
@@ -191,6 +192,7 @@ export function PoliciesList({ policies }: { policies: PolicyWithMeta[] }) {
             <tr className="border-b border-border bg-surface text-left text-xs font-medium uppercase tracking-wider text-muted">
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Type</th>
+              <th className="px-4 py-3">Mode</th>
               <th className="px-4 py-3">Severity</th>
               <th className="px-4 py-3">Pass / Fail</th>
               <th className="px-4 py-3">Config</th>
@@ -211,6 +213,34 @@ export function PoliciesList({ policies }: { policies: PolicyWithMeta[] }) {
                 </td>
                 <td className="px-4 py-3 font-mono text-xs text-accent">
                   {policy.type}
+                </td>
+                <td className="px-4 py-3">
+                  {(() => {
+                    const knownTypes = new Set(Object.values(PolicyType) as string[]);
+                    if (!knownTypes.has(policy.type)) {
+                      return (
+                        <span
+                          className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium bg-muted/15 text-muted border-muted/30"
+                          title="This policy type is no longer supported"
+                        >
+                          deprecated
+                        </span>
+                      );
+                    }
+                    const mode = getPolicyMode(policy.type as PolicyType);
+                    const isGuard = mode === PolicyMode.Guard;
+                    return (
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
+                          isGuard
+                            ? "bg-green/15 text-green border-green/30"
+                            : "bg-blue/15 text-blue border-blue/30"
+                        }`}
+                      >
+                        {isGuard ? "Guard" : "Check"}
+                      </span>
+                    );
+                  })()}
                 </td>
                 <td className="px-4 py-3">
                   <span

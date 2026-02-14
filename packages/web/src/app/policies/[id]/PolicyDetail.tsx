@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { PolicyType, PolicyMode, getPolicyMode } from "@agentops/core";
 import type { Policy, PolicySeverity } from "@agentops/core";
 import { MetricCard } from "@/components/MetricCard";
 import { toast } from "@/hooks/useToast";
@@ -81,12 +82,6 @@ function EditPolicyForm({
   const [maxFiles, setMaxFiles] = useState(
     policyType === "fileLimitCount" ? (config.maxFiles as number) : 20,
   );
-  const [maxCostUsd, setMaxCostUsd] = useState(
-    policyType === "costCeiling" ? (config.maxCostUsd as number) : 5,
-  );
-  const [approvers, setApprovers] = useState(
-    policyType === "requiredApproval" ? (config.approvers as string[]).join(", ") : "",
-  );
   const [requirePassing, setRequirePassing] = useState(
     policyType === "testEnforcement" ? (config.requirePassing as boolean) : true,
   );
@@ -106,13 +101,6 @@ function EditPolicyForm({
         };
       case "fileLimitCount":
         return { type: "fileLimitCount", maxFiles };
-      case "costCeiling":
-        return { type: "costCeiling", maxCostUsd };
-      case "requiredApproval":
-        return {
-          type: "requiredApproval",
-          approvers: approvers.split(",").map((s) => s.trim()).filter(Boolean),
-        };
       case "testEnforcement":
         return { type: "testEnforcement", requirePassing, minCoverage };
       case "riskyOpFlag":
@@ -266,40 +254,6 @@ function EditPolicyForm({
                   onChange={(e) => setMaxFiles(Number(e.target.value))}
                   min={1}
                   className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-            )}
-
-            {policyType === "costCeiling" && (
-              <div>
-                <label className="block text-xs text-muted mb-1">
-                  Maximum cost (USD)
-                </label>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted">$</span>
-                  <input
-                    type="number"
-                    value={maxCostUsd}
-                    onChange={(e) => setMaxCostUsd(Number(e.target.value))}
-                    min={0.01}
-                    step={0.01}
-                    className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                  />
-                </div>
-              </div>
-            )}
-
-            {policyType === "requiredApproval" && (
-              <div>
-                <label className="block text-xs text-muted mb-1">
-                  Required approver roles (comma-separated)
-                </label>
-                <input
-                  type="text"
-                  value={approvers}
-                  onChange={(e) => setApprovers(e.target.value)}
-                  placeholder="security-team, platform-lead"
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                 />
               </div>
             )}
@@ -480,7 +434,42 @@ export function PolicyDetail({
             </button>
           </div>
         </div>
-        <p className="mt-1 text-sm text-muted font-mono">{policy.type}</p>
+        <div className="mt-1 flex items-center gap-2">
+          <span className="text-sm text-muted font-mono">{policy.type}</span>
+          {(() => {
+            const knownTypes = new Set(Object.values(PolicyType) as string[]);
+            if (!knownTypes.has(policy.type)) {
+              return (
+                <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium bg-muted/15 text-muted border-muted/30">
+                  deprecated
+                </span>
+              );
+            }
+            const mode = getPolicyMode(policy.type as PolicyType);
+            const isGuard = mode === PolicyMode.Guard;
+            return (
+              <span
+                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
+                  isGuard
+                    ? "bg-green/15 text-green border-green/30"
+                    : "bg-blue/15 text-blue border-blue/30"
+                }`}
+              >
+                {isGuard ? "Guard" : "Check"}
+              </span>
+            );
+          })()}
+        </div>
+        <p className="mt-1 text-xs text-muted">
+          {(() => {
+            const knownTypes = new Set(Object.values(PolicyType) as string[]);
+            if (!knownTypes.has(policy.type)) return "This policy type is no longer supported.";
+            const mode = getPolicyMode(policy.type as PolicyType);
+            return mode === PolicyMode.Guard
+              ? "This policy blocks tool calls in real-time."
+              : "This policy evaluates after the run completes.";
+          })()}
+        </p>
         <p className="mt-1 text-xs text-muted">
           Created {new Date(policy.createdAt).toLocaleDateString()}
         </p>

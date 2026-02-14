@@ -79,9 +79,9 @@ describe("Integration: full run lifecycle", () => {
       },
       {
         id: createPolicyId("p2"),
-        name: "Cost ceiling",
-        type: PolicyType.CostCeiling,
-        config: { type: PolicyType.CostCeiling, maxCostUsd: 5.0 },
+        name: "File limit",
+        type: PolicyType.FileLimitCount,
+        config: { type: PolicyType.FileLimitCount, maxFiles: 10 },
         severity: PolicySeverity.Warning,
       },
       {

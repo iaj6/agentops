@@ -5,10 +5,26 @@ import type { PolicyId, Run } from "./types.js";
 export enum PolicyType {
   PathRestriction = "pathRestriction",
   FileLimitCount = "fileLimitCount",
-  CostCeiling = "costCeiling",
-  RequiredApproval = "requiredApproval",
   TestEnforcement = "testEnforcement",
   RiskyOpFlag = "riskyOpFlag",
+}
+
+// ─── Policy mode (guard = real-time blocking, check = post-hoc evaluation) ──
+
+export enum PolicyMode {
+  Guard = "guard",
+  Check = "check",
+}
+
+export function getPolicyMode(type: PolicyType): PolicyMode {
+  switch (type) {
+    case PolicyType.PathRestriction:
+    case PolicyType.FileLimitCount:
+    case PolicyType.RiskyOpFlag:
+      return PolicyMode.Guard;
+    case PolicyType.TestEnforcement:
+      return PolicyMode.Check;
+  }
 }
 
 export enum PolicySeverity {
@@ -28,8 +44,6 @@ export interface Policy {
 export type PolicyConfig =
   | PathRestrictionConfig
   | FileLimitCountConfig
-  | CostCeilingConfig
-  | RequiredApprovalConfig
   | TestEnforcementConfig
   | RiskyOpFlagConfig;
 
@@ -41,16 +55,6 @@ export interface PathRestrictionConfig {
 export interface FileLimitCountConfig {
   readonly type: PolicyType.FileLimitCount;
   readonly maxFiles: number;
-}
-
-export interface CostCeilingConfig {
-  readonly type: PolicyType.CostCeiling;
-  readonly maxCostUsd: number;
-}
-
-export interface RequiredApprovalConfig {
-  readonly type: PolicyType.RequiredApproval;
-  readonly approvers: ReadonlyArray<string>;
 }
 
 export interface TestEnforcementConfig {
@@ -109,37 +113,6 @@ function evaluateFileLimitCount(run: Run, policy: Policy, config: FileLimitCount
   };
 }
 
-function evaluateCostCeiling(run: Run, policy: Policy, config: CostCeilingConfig): PolicyResult {
-  const cost = run.metrics.costUsd;
-  return {
-    passed: cost <= config.maxCostUsd,
-    policy,
-    message:
-      cost <= config.maxCostUsd
-        ? `Cost $${cost.toFixed(2)} is within ceiling of $${config.maxCostUsd.toFixed(2)}`
-        : `Cost $${cost.toFixed(2)} exceeds ceiling of $${config.maxCostUsd.toFixed(2)}`,
-    details: { cost, maxCostUsd: config.maxCostUsd },
-  };
-}
-
-function evaluateRequiredApproval(run: Run, policy: Policy, config: RequiredApprovalConfig): PolicyResult {
-  const approvers = run.decisions
-    .filter((d) => d.type === "approval")
-    .map((d) => d.actor);
-  const missingApprovers = config.approvers.filter(
-    (a) => !approvers.includes(a)
-  );
-  return {
-    passed: missingApprovers.length === 0,
-    policy,
-    message:
-      missingApprovers.length === 0
-        ? "All required approvals received"
-        : `Missing approvals from: ${missingApprovers.join(", ")}`,
-    details: { missingApprovers, receivedApprovers: approvers },
-  };
-}
-
 function evaluateTestEnforcement(run: Run, policy: Policy, config: TestEnforcementConfig): PolicyResult {
   const allTests = run.evaluations.flatMap((e) => e.testResults);
   if (allTests.length === 0) {
@@ -188,14 +161,17 @@ function evaluatePolicy(run: Run, policy: Policy): PolicyResult {
       return evaluatePathRestriction(run, policy, config);
     case PolicyType.FileLimitCount:
       return evaluateFileLimitCount(run, policy, config);
-    case PolicyType.CostCeiling:
-      return evaluateCostCeiling(run, policy, config);
-    case PolicyType.RequiredApproval:
-      return evaluateRequiredApproval(run, policy, config);
     case PolicyType.TestEnforcement:
       return evaluateTestEnforcement(run, policy, config);
     case PolicyType.RiskyOpFlag:
       return evaluateRiskyOpFlag(run, policy, config);
+    default:
+      return {
+        passed: true,
+        policy,
+        message: `Skipped: unknown policy type "${(config as Record<string, unknown>).type}"`,
+        details: { skipped: true },
+      };
   }
 }
 

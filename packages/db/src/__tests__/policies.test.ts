@@ -49,9 +49,9 @@ describe("Policies repository", () => {
       });
       insertPolicy(db, {
         id: createPolicyId("p2"),
-        name: "Cost ceiling",
-        type: PolicyType.CostCeiling,
-        config: { type: PolicyType.CostCeiling, maxCostUsd: 5.0 },
+        name: "File limit",
+        type: PolicyType.FileLimitCount,
+        config: { type: PolicyType.FileLimitCount, maxFiles: 20 },
         severity: PolicySeverity.Warning,
         enabled: true,
         createdAt: "2025-01-01T00:00:00.000Z",
@@ -75,8 +75,8 @@ describe("Policies repository", () => {
       insertPolicy(db, {
         id: createPolicyId("p2"),
         name: "Disabled policy",
-        type: PolicyType.CostCeiling,
-        config: { type: PolicyType.CostCeiling, maxCostUsd: 1.0 },
+        type: PolicyType.FileLimitCount,
+        config: { type: PolicyType.FileLimitCount, maxFiles: 5 },
         severity: PolicySeverity.Warning,
         enabled: false,
         createdAt: "2025-01-01T00:00:00.000Z",
@@ -123,8 +123,8 @@ describe("Policies repository", () => {
       insertPolicy(db, {
         id: createPolicyId("p1"),
         name: "Test policy",
-        type: PolicyType.CostCeiling,
-        config: { type: PolicyType.CostCeiling, maxCostUsd: 10.0 },
+        type: PolicyType.FileLimitCount,
+        config: { type: PolicyType.FileLimitCount, maxFiles: 10 },
         severity: PolicySeverity.Warning,
         enabled: true,
         createdAt: "2025-01-01T00:00:00.000Z",
@@ -134,7 +134,7 @@ describe("Policies repository", () => {
       expect(policy).not.toBeNull();
       expect(policy!.id).toBe("p1");
       expect(policy!.name).toBe("Test policy");
-      expect(policy!.type).toBe(PolicyType.CostCeiling);
+      expect(policy!.type).toBe(PolicyType.FileLimitCount);
       expect(policy!.enabled).toBe(true);
     });
 
@@ -149,8 +149,8 @@ describe("Policies repository", () => {
       insertPolicy(db, {
         id: createPolicyId("p1"),
         name: "Original name",
-        type: PolicyType.CostCeiling,
-        config: { type: PolicyType.CostCeiling, maxCostUsd: 5.0 },
+        type: PolicyType.FileLimitCount,
+        config: { type: PolicyType.FileLimitCount, maxFiles: 20 },
         severity: PolicySeverity.Warning,
         enabled: true,
         createdAt: "2025-01-01T00:00:00.000Z",
@@ -166,8 +166,8 @@ describe("Policies repository", () => {
       insertPolicy(db, {
         id: createPolicyId("p1"),
         name: "Toggle test",
-        type: PolicyType.CostCeiling,
-        config: { type: PolicyType.CostCeiling, maxCostUsd: 5.0 },
+        type: PolicyType.FileLimitCount,
+        config: { type: PolicyType.FileLimitCount, maxFiles: 20 },
         severity: PolicySeverity.Warning,
         enabled: true,
         createdAt: "2025-01-01T00:00:00.000Z",
@@ -183,8 +183,8 @@ describe("Policies repository", () => {
       insertPolicy(db, {
         id: createPolicyId("p1"),
         name: "Severity test",
-        type: PolicyType.CostCeiling,
-        config: { type: PolicyType.CostCeiling, maxCostUsd: 5.0 },
+        type: PolicyType.FileLimitCount,
+        config: { type: PolicyType.FileLimitCount, maxFiles: 20 },
         severity: PolicySeverity.Warning,
         enabled: true,
         createdAt: "2025-01-01T00:00:00.000Z",
@@ -200,8 +200,8 @@ describe("Policies repository", () => {
       insertPolicy(db, {
         id: createPolicyId("p1"),
         name: "No change",
-        type: PolicyType.CostCeiling,
-        config: { type: PolicyType.CostCeiling, maxCostUsd: 5.0 },
+        type: PolicyType.FileLimitCount,
+        config: { type: PolicyType.FileLimitCount, maxFiles: 20 },
         severity: PolicySeverity.Warning,
         enabled: true,
         createdAt: "2025-01-01T00:00:00.000Z",
@@ -249,8 +249,8 @@ describe("Policies repository", () => {
       insertPolicy(db, {
         id: createPolicyId("p1"),
         name: "Test policy",
-        type: PolicyType.CostCeiling,
-        config: { type: PolicyType.CostCeiling, maxCostUsd: 5.0 },
+        type: PolicyType.FileLimitCount,
+        config: { type: PolicyType.FileLimitCount, maxFiles: 20 },
         severity: PolicySeverity.Error,
         enabled: true,
         createdAt: "2025-01-01T00:00:00.000Z",
@@ -302,8 +302,8 @@ describe("Policies repository", () => {
       insertPolicy(db, {
         id: createPolicyId("p1"),
         name: "Empty policy",
-        type: PolicyType.CostCeiling,
-        config: { type: PolicyType.CostCeiling, maxCostUsd: 5.0 },
+        type: PolicyType.FileLimitCount,
+        config: { type: PolicyType.FileLimitCount, maxFiles: 20 },
         severity: PolicySeverity.Error,
         enabled: true,
         createdAt: "2025-01-01T00:00:00.000Z",

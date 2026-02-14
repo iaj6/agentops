@@ -399,6 +399,127 @@ describe("Pre-tool-use policy checking", () => {
     const violations = _checkPreToolPolicies(input, [pathPolicy]);
     expect(violations).toHaveLength(0);
   });
+
+  // ─── FileLimitCount guard tests ─────────────────────────────────────────────
+
+  const fileLimitPolicy: Policy & { enabled: boolean } = {
+    id: createPolicyId("pol_filelimit"),
+    name: "Max 2 files",
+    type: PolicyType.FileLimitCount,
+    config: {
+      type: PolicyType.FileLimitCount,
+      maxFiles: 2,
+    },
+    severity: PolicySeverity.Error,
+    enabled: true,
+  };
+
+  it("allows Edit when under file limit", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Edit",
+      tool_input: { file_path: "/src/a.ts" },
+    };
+
+    const existingFiles = new Set(["/src/a.ts"]);
+    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], existingFiles);
+    expect(violations).toHaveLength(0);
+  });
+
+  it("allows Edit for already-edited file even at limit", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Edit",
+      tool_input: { file_path: "/src/a.ts" },
+    };
+
+    const existingFiles = new Set(["/src/a.ts", "/src/b.ts"]);
+    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], existingFiles);
+    expect(violations).toHaveLength(0);
+  });
+
+  it("blocks Edit when adding a new file would exceed limit", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Edit",
+      tool_input: { file_path: "/src/c.ts" },
+    };
+
+    const existingFiles = new Set(["/src/a.ts", "/src/b.ts"]);
+    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], existingFiles);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.message).toContain("File limit exceeded");
+    expect(violations[0]!.message).toContain("/src/c.ts");
+  });
+
+  it("blocks Write when adding a new file would exceed limit", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Write",
+      tool_input: { file_path: "/src/new.ts" },
+    };
+
+    const existingFiles = new Set(["/src/a.ts", "/src/b.ts"]);
+    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], existingFiles);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.severity).toBe("error");
+  });
+
+  it("does not check FileLimitCount for Read tool", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Read",
+      tool_input: { file_path: "/src/c.ts" },
+    };
+
+    const existingFiles = new Set(["/src/a.ts", "/src/b.ts"]);
+    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], existingFiles);
+    expect(violations).toHaveLength(0);
+  });
+
+  // ─── Deprecated/unknown policy type tests ──────────────────────────────────
+
+  it("skips deprecated/unknown policy types gracefully", () => {
+    const deprecatedPolicy: Policy & { enabled: boolean } = {
+      id: createPolicyId("pol_deprecated"),
+      name: "Old cost policy",
+      type: "costCeiling" as PolicyType,
+      config: { type: "costCeiling" as any, maxCostUsd: 10 } as any,
+      severity: PolicySeverity.Error,
+      enabled: true,
+    };
+
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Bash",
+      tool_input: { command: "echo hello" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [deprecatedPolicy]);
+    expect(violations).toHaveLength(0);
+  });
+
+  it("processes valid policies alongside deprecated ones", () => {
+    const deprecatedPolicy: Policy & { enabled: boolean } = {
+      id: createPolicyId("pol_deprecated2"),
+      name: "Old approval policy",
+      type: "requiredApproval" as PolicyType,
+      config: { type: "requiredApproval" as any, approvers: ["admin"] } as any,
+      severity: PolicySeverity.Error,
+      enabled: true,
+    };
+
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Bash",
+      tool_input: { command: "rm -rf /tmp" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [deprecatedPolicy, riskyPolicy]);
+    // Only the riskyPolicy should fire, deprecated one is skipped
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.policy).toBe("No dangerous commands");
+  });
 });
 
 // ─── HookInput new fields tests ──────────────────────────────────────────────

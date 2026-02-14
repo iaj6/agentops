@@ -861,12 +861,12 @@ function buildPolicies(): Policy[] {
       severity: PolicySeverity.Error,
     },
     {
-      id: createPolicyId("pol_cost_ceiling"),
-      name: "Cost ceiling ($5.00)",
-      type: PolicyType.CostCeiling,
+      id: createPolicyId("pol_risky_ops"),
+      name: "Flag risky operations",
+      type: PolicyType.RiskyOpFlag,
       config: {
-        type: PolicyType.CostCeiling,
-        maxCostUsd: 5.0,
+        type: PolicyType.RiskyOpFlag,
+        riskyPatterns: ["rm -rf", "DROP TABLE", "sudo", "--force"],
       },
       severity: PolicySeverity.Error,
     },

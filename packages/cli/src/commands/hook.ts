@@ -24,7 +24,7 @@ import {
   PolicySeverity,
   generateSummary,
 } from "@agentops/core";
-import type { Action, ToolCall, FileEdit, Command as CmdType, Policy } from "@agentops/core";
+import type { Action, ToolCall, FileEdit, Command as CmdType, Policy, FileLimitCountConfig } from "@agentops/core";
 import { getDb, insertRun, updateRun, getRun, insertSession, updateSession, insertEvent, listPolicies, updateRunSummary } from "@agentops/db";
 import { getCurrentRepo, getCurrentBranch, getChangedFiles, getWorkingTreeDiff } from "../git.js";
 
@@ -164,13 +164,20 @@ interface PolicyViolation {
 function checkPreToolPolicies(
   input: HookInput,
   activePolicies: ReadonlyArray<Policy & { enabled: boolean }>,
+  existingEditedFiles?: ReadonlySet<string>,
 ): PolicyViolation[] {
   const violations: PolicyViolation[] = [];
   const toolName = input.tool_name ?? "";
   const toolInput = input.tool_input ?? {};
 
+  // Known policy types for skipping deprecated/unknown types
+  const knownTypes = new Set(Object.values(PolicyType) as string[]);
+
   for (const policy of activePolicies) {
     if (!policy.enabled) continue;
+
+    // Skip unknown/deprecated policy types gracefully
+    if (!knownTypes.has(policy.config.type as string)) continue;
 
     if (
       policy.config.type === PolicyType.RiskyOpFlag &&
@@ -203,6 +210,24 @@ function checkPreToolPolicies(
         violations.push({
           policy: policy.name,
           message: `Path restriction violated: ${filePath} matches blocked path(s): ${blocked.join(", ")}`,
+          severity: policy.severity,
+        });
+      }
+    }
+
+    if (
+      policy.config.type === PolicyType.FileLimitCount &&
+      (toolName === "Edit" || toolName === "Write") &&
+      typeof toolInput["file_path"] === "string"
+    ) {
+      const filePath = toolInput["file_path"] as string;
+      const config = policy.config as FileLimitCountConfig;
+      const currentFiles = existingEditedFiles ?? new Set<string>();
+      // If this file is already in the set, it won't increase the count
+      if (!currentFiles.has(filePath) && currentFiles.size >= config.maxFiles) {
+        violations.push({
+          policy: policy.name,
+          message: `File limit exceeded: editing "${filePath}" would be file ${currentFiles.size + 1}, limit is ${config.maxFiles}`,
           severity: policy.severity,
         });
       }
@@ -291,8 +316,17 @@ async function handlePreToolUse(input: HookInput, dbPath?: string): Promise<void
   // Load active policies
   const activePolicies = listPolicies(db, { enabled: true });
 
+  // Get existing edited files from run for FileLimitCount guard
+  let existingEditedFiles: Set<string> | undefined;
+  const currentRun = getRun(db, state.runId as any);
+  if (currentRun) {
+    existingEditedFiles = new Set(
+      currentRun.actions.flatMap((a) => a.fileEdits.map((e) => e.path)),
+    );
+  }
+
   // Check policies
-  const violations = checkPreToolPolicies(input, activePolicies);
+  const violations = checkPreToolPolicies(input, activePolicies, existingEditedFiles);
 
   // Check for error-severity violations that should block
   const errorViolations = violations.filter((v) => v.severity === PolicySeverity.Error);

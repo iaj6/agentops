@@ -5,12 +5,10 @@ import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/useToast";
 
 const POLICY_TYPES = [
-  { value: "pathRestriction", label: "Path Restriction", description: "Block edits to specific paths" },
-  { value: "fileLimitCount", label: "File Limit Count", description: "Limit number of files changed" },
-  { value: "costCeiling", label: "Cost Ceiling", description: "Cap spending per run" },
-  { value: "requiredApproval", label: "Required Approval", description: "Require sign-off from specified roles" },
-  { value: "testEnforcement", label: "Test Enforcement", description: "Require passing tests" },
-  { value: "riskyOpFlag", label: "Risky Op Flag", description: "Flag dangerous operations" },
+  { value: "pathRestriction", label: "Path Restriction", description: "Block edits to specific paths", mode: "guard" as const },
+  { value: "fileLimitCount", label: "File Limit Count", description: "Limit number of files changed", mode: "guard" as const },
+  { value: "testEnforcement", label: "Test Enforcement", description: "Require passing tests", mode: "check" as const },
+  { value: "riskyOpFlag", label: "Risky Op Flag", description: "Flag dangerous operations", mode: "guard" as const },
 ] as const;
 
 const SEVERITIES = [
@@ -30,8 +28,6 @@ export function CreatePolicyForm({ onClose }: { onClose: () => void }) {
   // Config fields
   const [blockedPaths, setBlockedPaths] = useState("");
   const [maxFiles, setMaxFiles] = useState(20);
-  const [maxCostUsd, setMaxCostUsd] = useState(5);
-  const [approvers, setApprovers] = useState("");
   const [requirePassing, setRequirePassing] = useState(true);
   const [minCoverage, setMinCoverage] = useState(80);
   const [riskyPatterns, setRiskyPatterns] = useState("");
@@ -45,13 +41,6 @@ export function CreatePolicyForm({ onClose }: { onClose: () => void }) {
         };
       case "fileLimitCount":
         return { type: "fileLimitCount", maxFiles };
-      case "costCeiling":
-        return { type: "costCeiling", maxCostUsd };
-      case "requiredApproval":
-        return {
-          type: "requiredApproval",
-          approvers: approvers.split(",").map((s) => s.trim()).filter(Boolean),
-        };
       case "testEnforcement":
         return { type: "testEnforcement", requirePassing, minCoverage };
       case "riskyOpFlag":
@@ -162,6 +151,22 @@ export function CreatePolicyForm({ onClose }: { onClose: () => void }) {
                 </option>
               ))}
             </select>
+            {type && (() => {
+              const selected = POLICY_TYPES.find((pt) => pt.value === type);
+              if (!selected) return null;
+              const isGuard = selected.mode === "guard";
+              return (
+                <span
+                  className={`mt-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
+                    isGuard
+                      ? "bg-green/15 text-green border-green/30"
+                      : "bg-blue/15 text-blue border-blue/30"
+                  }`}
+                >
+                  {isGuard ? "Guard — blocks tool calls in real-time" : "Check — evaluates after run completes"}
+                </span>
+              );
+            })()}
           </div>
 
           {/* Severity */}
@@ -220,40 +225,6 @@ export function CreatePolicyForm({ onClose }: { onClose: () => void }) {
                     onChange={(e) => setMaxFiles(Number(e.target.value))}
                     min={1}
                     className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                  />
-                </div>
-              )}
-
-              {type === "costCeiling" && (
-                <div>
-                  <label className="block text-xs text-muted mb-1">
-                    Maximum cost (USD)
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted">$</span>
-                    <input
-                      type="number"
-                      value={maxCostUsd}
-                      onChange={(e) => setMaxCostUsd(Number(e.target.value))}
-                      min={0.01}
-                      step={0.01}
-                      className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {type === "requiredApproval" && (
-                <div>
-                  <label className="block text-xs text-muted mb-1">
-                    Required approver roles (comma-separated)
-                  </label>
-                  <input
-                    type="text"
-                    value={approvers}
-                    onChange={(e) => setApprovers(e.target.value)}
-                    placeholder="security-team, platform-lead"
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                   />
                 </div>
               )}

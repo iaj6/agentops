@@ -3,10 +3,12 @@ import {
   PolicyEngine,
   PolicyType,
   PolicySeverity,
+  PolicyMode,
+  getPolicyMode,
 } from "../policy.js";
 import type { Policy } from "../policy.js";
 import type { Run, Action } from "../types.js";
-import { RunStatus, createRunId, createPolicyId, createActionId, DecisionType, createDecisionId } from "../types.js";
+import { RunStatus, createRunId, createPolicyId, createActionId } from "../types.js";
 
 function makeRun(overrides: Partial<Run> = {}): Run {
   return {
@@ -151,73 +153,6 @@ describe("PolicyEngine", () => {
     });
   });
 
-  describe("CostCeiling policy", () => {
-    const policy: Policy = {
-      id: createPolicyId("policy_cost"),
-      name: "Cost ceiling $1.00",
-      type: PolicyType.CostCeiling,
-      config: {
-        type: PolicyType.CostCeiling,
-        maxCostUsd: 1.0,
-      },
-      severity: PolicySeverity.Error,
-    };
-
-    it("passes when cost is within ceiling", () => {
-      const run = makeRun({ metrics: { tokenUsage: { input: 0, output: 0, total: 0 }, wallTimeMs: 0, costUsd: 0.50, flakeRate: 0 } });
-      const results = engine.evaluate(run, [policy]);
-      expect(results[0]!.passed).toBe(true);
-    });
-
-    it("fails when cost exceeds ceiling", () => {
-      const run = makeRun({ metrics: { tokenUsage: { input: 0, output: 0, total: 0 }, wallTimeMs: 0, costUsd: 2.50, flakeRate: 0 } });
-      const results = engine.evaluate(run, [policy]);
-      expect(results[0]!.passed).toBe(false);
-      expect(results[0]!.message).toContain("exceeds ceiling");
-    });
-
-    it("passes when cost equals ceiling exactly", () => {
-      const run = makeRun({ metrics: { tokenUsage: { input: 0, output: 0, total: 0 }, wallTimeMs: 0, costUsd: 1.0, flakeRate: 0 } });
-      const results = engine.evaluate(run, [policy]);
-      expect(results[0]!.passed).toBe(true);
-    });
-  });
-
-  describe("RequiredApproval policy", () => {
-    const policy: Policy = {
-      id: createPolicyId("policy_approval"),
-      name: "Requires lead approval",
-      type: PolicyType.RequiredApproval,
-      config: {
-        type: PolicyType.RequiredApproval,
-        approvers: ["lead", "reviewer"],
-      },
-      severity: PolicySeverity.Error,
-    };
-
-    it("passes when all approvals are present", () => {
-      const run = makeRun({
-        decisions: [
-          { id: createDecisionId("d1"), type: DecisionType.Approval, actor: "lead", reason: "LGTM", timestamp: "2025-01-01T00:00:00.000Z" },
-          { id: createDecisionId("d2"), type: DecisionType.Approval, actor: "reviewer", reason: "Looks good", timestamp: "2025-01-01T00:00:00.000Z" },
-        ],
-      });
-      const results = engine.evaluate(run, [policy]);
-      expect(results[0]!.passed).toBe(true);
-    });
-
-    it("fails when approvals are missing", () => {
-      const run = makeRun({
-        decisions: [
-          { id: createDecisionId("d1"), type: DecisionType.Approval, actor: "lead", reason: "LGTM", timestamp: "2025-01-01T00:00:00.000Z" },
-        ],
-      });
-      const results = engine.evaluate(run, [policy]);
-      expect(results[0]!.passed).toBe(false);
-      expect(results[0]!.message).toContain("reviewer");
-    });
-  });
-
   describe("TestEnforcement policy", () => {
     const policy: Policy = {
       id: createPolicyId("policy_tests"),
@@ -312,17 +247,17 @@ describe("PolicyEngine", () => {
         },
         {
           id: createPolicyId("p2"),
-          name: "Cost ceiling",
-          type: PolicyType.CostCeiling,
-          config: { type: PolicyType.CostCeiling, maxCostUsd: 10.0 },
-          severity: PolicySeverity.Warning,
-        },
-        {
-          id: createPolicyId("p3"),
           name: "File limit",
           type: PolicyType.FileLimitCount,
           config: { type: PolicyType.FileLimitCount, maxFiles: 2 },
           severity: PolicySeverity.Warning,
+        },
+        {
+          id: createPolicyId("p3"),
+          name: "No risky ops",
+          type: PolicyType.RiskyOpFlag,
+          config: { type: PolicyType.RiskyOpFlag, riskyPatterns: ["rm -rf"] },
+          severity: PolicySeverity.Error,
         },
       ];
 
@@ -339,10 +274,47 @@ describe("PolicyEngine", () => {
 
       // Path restriction passes (no .env changes)
       expect(results[0]!.passed).toBe(true);
-      // Cost ceiling passes (0.50 < 10.0)
-      expect(results[1]!.passed).toBe(true);
       // File limit fails (3 > 2)
-      expect(results[2]!.passed).toBe(false);
+      expect(results[1]!.passed).toBe(false);
+      // Risky ops passes (no risky commands)
+      expect(results[2]!.passed).toBe(true);
+    });
+  });
+
+  describe("getPolicyMode", () => {
+    it("returns Guard for PathRestriction", () => {
+      expect(getPolicyMode(PolicyType.PathRestriction)).toBe(PolicyMode.Guard);
+    });
+
+    it("returns Guard for FileLimitCount", () => {
+      expect(getPolicyMode(PolicyType.FileLimitCount)).toBe(PolicyMode.Guard);
+    });
+
+    it("returns Guard for RiskyOpFlag", () => {
+      expect(getPolicyMode(PolicyType.RiskyOpFlag)).toBe(PolicyMode.Guard);
+    });
+
+    it("returns Check for TestEnforcement", () => {
+      expect(getPolicyMode(PolicyType.TestEnforcement)).toBe(PolicyMode.Check);
+    });
+  });
+
+  describe("Unknown policy type handling", () => {
+    it("returns skipped result for unknown policy type", () => {
+      const unknownPolicy: Policy = {
+        id: createPolicyId("p_unknown"),
+        name: "Legacy policy",
+        type: "costCeiling" as PolicyType,
+        config: { type: "costCeiling" as any, maxCostUsd: 10 } as any,
+        severity: PolicySeverity.Warning,
+      };
+
+      const run = makeRun();
+      const results = engine.evaluate(run, [unknownPolicy]);
+      expect(results).toHaveLength(1);
+      expect(results[0]!.passed).toBe(true);
+      expect(results[0]!.message).toContain("Skipped");
+      expect(results[0]!.message).toContain("costCeiling");
     });
   });
 });

@@ -63,14 +63,12 @@ export type {
   PolicyConfig,
   PathRestrictionConfig,
   FileLimitCountConfig,
-  CostCeilingConfig,
-  RequiredApprovalConfig,
   TestEnforcementConfig,
   RiskyOpFlagConfig,
   PolicyResult,
 } from "./policy.js";
 
-export { PolicyType, PolicySeverity, PolicyEngine } from "./policy.js";
+export { PolicyType, PolicySeverity, PolicyMode, PolicyEngine, getPolicyMode } from "./policy.js";
 
 // Scoring
 export type { ScoreDimension, ScoreCard } from "./scoring.js";
