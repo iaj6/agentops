@@ -123,8 +123,6 @@ export {
   completeSessionRun,
   updateHeartbeat,
   updateResourceUsage,
-  pauseSession,
-  resumeSession,
   terminateSession,
 } from "./session.js";
 

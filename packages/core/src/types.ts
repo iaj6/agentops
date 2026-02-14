@@ -83,7 +83,6 @@ export enum JobPriority {
 export enum SessionStatus {
   Provisioning = "provisioning",
   Active = "active",
-  Paused = "paused",
   Terminated = "terminated",
 }
 

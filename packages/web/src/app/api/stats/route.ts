@@ -66,7 +66,6 @@ export async function GET() {
     // Sessions
     const allSessions = listSessions(d, { limit: 10000 });
     const sessActive = allSessions.filter((s) => s.status === "active").length;
-    const sessPaused = allSessions.filter((s) => s.status === "paused").length;
     const sessTerminated = allSessions.filter((s) => s.status === "terminated").length;
 
     // Events
@@ -102,7 +101,6 @@ export async function GET() {
       },
       sessions: {
         active: sessActive,
-        paused: sessPaused,
         terminated: sessTerminated,
       },
       events: {

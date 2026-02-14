@@ -85,22 +85,6 @@ export function updateResourceUsage(
   };
 }
 
-export function pauseSession(session: Session): Session {
-  return {
-    ...session,
-    status: SessionStatus.Paused,
-    updatedAt: now(),
-  };
-}
-
-export function resumeSession(session: Session): Session {
-  return {
-    ...session,
-    status: SessionStatus.Active,
-    updatedAt: now(),
-  };
-}
-
 export function terminateSession(session: Session): Session {
   const timestamp = now();
   return {

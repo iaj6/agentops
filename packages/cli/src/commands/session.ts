@@ -2,8 +2,6 @@ import { Command } from "commander";
 import {
   SessionStatus,
   createSessionId,
-  pauseSession as corePauseSession,
-  resumeSession as coreResumeSession,
   terminateSession as coreTerminateSession,
 } from "@agentops/core";
 import { getDb, getSession, listSessions, updateSession, getActiveSessions } from "@agentops/db";
@@ -99,62 +97,6 @@ export function registerSessionCommands(program: Command): void {
     });
 
   session
-    .command("pause")
-    .description("Pause a session")
-    .argument("<sessionId>", "The session ID")
-    .action((sessionId: string) => {
-      const dbPath = program.opts()["dbPath"] as string | undefined;
-      const json = program.opts()["json"] as boolean | undefined;
-      const db = getDb(dbPath);
-      const s = getSession(db, createSessionId(sessionId));
-
-      if (!s) {
-        console.error(`Session not found: ${sessionId}`);
-        process.exit(1);
-      }
-
-      const paused = corePauseSession(s);
-      updateSession(db, paused.id, {
-        status: paused.status,
-        updatedAt: paused.updatedAt,
-      });
-
-      if (json) {
-        console.log(JSON.stringify({ id: paused.id, status: paused.status }));
-      } else {
-        console.log(`Session ${sessionId} paused.`);
-      }
-    });
-
-  session
-    .command("resume")
-    .description("Resume a paused session")
-    .argument("<sessionId>", "The session ID")
-    .action((sessionId: string) => {
-      const dbPath = program.opts()["dbPath"] as string | undefined;
-      const json = program.opts()["json"] as boolean | undefined;
-      const db = getDb(dbPath);
-      const s = getSession(db, createSessionId(sessionId));
-
-      if (!s) {
-        console.error(`Session not found: ${sessionId}`);
-        process.exit(1);
-      }
-
-      const resumed = coreResumeSession(s);
-      updateSession(db, resumed.id, {
-        status: resumed.status,
-        updatedAt: resumed.updatedAt,
-      });
-
-      if (json) {
-        console.log(JSON.stringify({ id: resumed.id, status: resumed.status }));
-      } else {
-        console.log(`Session ${sessionId} resumed.`);
-      }
-    });
-
-  session
     .command("terminate")
     .description("Terminate a session")
     .argument("<sessionId>", "The session ID")
@@ -179,7 +121,8 @@ export function registerSessionCommands(program: Command): void {
       if (json) {
         console.log(JSON.stringify({ id: terminated.id, status: terminated.status }));
       } else {
-        console.log(`Session ${sessionId} terminated.`);
+        console.log(`Session ${sessionId} closed.`);
+        console.log(`Note: This marks the session as closed in AgentOps. It does not stop the running Claude Code process.`);
       }
     });
 

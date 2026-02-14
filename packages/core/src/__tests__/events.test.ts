@@ -19,7 +19,6 @@ describe("EVENT_TYPES", () => {
 
   it("has all expected session event types", () => {
     expect(EVENT_TYPES["session.started"]).toBe("session.started");
-    expect(EVENT_TYPES["session.paused"]).toBe("session.paused");
     expect(EVENT_TYPES["session.terminated"]).toBe("session.terminated");
   });
 

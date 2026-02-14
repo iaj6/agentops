@@ -20,7 +20,6 @@ export type SSEEventType =
   | "policy.violated"
   | "cost.threshold"
   | "session.started"
-  | "session.paused"
   | "session.terminated";
 
 export interface SSEEvent {
@@ -65,7 +64,6 @@ const ALL_EVENT_TYPES: SSEEventType[] = [
   "policy.violated",
   "cost.threshold",
   "session.started",
-  "session.paused",
   "session.terminated",
 ];
 

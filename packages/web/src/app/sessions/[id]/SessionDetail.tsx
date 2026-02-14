@@ -234,50 +234,8 @@ export function SessionDetail({
     };
   }, [session.id, session.status]);
 
-  const handlePause = useCallback(async () => {
-    setActionLoading(true);
-    try {
-      const res = await fetch(`/api/sessions/${session.id as string}/pause`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setSession(updated);
-        toast("Session paused", "success");
-      } else {
-        const err = await res.json().catch(() => ({ error: "Pause failed" }));
-        toast(err.error ?? "Failed to pause session", "error");
-      }
-    } catch {
-      toast("Network error", "error");
-    } finally {
-      setActionLoading(false);
-    }
-  }, [session.id]);
-
-  const handleResume = useCallback(async () => {
-    setActionLoading(true);
-    try {
-      const res = await fetch(`/api/sessions/${session.id as string}/resume`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setSession(updated);
-        toast("Session resumed", "success");
-      } else {
-        const err = await res.json().catch(() => ({ error: "Resume failed" }));
-        toast(err.error ?? "Failed to resume session", "error");
-      }
-    } catch {
-      toast("Network error", "error");
-    } finally {
-      setActionLoading(false);
-    }
-  }, [session.id]);
-
   const handleTerminate = useCallback(async () => {
-    if (!confirm("Are you sure you want to terminate this session? This cannot be undone.")) return;
+    if (!confirm("Close this session? This marks it as closed in AgentOps but does not stop the running Claude Code process.")) return;
     setActionLoading(true);
     try {
       const res = await fetch(`/api/sessions/${session.id as string}`, {
@@ -300,10 +258,7 @@ export function SessionDetail({
     }
   }, [session.id]);
 
-  const canPause = session.status === "active";
-  const canResume = session.status === "paused";
-  const canTerminate =
-    session.status === "active" || session.status === "paused";
+  const canTerminate = session.status === "active";
   const isActive = !TERMINAL_STATUSES.has(session.status);
 
   return (
@@ -351,32 +306,19 @@ export function SessionDetail({
 
       {/* Intervention Buttons */}
       {canTerminate && (
-        <div className="mb-6 flex items-center gap-2">
-          {canPause && (
+        <div className="mb-6">
+          <div className="flex items-center gap-2">
             <button
-              onClick={handlePause}
+              onClick={handleTerminate}
               disabled={actionLoading}
-              className="rounded-md border border-yellow/30 bg-yellow/10 px-3 py-1.5 text-xs font-medium text-yellow hover:bg-yellow/20 transition-colors disabled:opacity-50"
+              className="rounded-md border border-red/30 bg-red/10 px-3 py-1.5 text-xs font-medium text-red hover:bg-red/20 transition-colors disabled:opacity-50"
             >
-              Pause
+              Close Session
             </button>
-          )}
-          {canResume && (
-            <button
-              onClick={handleResume}
-              disabled={actionLoading}
-              className="rounded-md border border-green/30 bg-green/10 px-3 py-1.5 text-xs font-medium text-green hover:bg-green/20 transition-colors disabled:opacity-50"
-            >
-              Resume
-            </button>
-          )}
-          <button
-            onClick={handleTerminate}
-            disabled={actionLoading}
-            className="rounded-md border border-red/30 bg-red/10 px-3 py-1.5 text-xs font-medium text-red hover:bg-red/20 transition-colors disabled:opacity-50"
-          >
-            Terminate
-          </button>
+          </div>
+          <p className="mt-2 text-[11px] text-muted">
+            Marks this session as closed in AgentOps. Does not stop the running Claude Code process.
+          </p>
         </div>
       )}
 

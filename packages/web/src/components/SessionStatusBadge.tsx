@@ -3,7 +3,6 @@ import { SessionStatus } from "@agentops/core";
 const statusColors: Record<string, string> = {
   [SessionStatus.Active]: "bg-green/15 text-green border-green/30",
   [SessionStatus.Provisioning]: "bg-blue/15 text-blue border-blue/30",
-  [SessionStatus.Paused]: "bg-yellow/15 text-yellow border-yellow/30",
   [SessionStatus.Terminated]: "bg-red/15 text-red border-red/30",
 };
 

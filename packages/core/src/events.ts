@@ -26,7 +26,6 @@ export const EVENT_TYPES = {
 
   // Session events
   "session.started": "session.started",
-  "session.paused": "session.paused",
   "session.terminated": "session.terminated",
 
   // Agent events

@@ -159,11 +159,11 @@ describe("matchSession", () => {
 
   it("skips non-active sessions", () => {
     const job = makeJob();
-    const paused = makeSession({
-      id: createSessionId("session_paused"),
-      status: SessionStatus.Paused,
+    const provisioning = makeSession({
+      id: createSessionId("session_provisioning"),
+      status: SessionStatus.Provisioning,
     });
 
-    expect(matchSession(job, [paused])).toBeNull();
+    expect(matchSession(job, [provisioning])).toBeNull();
   });
 });

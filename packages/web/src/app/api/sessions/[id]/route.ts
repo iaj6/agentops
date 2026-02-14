@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession, updateSession } from "@agentops/db";
-import { createSessionId, pauseSession, resumeSession, terminateSession } from "@agentops/core";
+import { createSessionId, terminateSession } from "@agentops/core";
 import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -41,12 +41,6 @@ export async function PATCH(
 
     let updated;
     switch (action) {
-      case "pause":
-        updated = pauseSession(session);
-        break;
-      case "resume":
-        updated = resumeSession(session);
-        break;
       case "terminate":
         updated = terminateSession(session);
         break;

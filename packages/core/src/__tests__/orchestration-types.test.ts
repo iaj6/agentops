@@ -64,7 +64,6 @@ describe("SessionStatus enum", () => {
   it("has expected values", () => {
     expect(SessionStatus.Provisioning).toBe("provisioning");
     expect(SessionStatus.Active).toBe("active");
-    expect(SessionStatus.Paused).toBe("paused");
     expect(SessionStatus.Terminated).toBe("terminated");
   });
 });

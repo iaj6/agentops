@@ -40,7 +40,6 @@ export async function GET() {
     // Status breakdown
     const statusCounts: Record<string, number> = {
       active: 0,
-      paused: 0,
       terminated: 0,
     };
     for (const session of allSessions) {

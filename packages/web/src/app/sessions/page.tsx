@@ -10,7 +10,6 @@ export default function SessionsPage() {
 
   const total = sessions.length;
   const active = sessions.filter((s) => s.status === "active").length;
-  const paused = sessions.filter((s) => s.status === "paused").length;
   const terminated = sessions.filter((s) => s.status === "terminated").length;
 
   return (
@@ -19,7 +18,7 @@ export default function SessionsPage() {
         <div>
           <h1 className="text-xl font-semibold text-foreground">Sessions</h1>
           <p className="text-sm text-muted">
-            {total} session{total !== 1 ? "s" : ""} &mdash; {active} active, {paused} paused, {terminated} terminated
+            {total} session{total !== 1 ? "s" : ""} &mdash; {active} active, {terminated} terminated
           </p>
         </div>
       </div>

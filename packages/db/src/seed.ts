@@ -1421,9 +1421,9 @@ function seedSessions(db: AgentOpsDb): number {
     { status: SessionStatus.Active, daysAgoRange: [0, 2], hasCurrentRun: false, completedRunCount: randInt(2, 6) },
     { status: SessionStatus.Active, daysAgoRange: [0, 1], hasCurrentRun: true, completedRunCount: randInt(0, 2) },
     { status: SessionStatus.Active, daysAgoRange: [0, 3], hasCurrentRun: false, completedRunCount: randInt(3, 8) },
-    // 2 paused
-    { status: SessionStatus.Paused, daysAgoRange: [1, 5], hasCurrentRun: false, completedRunCount: randInt(1, 4) },
-    { status: SessionStatus.Paused, daysAgoRange: [2, 7], hasCurrentRun: false, completedRunCount: randInt(2, 5) },
+    // 2 more active
+    { status: SessionStatus.Active, daysAgoRange: [1, 5], hasCurrentRun: false, completedRunCount: randInt(1, 4) },
+    { status: SessionStatus.Active, daysAgoRange: [2, 7], hasCurrentRun: false, completedRunCount: randInt(2, 5) },
     // 3 terminated
     { status: SessionStatus.Terminated, daysAgoRange: [3, 14], hasCurrentRun: false, completedRunCount: randInt(3, 10) },
     { status: SessionStatus.Terminated, daysAgoRange: [5, 20], hasCurrentRun: false, completedRunCount: randInt(1, 6) },
@@ -1445,9 +1445,7 @@ function seedSessions(db: AgentOpsDb): number {
 
     const lastHeartbeatAt = bp.status === SessionStatus.Active
       ? minutesAfter(new Date(), -randInt(0, 5), 0)
-      : bp.status === SessionStatus.Paused
-        ? minutesAfter(createdAt, 60, 180)
-        : minutesAfter(createdAt, 30, 120);
+      : minutesAfter(createdAt, 30, 120);
 
     const terminatedAt = bp.status === SessionStatus.Terminated
       ? minutesAfter(createdAt, 30, 240)
@@ -1496,7 +1494,6 @@ function seedEvents(db: AgentOpsDb): number {
     { category: EventCategory.Run, type: "run.completed", sourcePrefix: "run_", payloadFn: () => ({ durationMs: randInt(30000, 900000), costUsd: randFloat(0.10, 4.50) }) },
     { category: EventCategory.Run, type: "run.failed", sourcePrefix: "run_", payloadFn: () => ({ error: pick(["test failure", "build error", "lint violation", "timeout"]), testsRun: randInt(5, 50) }) },
     { category: EventCategory.Session, type: "session.started", sourcePrefix: "session_", payloadFn: () => ({ agentId: `agent_${uid()}`, model: pick(MODELS) }) },
-    { category: EventCategory.Session, type: "session.paused", sourcePrefix: "session_", payloadFn: () => ({ reason: pick(["cost limit", "manual pause", "awaiting approval"]) }) },
     { category: EventCategory.Session, type: "session.terminated", sourcePrefix: "session_", payloadFn: () => ({ reason: pick(["completed", "idle timeout", "manual termination", "error"]) }) },
     { category: EventCategory.Policy, type: "policy.violated", sourcePrefix: "run_", payloadFn: () => ({ policyName: pick(["cost ceiling", "path restriction", "file limit", "test enforcement"]), severity: pick(["error", "warning"]) }) },
     { category: EventCategory.Cost, type: "cost.threshold", sourcePrefix: "run_", payloadFn: () => ({ currentCost: randFloat(3.00, 8.00), threshold: 5.00, currency: "USD" }) },

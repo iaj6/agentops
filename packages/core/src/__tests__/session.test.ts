@@ -6,8 +6,6 @@ import {
   completeSessionRun,
   updateHeartbeat,
   updateResourceUsage,
-  pauseSession,
-  resumeSession,
   terminateSession,
 } from "../session.js";
 import { SessionStatus, createRunId } from "../types.js";
@@ -127,24 +125,6 @@ describe("updateResourceUsage", () => {
     expect(updated.resourceUsage).toEqual(usage);
     // Original is unchanged
     expect(session.resourceUsage.memoryMb).toBe(0);
-  });
-});
-
-describe("pauseSession", () => {
-  it("sets status to Paused", () => {
-    const session = activateSession(createSession("agent_1"));
-    const paused = pauseSession(session);
-
-    expect(paused.status).toBe(SessionStatus.Paused);
-  });
-});
-
-describe("resumeSession", () => {
-  it("sets status to Active", () => {
-    const session = pauseSession(activateSession(createSession("agent_1")));
-    const resumed = resumeSession(session);
-
-    expect(resumed.status).toBe(SessionStatus.Active);
   });
 });
 

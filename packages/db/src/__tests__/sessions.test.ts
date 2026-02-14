@@ -110,12 +110,12 @@ describe("Sessions repository", () => {
       insertSession(db, makeSession("sess_1", { status: SessionStatus.Active }));
 
       updateSession(db, createSessionId("sess_1"), {
-        status: SessionStatus.Paused,
+        status: SessionStatus.Terminated,
         updatedAt: "2025-01-02T00:00:00.000Z",
       });
 
       const updated = getSession(db, createSessionId("sess_1"));
-      expect(updated!.status).toBe(SessionStatus.Paused);
+      expect(updated!.status).toBe(SessionStatus.Terminated);
       expect(updated!.updatedAt).toBe("2025-01-02T00:00:00.000Z");
     });
 
@@ -135,7 +135,7 @@ describe("Sessions repository", () => {
       insertSession(db, makeSession("sess_1", { status: SessionStatus.Active }));
       insertSession(db, makeSession("sess_2", { status: SessionStatus.Terminated }));
       insertSession(db, makeSession("sess_3", { status: SessionStatus.Active }));
-      insertSession(db, makeSession("sess_4", { status: SessionStatus.Paused }));
+      insertSession(db, makeSession("sess_4", { status: SessionStatus.Provisioning }));
 
       const active = getActiveSessions(db);
       expect(active).toHaveLength(2);
