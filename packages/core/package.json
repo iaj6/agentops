@@ -1,10 +1,36 @@
 {
   "name": "@agentops/core",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
+  "description": "Domain types, policy engine, and scoring for AgentOps",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentops-ai/agentops",
+    "directory": "packages/core"
+  },
+  "keywords": [
+    "agentops",
+    "ai-agents",
+    "observability",
+    "control-plane",
+    "policy-engine",
+    "scoring",
+    "typescript-types"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run"

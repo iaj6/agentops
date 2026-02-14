@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/hooks/useToast";
 
 const POLICY_TYPES = [
   { value: "pathRestriction", label: "Path Restriction", description: "Block edits to specific paths" },
@@ -96,10 +97,13 @@ export function CreatePolicyForm({ onClose }: { onClose: () => void }) {
         throw new Error(data.error || "Failed to create policy");
       }
 
+      toast("Policy created successfully", "success");
       router.refresh();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create policy");
+      const msg = err instanceof Error ? err.message : "Failed to create policy";
+      setError(msg);
+      toast(msg, "error");
     } finally {
       setSubmitting(false);
     }

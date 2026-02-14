@@ -94,6 +94,7 @@ export enum EventCategory {
   Policy = "policy",
   Cost = "cost",
   Action = "action",
+  Agent = "agent",
 }
 
 export enum LockType {

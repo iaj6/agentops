@@ -73,6 +73,13 @@ export function migrate(sqlite: Database.Database): void {
     // Column already exists - ignore
   }
 
+  // Add summary column to existing runs tables (safe to run multiple times)
+  try {
+    sqlite.exec(`ALTER TABLE runs ADD COLUMN summary TEXT`);
+  } catch {
+    // Column already exists - ignore
+  }
+
   // ─── Orchestration tables ──────────────────────────────────────────────────
 
   sqlite.exec(`

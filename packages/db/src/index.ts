@@ -6,11 +6,11 @@ export type { AgentOpsDb } from "./connection.js";
 export { runs, policies, policyResults, runMetrics, jobs, sessions, events, locks } from "./schema.js";
 
 // Run repository
-export { insertRun, getRun, listRuns, updateRun, getRunMetrics, searchRuns, countRuns, getDistinctRepos, getDistinctBranches } from "./runs.js";
-export type { SearchRunsFilters } from "./runs.js";
+export { insertRun, getRun, listRuns, updateRun, getRunMetrics, searchRuns, countRuns, getDistinctRepos, getDistinctBranches, updateRunSummary, getRunSummary, listRunsWithSummaries } from "./runs.js";
+export type { SearchRunsFilters, RunWithSummary } from "./runs.js";
 
 // Policy repository
-export { insertPolicy, listPolicies, getPolicyResults, getPolicy, updatePolicy, getPolicyStats, getPolicyResultsForPolicy } from "./policies.js";
+export { insertPolicy, listPolicies, getPolicyResults, getPolicy, updatePolicy, deletePolicy, getPolicyStats, getPolicyResultsForPolicy } from "./policies.js";
 
 // Job repository (WS1)
 export { insertJob, getJob, listJobs, updateJob, countJobsByRepo, countJobsActive, getQueuedJobs } from "./jobs.js";

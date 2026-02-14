@@ -5,6 +5,14 @@ import { db } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  const count = releaseExpiredLocks(db());
-  return NextResponse.json({ released: count });
+  try {
+    const count = releaseExpiredLocks(db());
+    return NextResponse.json({ released: count });
+  } catch (error) {
+    console.error("API error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
 }

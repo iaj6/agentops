@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { Job, Run } from "@agentops/core";
 import { JobStatus } from "@agentops/core";
 import { JobStatusBadge } from "@/components/JobStatusBadge";
 import { PriorityBadge } from "@/components/PriorityBadge";
+import { toast } from "@/hooks/useToast";
 import Link from "next/link";
 
 const LIFECYCLE_STEPS = [
@@ -218,25 +219,29 @@ export function JobDetail({ job: initialJob }: { job: Job }) {
     };
   }, [job.id, job.status]);
 
-  async function handleAction(action: "cancel" | "retry") {
+  const handleCancel = useCallback(async () => {
+    if (!confirm("Are you sure you want to cancel this job?")) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`/api/jobs/${job.id as string}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+      const res = await fetch(`/api/jobs/${job.id as string}/cancel`, {
+        method: "POST",
       });
       if (res.ok) {
         const updated = await res.json();
         setJob(updated);
+        toast("Job cancelled", "success");
+      } else {
+        const err = await res.json().catch(() => ({ error: "Cancel failed" }));
+        toast(err.error ?? "Failed to cancel job", "error");
       }
+    } catch {
+      toast("Network error", "error");
     } finally {
       setActionLoading(false);
     }
-  }
+  }, [job.id]);
 
   const canCancel = ["queued", "dispatched", "running"].includes(job.status);
-  const canRetry = ["failed", "cancelled"].includes(job.status);
   const isActive = !TERMINAL_STATUSES.has(job.status);
 
   return (
@@ -262,20 +267,11 @@ export function JobDetail({ job: initialJob }: { job: Job }) {
             )}
             {canCancel && (
               <button
-                onClick={() => handleAction("cancel")}
+                onClick={handleCancel}
                 disabled={actionLoading}
                 className="rounded border border-red/30 bg-red/10 px-3 py-1 text-xs font-medium text-red hover:bg-red/20 transition-colors disabled:opacity-50"
               >
-                Cancel
-              </button>
-            )}
-            {canRetry && (
-              <button
-                onClick={() => handleAction("retry")}
-                disabled={actionLoading}
-                className="rounded border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
-              >
-                Retry
+                Cancel Job
               </button>
             )}
           </div>

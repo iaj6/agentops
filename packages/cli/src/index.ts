@@ -14,6 +14,10 @@ import { registerSessionCommands } from "./commands/session.js";
 import { registerEventsCommands } from "./commands/events.js";
 import { registerLockCommands } from "./commands/lock.js";
 import { registerDispatchCommands } from "./commands/dispatch.js";
+import { registerInitCommand } from "./commands/init.js";
+import { registerServeCommand } from "./commands/serve.js";
+import { registerSetupCommand } from "./commands/setup.js";
+import { registerHookCommand } from "./commands/hook.js";
 
 const program = new Command();
 
@@ -36,5 +40,9 @@ registerSessionCommands(program);
 registerEventsCommands(program);
 registerLockCommands(program);
 registerDispatchCommands(program);
+registerInitCommand(program);
+registerServeCommand(program);
+registerSetupCommand(program);
+registerHookCommand(program);
 
 program.parse();

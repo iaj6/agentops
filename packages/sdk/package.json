@@ -1,0 +1,45 @@
+{
+  "name": "@agentops/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Client SDK for agent runtimes to communicate with AgentOps",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentops-ai/agentops",
+    "directory": "packages/sdk"
+  },
+  "keywords": [
+    "agentops",
+    "ai-agents",
+    "observability",
+    "control-plane",
+    "sdk",
+    "agent-runtime",
+    "http-client"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentops/core": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

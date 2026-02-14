@@ -9,7 +9,15 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
-  const results = getPolicyResultsForPolicy(db(), createPolicyId(id));
-  return NextResponse.json(results);
+  try {
+    const { id } = await params;
+    const results = getPolicyResultsForPolicy(db(), createPolicyId(id));
+    return NextResponse.json(results);
+  } catch (error) {
+    console.error("API error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
 }

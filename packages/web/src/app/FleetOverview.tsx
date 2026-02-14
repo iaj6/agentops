@@ -55,14 +55,14 @@ export function FleetOverview({ children }: { children: ReactNode }) {
         />
         <MetricCard label="Total Cost" value={formatCost(stats.runs.totalCost)} />
         <MetricCard
-          label="Active Jobs"
-          value={String(activeJobs)}
-          sub={`${stats.jobs.queued}q / ${stats.jobs.dispatched}d / ${stats.jobs.running}r`}
+          label="Today"
+          value={String(stats.summary.runsToday)}
+          sub={`${formatCost(stats.summary.costToday)} spent`}
         />
         <MetricCard
-          label="Sessions"
-          value={String(stats.sessions.active)}
-          sub="active"
+          label="This Week"
+          value={String(stats.summary.runsThisWeek)}
+          sub={`${formatCost(stats.summary.costThisWeek)} spent`}
         />
         <MetricCard
           label="Events (24h)"
@@ -70,11 +70,31 @@ export function FleetOverview({ children }: { children: ReactNode }) {
           sub={`${stats.events.lastHour} last hour`}
         />
         <MetricCard
-          label="Locks"
-          value={String(stats.locks.active)}
-          sub="active"
+          label="Active Jobs"
+          value={String(activeJobs)}
+          sub={`${stats.sessions.active} sessions`}
         />
       </div>
+
+      {/* Row 1.5: Top repos (if any) */}
+      {stats.summary.topRepos.length > 0 && (
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted">
+            Most Active Repos (This Week)
+          </h3>
+          <div className="flex flex-wrap gap-3">
+            {stats.summary.topRepos.map(({ repo, count }) => (
+              <span
+                key={repo}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 py-1 text-xs"
+              >
+                <span className="font-mono text-foreground">{repo}</span>
+                <span className="text-muted">{count} runs</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Row 2: Runs table (left) + Activity feed (right) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

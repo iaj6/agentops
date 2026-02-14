@@ -28,6 +28,10 @@ export const EVENT_TYPES = {
   "session.started": "session.started",
   "session.paused": "session.paused",
   "session.terminated": "session.terminated",
+
+  // Agent events
+  "agent.spawned": "agent.spawned",
+  "agent.completed": "agent.completed",
 } as const;
 
 export type EventType = (typeof EVENT_TYPES)[keyof typeof EVENT_TYPES];

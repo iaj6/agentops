@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { listRuns } from "@agentops/db";
+import { listRunsWithSummaries } from "@agentops/db";
 import { db } from "@/lib/db";
 import { RunsTable } from "./RunsTable";
 import { FleetOverview } from "./FleetOverview";
@@ -7,7 +7,7 @@ import { FleetOverview } from "./FleetOverview";
 export const dynamic = "force-dynamic";
 
 export default function HomePage() {
-  const runs = listRuns(db(), { limit: 50 });
+  const runsWithSummaries = listRunsWithSummaries(db(), { limit: 50 });
 
   return (
     <div className="p-6">
@@ -20,7 +20,7 @@ export default function HomePage() {
         </div>
       </div>
       <FleetOverview>
-        {runs.length === 0 ? (
+        {runsWithSummaries.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-surface py-20">
             <div className="text-4xl text-muted mb-3">
               <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
@@ -35,7 +35,7 @@ export default function HomePage() {
           </div>
         ) : (
           <Suspense fallback={<div className="py-8 text-center text-sm text-muted">Loading runs...</div>}>
-            <RunsTable runs={JSON.parse(JSON.stringify(runs))} />
+            <RunsTable runs={JSON.parse(JSON.stringify(runsWithSummaries))} />
           </Suspense>
         )}
       </FleetOverview>

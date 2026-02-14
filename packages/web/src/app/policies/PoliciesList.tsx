@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Policy, PolicySeverity } from "@agentops/core";
+import type { Policy } from "@agentops/core";
+import { toast } from "@/hooks/useToast";
 import { CreatePolicyForm } from "./CreatePolicyForm";
 
 type PolicyWithMeta = Policy & {
@@ -49,23 +50,123 @@ function ToggleSwitch({
   );
 }
 
+function ConfirmDialog({
+  title,
+  message,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-lg border border-border bg-surface shadow-xl p-6">
+        <h3 className="text-sm font-semibold text-foreground mb-2">{title}</h3>
+        <p className="text-sm text-muted mb-6">{message}</p>
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="rounded-md border border-border px-4 py-2 text-sm text-muted hover:text-foreground transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="rounded-md bg-red px-4 py-2 text-sm font-medium text-white hover:bg-red/90 transition-colors"
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PoliciesList({ policies }: { policies: PolicyWithMeta[] }) {
   const router = useRouter();
   const [showCreate, setShowCreate] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   async function handleToggle(policyId: string, currentEnabled: boolean) {
     setToggling(policyId);
     try {
-      await fetch(`/api/policies/${policyId}`, {
+      const res = await fetch(`/api/policies/${policyId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: !currentEnabled }),
       });
+      if (res.ok) {
+        toast(
+          `Policy ${!currentEnabled ? "enabled" : "disabled"}`,
+          "success",
+        );
+      } else {
+        toast("Failed to toggle policy", "error");
+      }
       router.refresh();
+    } catch {
+      toast("Failed to toggle policy", "error");
     } finally {
       setToggling(null);
     }
+  }
+
+  async function handleDelete(policyId: string) {
+    setConfirmDelete(null);
+    setDeletingId(policyId);
+    try {
+      const res = await fetch(`/api/policies/${policyId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        toast("Policy deleted", "success");
+      } else {
+        toast("Failed to delete policy", "error");
+      }
+      router.refresh();
+    } catch {
+      toast("Failed to delete policy", "error");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  if (policies.length === 0 && !showCreate) {
+    return (
+      <>
+        <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-surface py-20">
+          <div className="text-4xl text-muted mb-3">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <path
+                d="M24 4L8 12v12c0 10.5 7.5 16.5 16 21 8.5-4.5 16-10.5 16-21V12L24 4z"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeDasharray="4 4"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+          <p className="text-sm font-medium text-foreground">No policies configured</p>
+          <p className="text-xs text-muted mt-1 mb-4">
+            Create your first policy to start governing agent runs.
+          </p>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 transition-colors"
+          >
+            Create Policy
+          </button>
+        </div>
+        {showCreate && <CreatePolicyForm onClose={() => setShowCreate(false)} />}
+      </>
+    );
   }
 
   return (
@@ -95,6 +196,7 @@ export function PoliciesList({ policies }: { policies: PolicyWithMeta[] }) {
               <th className="px-4 py-3">Config</th>
               <th className="px-4 py-3">Enabled</th>
               <th className="px-4 py-3">Created</th>
+              <th className="px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -161,6 +263,18 @@ export function PoliciesList({ policies }: { policies: PolicyWithMeta[] }) {
                 <td className="px-4 py-3 text-xs text-muted">
                   {new Date(policy.createdAt).toLocaleDateString()}
                 </td>
+                <td className="px-4 py-3">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDelete(policy.id as string);
+                    }}
+                    disabled={deletingId === (policy.id as string)}
+                    className="rounded-md border border-border px-2 py-1 text-xs text-red hover:bg-red/10 transition-colors disabled:opacity-50"
+                  >
+                    {deletingId === (policy.id as string) ? "Deleting..." : "Delete"}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -168,6 +282,16 @@ export function PoliciesList({ policies }: { policies: PolicyWithMeta[] }) {
       </div>
 
       {showCreate && <CreatePolicyForm onClose={() => setShowCreate(false)} />}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete Policy"
+          message="Are you sure you want to delete this policy? This action cannot be undone."
+          confirmLabel="Delete"
+          onConfirm={() => handleDelete(confirmDelete)}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
     </>
   );
 }

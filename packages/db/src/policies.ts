@@ -182,6 +182,13 @@ export function getPolicyStats(
   return { total: passed + failed, passed, failed };
 }
 
+export function deletePolicy(
+  db: AgentOpsDb,
+  id: PolicyId,
+): void {
+  db.delete(policies).where(eq(policies.id, id as string)).run();
+}
+
 export function getPolicyResultsForPolicy(
   db: AgentOpsDb,
   policyId: PolicyId,

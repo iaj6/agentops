@@ -1,18 +1,45 @@
 {
   "name": "@agentops/cli",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
+  "description": "CLI for AgentOps — the control plane for autonomous AI agents",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentops-ai/agentops",
+    "directory": "packages/cli"
+  },
+  "keywords": [
+    "agentops",
+    "ai-agents",
+    "observability",
+    "control-plane",
+    "cli",
+    "claude-code",
+    "developer-tools"
+  ],
   "bin": {
     "agentops": "./dist/index.js"
   },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run"
   },
   "dependencies": {
-    "@agentops/core": "*",
-    "@agentops/db": "*",
+    "@agentops/core": "0.1.0",
+    "@agentops/db": "0.1.0",
+    "@agentops/web": "0.1.0",
     "commander": "^13.0.0"
   },
   "devDependencies": {

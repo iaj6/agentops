@@ -1,17 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import type { Run } from "@agentops/core";
+import { useState, useCallback } from "react";
+import type { Run, SessionSummary } from "@agentops/core";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MetricCard } from "@/components/MetricCard";
 import { ScoreBar } from "@/components/ScoreBar";
 import { DiffViewer } from "@/components/DiffViewer";
 import { ActionTimeline } from "@/components/ActionTimeline";
+import { AgentTimelineView } from "@/components/AgentTimeline";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
+import { SummaryTab } from "@/components/SummaryTab";
 import { useRunDetail } from "@/hooks/useRunDetail";
+import { toast } from "@/hooks/useToast";
 import Link from "next/link";
 
-type Tab = "overview" | "actions" | "artifacts" | "metrics" | "policy" | "decision" | "github";
+type Tab = "summary" | "agents" | "overview" | "actions" | "artifacts" | "metrics" | "policy" | "decision" | "github";
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -33,15 +36,57 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-export function RunDetail({ run: initialRun }: { run: Run }) {
-  const { run: liveRun, connected } = useRunDetail(
+export function RunDetail({ run: initialRun, initialSummary }: { run: Run; initialSummary: SessionSummary | null }) {
+  const { run: liveRun, summary: liveSummary, connected } = useRunDetail(
     initialRun.id as string,
     initialRun,
+    initialSummary,
   );
   const run = liveRun ?? initialRun;
-  const [tab, setTab] = useState<Tab>("overview");
+  const summary = liveSummary ?? initialSummary;
+  const [tab, setTab] = useState<Tab>(summary ? "summary" : "overview");
+  const [decideLoading, setDecideLoading] = useState(false);
+  const [localRun, setLocalRun] = useState<Run | null>(null);
+
+  // Use localRun if available (after a decision is made), otherwise liveRun
+  const displayRun = localRun ?? run;
+
+  const handleDecide = useCallback(
+    async (decision: "Approve" | "Block", reason: string) => {
+      setDecideLoading(true);
+      try {
+        const res = await fetch(`/api/runs/${displayRun.id as string}/decide`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            decision,
+            reason: reason || `${decision}d via dashboard`,
+            actor: "dashboard-operator",
+          }),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          setLocalRun(updated);
+          toast(
+            decision === "Approve" ? "Run approved" : "Run blocked",
+            decision === "Approve" ? "success" : "warning",
+          );
+        } else {
+          const err = await res.json().catch(() => ({ error: "Request failed" }));
+          toast(err.error ?? `Failed to ${decision.toLowerCase()} run`, "error");
+        }
+      } catch {
+        toast("Network error", "error");
+      } finally {
+        setDecideLoading(false);
+      }
+    },
+    [displayRun.id],
+  );
 
   const tabs: { key: Tab; label: string }[] = [
+    ...(summary ? [{ key: "summary" as Tab, label: "Summary" }] : []),
+    { key: "agents", label: "Agents" },
     { key: "overview", label: "Overview" },
     { key: "actions", label: "Actions" },
     { key: "artifacts", label: "Artifacts" },
@@ -50,6 +95,13 @@ export function RunDetail({ run: initialRun }: { run: Run }) {
     { key: "decision", label: "Decision" },
     { key: "github", label: "GitHub" },
   ];
+
+  // Whether this run can be approved/blocked
+  const canDecide =
+    displayRun.status === "completed" &&
+    displayRun.decisions.every(
+      (d) => d.type !== "approval" && d.type !== "block",
+    );
 
   return (
     <div className="p-6">
@@ -66,27 +118,27 @@ export function RunDetail({ run: initialRun }: { run: Run }) {
         </div>
         <div className="flex items-center gap-3">
           <h1 className="font-mono text-lg font-semibold text-foreground">
-            {(run.id as string).slice(0, 12)}
+            {(displayRun.id as string).slice(0, 12)}
           </h1>
-          <StatusBadge status={run.status} />
+          <StatusBadge status={displayRun.status} />
         </div>
-        <p className="mt-1 text-sm text-foreground">{run.goal.humanReadable}</p>
+        <p className="mt-1 text-sm text-foreground">{displayRun.goal.humanReadable}</p>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
           <span>
             <span className="text-muted/70">Repo</span>{" "}
-            <span className="font-mono">{run.environment.repo}</span>
+            <span className="font-mono">{displayRun.environment.repo}</span>
           </span>
           <span>
             <span className="text-muted/70">Branch</span>{" "}
-            <span className="font-mono">{run.environment.branch}</span>
+            <span className="font-mono">{displayRun.environment.branch}</span>
           </span>
           <span>
             <span className="text-muted/70">Created</span>{" "}
-            {new Date(run.createdAt).toLocaleString()}
+            {new Date(displayRun.createdAt).toLocaleString()}
           </span>
           <span>
             <span className="text-muted/70">Updated</span>{" "}
-            {new Date(run.updatedAt).toLocaleString()}
+            {new Date(displayRun.updatedAt).toLocaleString()}
           </span>
         </div>
       </div>
@@ -109,13 +161,24 @@ export function RunDetail({ run: initialRun }: { run: Run }) {
       </div>
 
       {/* Tab content */}
-      {tab === "overview" && <OverviewTab run={run} />}
-      {tab === "actions" && <ActionsTab run={run} />}
-      {tab === "artifacts" && <ArtifactsTab run={run} />}
-      {tab === "metrics" && <MetricsTab run={run} />}
-      {tab === "policy" && <PolicyTab run={run} />}
-      {tab === "decision" && <DecisionTab run={run} />}
-      {tab === "github" && <GitHubTab run={run} />}
+      {tab === "summary" && summary && (
+        <SummaryTab summary={summary} onViewActions={() => setTab("actions")} />
+      )}
+      {tab === "agents" && <AgentTimelineView runId={displayRun.id as string} />}
+      {tab === "overview" && <OverviewTab run={displayRun} />}
+      {tab === "actions" && <ActionsTab run={displayRun} />}
+      {tab === "artifacts" && <ArtifactsTab run={displayRun} />}
+      {tab === "metrics" && <MetricsTab run={displayRun} />}
+      {tab === "policy" && <PolicyTab run={displayRun} />}
+      {tab === "decision" && (
+        <DecisionTab
+          run={displayRun}
+          canDecide={canDecide}
+          decideLoading={decideLoading}
+          onDecide={handleDecide}
+        />
+      )}
+      {tab === "github" && <GitHubTab run={displayRun} />}
     </div>
   );
 }
@@ -542,10 +605,19 @@ function PolicyTab({ run }: { run: Run }) {
   );
 }
 
-function DecisionTab({ run }: { run: Run }) {
-  if (run.decisions.length === 0) {
-    return <EmptyState message="No decisions recorded for this run." />;
-  }
+function DecisionTab({
+  run,
+  canDecide,
+  decideLoading,
+  onDecide,
+}: {
+  run: Run;
+  canDecide: boolean;
+  decideLoading: boolean;
+  onDecide: (decision: "Approve" | "Block", reason: string) => void;
+}) {
+  const [blockReason, setBlockReason] = useState("");
+  const [showBlockInput, setShowBlockInput] = useState(false);
 
   const typeColors: Record<string, string> = {
     approval: "bg-green/15 text-green",
@@ -554,28 +626,93 @@ function DecisionTab({ run }: { run: Run }) {
   };
 
   return (
-    <div className="space-y-3">
-      {run.decisions.map((decision) => (
-        <div
-          key={decision.id as string}
-          className="rounded-lg border border-border bg-surface p-4"
-        >
-          <div className="flex items-center gap-3 mb-2">
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium ${typeColors[decision.type] ?? "bg-muted/15 text-muted"}`}
+    <div className="space-y-4">
+      {/* Approve / Block controls */}
+      {canDecide && (
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+            Review Decision
+          </h3>
+          <p className="mb-3 text-sm text-muted">
+            This run is awaiting review. Approve to accept the changes, or block to reject them.
+          </p>
+          <div className="flex items-start gap-2">
+            <button
+              onClick={() => onDecide("Approve", "Approved via dashboard")}
+              disabled={decideLoading}
+              className="rounded-md border border-green/30 bg-green/10 px-4 py-1.5 text-xs font-medium text-green hover:bg-green/20 transition-colors disabled:opacity-50"
             >
-              {decision.type.toUpperCase()}
-            </span>
-            <span className="text-sm font-medium text-foreground">
-              {decision.actor}
-            </span>
-            <span className="ml-auto text-xs text-muted">
-              {new Date(decision.timestamp).toLocaleString()}
-            </span>
+              Approve
+            </button>
+            {!showBlockInput ? (
+              <button
+                onClick={() => setShowBlockInput(true)}
+                disabled={decideLoading}
+                className="rounded-md border border-red/30 bg-red/10 px-4 py-1.5 text-xs font-medium text-red hover:bg-red/20 transition-colors disabled:opacity-50"
+              >
+                Block
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Reason for blocking..."
+                  value={blockReason}
+                  onChange={(e) => setBlockReason(e.target.value)}
+                  className="rounded border border-border bg-surface-2 px-3 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
+                />
+                <button
+                  onClick={() => {
+                    onDecide("Block", blockReason || "Blocked via dashboard");
+                    setShowBlockInput(false);
+                    setBlockReason("");
+                  }}
+                  disabled={decideLoading}
+                  className="rounded-md border border-red/30 bg-red/10 px-3 py-1.5 text-xs font-medium text-red hover:bg-red/20 transition-colors disabled:opacity-50"
+                >
+                  Confirm Block
+                </button>
+                <button
+                  onClick={() => {
+                    setShowBlockInput(false);
+                    setBlockReason("");
+                  }}
+                  className="text-xs text-muted hover:text-foreground transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
-          <p className="text-sm text-muted">{decision.reason}</p>
         </div>
-      ))}
+      )}
+
+      {/* Existing decisions */}
+      {run.decisions.length === 0 && !canDecide ? (
+        <EmptyState message="No decisions recorded for this run." />
+      ) : (
+        run.decisions.map((decision) => (
+          <div
+            key={decision.id as string}
+            className="rounded-lg border border-border bg-surface p-4"
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-medium ${typeColors[decision.type] ?? "bg-muted/15 text-muted"}`}
+              >
+                {decision.type.toUpperCase()}
+              </span>
+              <span className="text-sm font-medium text-foreground">
+                {decision.actor}
+              </span>
+              <span className="ml-auto text-xs text-muted">
+                {new Date(decision.timestamp).toLocaleString()}
+              </span>
+            </div>
+            <p className="text-sm text-muted">{decision.reason}</p>
+          </div>
+        ))
+      )}
     </div>
   );
 }

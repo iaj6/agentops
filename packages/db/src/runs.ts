@@ -1,5 +1,5 @@
 import { eq, and, desc, asc, gte, lte, inArray, sql, count } from "drizzle-orm";
-import type { Run, RunId, Metrics } from "@agentops/core";
+import type { Run, RunId, Metrics, SessionSummary } from "@agentops/core";
 import { createRunId } from "@agentops/core";
 import type { AgentOpsDb } from "./connection.js";
 import { runs, runMetrics } from "./schema.js";
@@ -43,6 +43,7 @@ export function insertRun(db: AgentOpsDb, run: Run): void {
       evaluations: run.evaluations as unknown as Record<string, unknown>,
       decisions: run.decisions as unknown as Record<string, unknown>,
       github: (run.github as unknown as Record<string, unknown>) ?? null,
+      summary: null,
       createdAt: run.createdAt,
       updatedAt: run.updatedAt,
     })
@@ -270,4 +271,74 @@ export function getDistinctBranches(db: AgentOpsDb): string[] {
     .orderBy(asc(runs.branch))
     .all();
   return rows.map((r) => r.branch);
+}
+
+// ─── Summary persistence ──────────────────────────────────────────────────
+
+export function updateRunSummary(
+  db: AgentOpsDb,
+  id: RunId,
+  summary: SessionSummary,
+): void {
+  db.update(runs)
+    .set({ summary: summary as unknown as Record<string, unknown> })
+    .where(eq(runs.id, id as string))
+    .run();
+}
+
+export function getRunSummary(
+  db: AgentOpsDb,
+  id: RunId,
+): SessionSummary | null {
+  const row = db
+    .select({ summary: runs.summary })
+    .from(runs)
+    .where(eq(runs.id, id as string))
+    .get();
+  if (!row || !row.summary) return null;
+  return row.summary as unknown as SessionSummary;
+}
+
+export interface RunWithSummary {
+  readonly run: Run;
+  readonly summary: SessionSummary | null;
+}
+
+export function listRunsWithSummaries(
+  db: AgentOpsDb,
+  filters?: ListRunsFilters,
+): RunWithSummary[] {
+  const conditions = [];
+  if (filters?.status) {
+    conditions.push(eq(runs.status, filters.status));
+  }
+  if (filters?.repo) {
+    conditions.push(eq(runs.repo, filters.repo));
+  }
+  if (filters?.branch) {
+    conditions.push(eq(runs.branch, filters.branch));
+  }
+
+  let query = db
+    .select()
+    .from(runs)
+    .orderBy(desc(runs.createdAt))
+    .$dynamic();
+
+  if (conditions.length > 0) {
+    query = query.where(and(...conditions));
+  }
+
+  if (filters?.limit) {
+    query = query.limit(filters.limit);
+  }
+  if (filters?.offset) {
+    query = query.offset(filters.offset);
+  }
+
+  const rows = query.all();
+  return rows.map((row) => ({
+    run: rowToRun(row),
+    summary: row.summary ? (row.summary as unknown as SessionSummary) : null,
+  }));
 }

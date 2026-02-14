@@ -1,0 +1,90 @@
+import { NextRequest, NextResponse } from "next/server";
+import type { Goal, Environment } from "@agentops/core";
+import {
+  createRun,
+  startRun,
+  assignRun,
+  createSessionId,
+  createEvent,
+  EventCategory,
+  EVENT_TYPES,
+} from "@agentops/core";
+import { insertRun, insertEvent, getSession, updateSession } from "@agentops/db";
+import { db } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(request: NextRequest) {
+  try {
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const goal = body.goal as unknown as Goal | undefined;
+    const environment = body.environment as unknown as Environment | undefined;
+
+    if (!goal || typeof goal !== "object") {
+      return NextResponse.json(
+        { error: "goal is required and must be an object" },
+        { status: 400 },
+      );
+    }
+
+    if (!goal.humanReadable || typeof goal.humanReadable !== "string") {
+      return NextResponse.json(
+        { error: "goal.humanReadable is required and must be a string" },
+        { status: 400 },
+      );
+    }
+
+    if (!environment || typeof environment !== "object") {
+      return NextResponse.json(
+        { error: "environment is required and must be an object" },
+        { status: 400 },
+      );
+    }
+
+    if (!environment.repo || typeof environment.repo !== "string") {
+      return NextResponse.json(
+        { error: "environment.repo is required and must be a string" },
+        { status: 400 },
+      );
+    }
+
+    const run = startRun(createRun(goal, environment));
+
+    insertRun(db(), run);
+
+    // If sessionId provided, attach the run to the session
+    const sessionId = body.sessionId as string | undefined;
+    if (sessionId) {
+      const session = getSession(db(), createSessionId(sessionId));
+      if (session) {
+        const updated = assignRun(session, run.id);
+        updateSession(db(), updated.id, {
+          currentRunId: updated.currentRunId,
+          updatedAt: updated.updatedAt,
+        });
+      }
+    }
+
+    const event = createEvent(
+      EventCategory.Run,
+      EVENT_TYPES["run.started"],
+      run.id as string,
+      { runId: run.id, goal: run.goal.humanReadable },
+    );
+    insertEvent(db(), event);
+
+    return NextResponse.json({ runId: run.id, status: run.status }, { status: 201 });
+  } catch (error) {
+    console.error("API error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}

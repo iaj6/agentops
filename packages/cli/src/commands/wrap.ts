@@ -9,9 +9,15 @@ import {
   createActionId,
   createArtifactId,
   addArtifact,
+  createEvent,
+  EVENT_TYPES,
+  EventCategory,
+  computeScore,
+  PolicyEngine,
+  generateSummary,
 } from "@agentops/core";
 import type { Run, Action, Command as CmdType, FileEdit } from "@agentops/core";
-import { getDb, insertRun, updateRun } from "@agentops/db";
+import { getDb, insertRun, updateRun, insertEvent, listPolicies, updateRunSummary } from "@agentops/db";
 import { getCurrentRepo, getCurrentBranch, getWorkingTreeDiff, getChangedFiles } from "../git.js";
 import { colorStatus } from "../format.js";
 
@@ -41,7 +47,7 @@ export function registerWrapCommand(program: Command): void {
         // Take "before" diff snapshot
         const diffBefore = getWorkingTreeDiff();
 
-        // Create and start the run
+        // Create and start the run BEFORE execution so it appears in the dashboard
         let run = createRun(
           {
             humanReadable: goal,
@@ -61,6 +67,17 @@ export function registerWrapCommand(program: Command): void {
         run = startRun(run);
         insertRun(db, run);
 
+        // Emit run.started event for real-time dashboard updates
+        insertEvent(
+          db,
+          createEvent(EventCategory.Run, EVENT_TYPES["run.started"], run.id as string, {
+            goal,
+            command: commandStr,
+            repo,
+            branch,
+          }),
+        );
+
         if (!json) {
           console.log(`Run started: ${run.id}`);
           console.log(`Command:     ${commandStr}`);
@@ -72,6 +89,33 @@ export function registerWrapCommand(program: Command): void {
         const startTime = Date.now();
         let stdout = "";
         let stderr = "";
+
+        // Throttle state for action events during execution
+        let lastEventTime = 0;
+        const EVENT_THROTTLE_MS = 1000;
+        let outputBuffer = "";
+
+        function flushOutputEvent(): void {
+          if (outputBuffer.length === 0) return;
+          insertEvent(
+            db,
+            createEvent(EventCategory.Action, EVENT_TYPES["action.taken"], run.id as string, {
+              type: "output",
+              content: outputBuffer.slice(0, 2000),
+              elapsedMs: Date.now() - startTime,
+            }),
+          );
+          outputBuffer = "";
+          lastEventTime = Date.now();
+        }
+
+        function onOutput(text: string): void {
+          outputBuffer += text;
+          const now = Date.now();
+          if (now - lastEventTime >= EVENT_THROTTLE_MS) {
+            flushOutputEvent();
+          }
+        }
 
         // Execute the command
         const exitCode = await new Promise<number>((resolve) => {
@@ -85,12 +129,14 @@ export function registerWrapCommand(program: Command): void {
             const text = data.toString();
             stdout += text;
             if (!json) process.stdout.write(text);
+            onOutput(text);
           });
 
           child.stderr.on("data", (data: Buffer) => {
             const text = data.toString();
             stderr += text;
             if (!json) process.stderr.write(text);
+            onOutput(text);
           });
 
           child.on("close", (code) => {
@@ -102,6 +148,9 @@ export function registerWrapCommand(program: Command): void {
             resolve(1);
           });
         });
+
+        // Flush any remaining buffered output as a final action event
+        flushOutputEvent();
 
         const wallTimeMs = Date.now() - startTime;
 
@@ -175,6 +224,35 @@ export function registerWrapCommand(program: Command): void {
           decisions: run.decisions,
           updatedAt: run.updatedAt,
         });
+
+        // Run scoring and generate summary
+        const activePolicies = listPolicies(db, { enabled: true });
+        const score = computeScore(run, activePolicies);
+        const engine = new PolicyEngine();
+        const policyResults = engine.evaluate(run, activePolicies);
+        const summary = generateSummary(run, run.metrics, policyResults, score);
+        updateRunSummary(db, run.id, summary);
+
+        // Emit final run event for real-time dashboard updates
+        if (exitCode === 0) {
+          insertEvent(
+            db,
+            createEvent(EventCategory.Run, EVENT_TYPES["run.completed"], run.id as string, {
+              exitCode,
+              wallTimeMs,
+              filesChanged: fileEdits.length,
+            }),
+          );
+        } else {
+          insertEvent(
+            db,
+            createEvent(EventCategory.Run, EVENT_TYPES["run.failed"], run.id as string, {
+              exitCode,
+              wallTimeMs,
+              error: stderr.slice(0, 500),
+            }),
+          );
+        }
 
         if (!json) {
           console.log();

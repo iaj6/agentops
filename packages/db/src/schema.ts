@@ -16,6 +16,7 @@ export const runs = sqliteTable("runs", {
   evaluations: text("evaluations", { mode: "json" }).notNull(),
   decisions: text("decisions", { mode: "json" }).notNull(),
   github: text("github", { mode: "json" }),
+  summary: text("summary", { mode: "json" }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

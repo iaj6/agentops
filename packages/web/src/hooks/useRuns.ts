@@ -1,19 +1,24 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { Run } from "@agentops/core";
+import type { Run, SessionSummary } from "@agentops/core";
 import { useEventSource, type SSEEvent } from "./useEventSource";
 
+export interface RunWithSummary {
+  readonly run: Run;
+  readonly summary: SessionSummary | null;
+}
+
 interface UseRunsReturn {
-  runs: Run[];
+  runsWithSummaries: RunWithSummary[];
   loading: boolean;
   connected: boolean;
   /** Set of run IDs that were recently updated (for highlight animation) */
   recentlyUpdated: Set<string>;
 }
 
-export function useRuns(initialRuns: Run[]): UseRunsReturn {
-  const [runs, setRuns] = useState<Run[]>(initialRuns);
+export function useRuns(initialRuns: RunWithSummary[]): UseRunsReturn {
+  const [runsWithSummaries, setRunsWithSummaries] = useState<RunWithSummary[]>(initialRuns);
   const [loading, setLoading] = useState(false);
   const [recentlyUpdated, setRecentlyUpdated] = useState<Set<string>>(
     new Set(),
@@ -31,7 +36,7 @@ export function useRuns(initialRuns: Run[]): UseRunsReturn {
         const res = await fetch("/api/runs?limit=50");
         if (res.ok && !cancelled) {
           const data = await res.json();
-          setRuns(data);
+          setRunsWithSummaries(data);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -69,23 +74,23 @@ export function useRuns(initialRuns: Run[]): UseRunsReturn {
       const run = event.data as Run;
       const runId = run.id as string;
 
-      setRuns((prev) => {
+      setRunsWithSummaries((prev) => {
         if (event.type === "run_created") {
           // Prepend new run if not already present
-          if (prev.some((r) => (r.id as string) === runId)) {
-            return prev.map((r) => ((r.id as string) === runId ? run : r));
+          if (prev.some((r) => (r.run.id as string) === runId)) {
+            return prev.map((r) => ((r.run.id as string) === runId ? { run, summary: r.summary } : r));
           }
-          return [run, ...prev];
+          return [{ run, summary: null }, ...prev];
         }
 
         // run_updated, run_completed, run_failed: update in place
-        const idx = prev.findIndex((r) => (r.id as string) === runId);
+        const idx = prev.findIndex((r) => (r.run.id as string) === runId);
         if (idx === -1) {
           // Unknown run appeared, prepend it
-          return [run, ...prev];
+          return [{ run, summary: null }, ...prev];
         }
         const next = [...prev];
-        next[idx] = run;
+        next[idx] = { run, summary: prev[idx].summary };
         return next;
       });
 
@@ -107,5 +112,5 @@ export function useRuns(initialRuns: Run[]): UseRunsReturn {
     };
   }, []);
 
-  return { runs, loading, connected, recentlyUpdated };
+  return { runsWithSummaries, loading, connected, recentlyUpdated };
 }

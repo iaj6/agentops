@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Policy, PolicySeverity } from "@agentops/core";
 import { MetricCard } from "@/components/MetricCard";
+import { toast } from "@/hooks/useToast";
 
 type PolicyWithMeta = Policy & { enabled: boolean; createdAt: string };
 
@@ -30,6 +31,12 @@ const severityColors: Record<string, string> = {
   info: "bg-blue/15 text-blue border-blue/30",
 };
 
+const SEVERITIES = [
+  { value: "error", label: "Error", color: "bg-red/15 text-red border-red/30" },
+  { value: "warning", label: "Warning", color: "bg-yellow/15 text-yellow border-yellow/30" },
+  { value: "info", label: "Info", color: "bg-blue/15 text-blue border-blue/30" },
+] as const;
+
 function ConfigDisplay({ config }: { config: Record<string, unknown> }) {
   const entries = Object.entries(config).filter(([key]) => key !== "type");
 
@@ -51,6 +58,318 @@ function ConfigDisplay({ config }: { config: Record<string, unknown> }) {
   );
 }
 
+function EditPolicyForm({
+  policy,
+  onClose,
+}: {
+  policy: PolicyWithMeta;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const config = policy.config as unknown as Record<string, unknown>;
+  const policyType = config.type as string;
+
+  const [name, setName] = useState(policy.name);
+  const [severity, setSeverity] = useState(policy.severity as string);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Config fields - initialize from current config
+  const [blockedPaths, setBlockedPaths] = useState(
+    policyType === "pathRestriction" ? (config.blockedPaths as string[]).join(", ") : "",
+  );
+  const [maxFiles, setMaxFiles] = useState(
+    policyType === "fileLimitCount" ? (config.maxFiles as number) : 20,
+  );
+  const [maxCostUsd, setMaxCostUsd] = useState(
+    policyType === "costCeiling" ? (config.maxCostUsd as number) : 5,
+  );
+  const [approvers, setApprovers] = useState(
+    policyType === "requiredApproval" ? (config.approvers as string[]).join(", ") : "",
+  );
+  const [requirePassing, setRequirePassing] = useState(
+    policyType === "testEnforcement" ? (config.requirePassing as boolean) : true,
+  );
+  const [minCoverage, setMinCoverage] = useState(
+    policyType === "testEnforcement" ? (config.minCoverage as number) : 80,
+  );
+  const [riskyPatterns, setRiskyPatterns] = useState(
+    policyType === "riskyOpFlag" ? (config.riskyPatterns as string[]).join(", ") : "",
+  );
+
+  function buildConfig() {
+    switch (policyType) {
+      case "pathRestriction":
+        return {
+          type: "pathRestriction",
+          blockedPaths: blockedPaths.split(",").map((s) => s.trim()).filter(Boolean),
+        };
+      case "fileLimitCount":
+        return { type: "fileLimitCount", maxFiles };
+      case "costCeiling":
+        return { type: "costCeiling", maxCostUsd };
+      case "requiredApproval":
+        return {
+          type: "requiredApproval",
+          approvers: approvers.split(",").map((s) => s.trim()).filter(Boolean),
+        };
+      case "testEnforcement":
+        return { type: "testEnforcement", requirePassing, minCoverage };
+      case "riskyOpFlag":
+        return {
+          type: "riskyOpFlag",
+          riskyPatterns: riskyPatterns.split(",").map((s) => s.trim()).filter(Boolean),
+        };
+      default:
+        return null;
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    if (!name.trim()) {
+      setError("Name is required");
+      return;
+    }
+
+    const newConfig = buildConfig();
+    if (!newConfig) {
+      setError("Invalid policy configuration");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const res = await fetch(`/api/policies/${policy.id as string}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, config: newConfig, severity }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to update policy");
+      }
+
+      toast("Policy updated successfully", "success");
+      router.refresh();
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to update policy";
+      setError(msg);
+      toast(msg, "error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-lg border border-border bg-surface shadow-xl">
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <h2 className="text-lg font-semibold text-foreground">Edit Policy</h2>
+          <button
+            onClick={onClose}
+            className="text-muted hover:text-foreground transition-colors"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {error && (
+            <div className="rounded-md bg-red/10 border border-red/20 px-4 py-3 text-sm text-red">
+              {error}
+            </div>
+          )}
+
+          {/* Name */}
+          <div>
+            <label className="block text-xs font-medium uppercase tracking-wider text-muted mb-1.5">
+              Policy Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+            />
+          </div>
+
+          {/* Type (read-only) */}
+          <div>
+            <label className="block text-xs font-medium uppercase tracking-wider text-muted mb-1.5">
+              Policy Type
+            </label>
+            <div className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-muted font-mono">
+              {policyType}
+            </div>
+          </div>
+
+          {/* Severity */}
+          <div>
+            <label className="block text-xs font-medium uppercase tracking-wider text-muted mb-1.5">
+              Severity
+            </label>
+            <div className="flex gap-2">
+              {SEVERITIES.map((s) => (
+                <button
+                  key={s.value}
+                  type="button"
+                  onClick={() => setSeverity(s.value)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-all ${
+                    severity === s.value
+                      ? s.color
+                      : "border-border text-muted hover:border-muted"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Dynamic Config */}
+          <div className="rounded-md border border-border bg-surface-2 p-4 space-y-4">
+            <h3 className="text-xs font-medium uppercase tracking-wider text-muted">
+              Configuration
+            </h3>
+
+            {policyType === "pathRestriction" && (
+              <div>
+                <label className="block text-xs text-muted mb-1">
+                  Forbidden paths (comma-separated)
+                </label>
+                <input
+                  type="text"
+                  value={blockedPaths}
+                  onChange={(e) => setBlockedPaths(e.target.value)}
+                  placeholder="/infra/, terraform/, .github/workflows/"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted/50 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+            )}
+
+            {policyType === "fileLimitCount" && (
+              <div>
+                <label className="block text-xs text-muted mb-1">
+                  Maximum files allowed
+                </label>
+                <input
+                  type="number"
+                  value={maxFiles}
+                  onChange={(e) => setMaxFiles(Number(e.target.value))}
+                  min={1}
+                  className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+            )}
+
+            {policyType === "costCeiling" && (
+              <div>
+                <label className="block text-xs text-muted mb-1">
+                  Maximum cost (USD)
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted">$</span>
+                  <input
+                    type="number"
+                    value={maxCostUsd}
+                    onChange={(e) => setMaxCostUsd(Number(e.target.value))}
+                    min={0.01}
+                    step={0.01}
+                    className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </div>
+              </div>
+            )}
+
+            {policyType === "requiredApproval" && (
+              <div>
+                <label className="block text-xs text-muted mb-1">
+                  Required approver roles (comma-separated)
+                </label>
+                <input
+                  type="text"
+                  value={approvers}
+                  onChange={(e) => setApprovers(e.target.value)}
+                  placeholder="security-team, platform-lead"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+            )}
+
+            {policyType === "testEnforcement" && (
+              <div className="space-y-3">
+                <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={requirePassing}
+                    onChange={(e) => setRequirePassing(e.target.checked)}
+                    className="rounded border-border accent-accent"
+                  />
+                  Require all tests passing
+                </label>
+                <div>
+                  <label className="block text-xs text-muted mb-1">
+                    Minimum coverage (%)
+                  </label>
+                  <input
+                    type="number"
+                    value={minCoverage}
+                    onChange={(e) => setMinCoverage(Number(e.target.value))}
+                    min={0}
+                    max={100}
+                    className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </div>
+              </div>
+            )}
+
+            {policyType === "riskyOpFlag" && (
+              <div>
+                <label className="block text-xs text-muted mb-1">
+                  Risky operation patterns (comma-separated)
+                </label>
+                <input
+                  type="text"
+                  value={riskyPatterns}
+                  onChange={(e) => setRiskyPatterns(e.target.value)}
+                  placeholder="rm -rf, git push --force, DROP TABLE"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted/50 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm text-muted hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 transition-colors disabled:opacity-50"
+            >
+              {submitting ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function PolicyDetail({
   policy,
   stats,
@@ -63,6 +382,9 @@ export function PolicyDetail({
   const router = useRouter();
   const [enabled, setEnabled] = useState(policy.enabled);
   const [toggling, setToggling] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   async function handleToggle() {
     setToggling(true);
@@ -74,10 +396,36 @@ export function PolicyDetail({
       });
       if (res.ok) {
         setEnabled(!enabled);
+        toast(`Policy ${!enabled ? "enabled" : "disabled"}`, "success");
         router.refresh();
+      } else {
+        toast("Failed to toggle policy", "error");
       }
+    } catch {
+      toast("Failed to toggle policy", "error");
     } finally {
       setToggling(false);
+    }
+  }
+
+  async function handleDelete() {
+    setShowDeleteConfirm(false);
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/policies/${policy.id as string}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        toast("Policy deleted", "success");
+        router.push("/policies");
+        router.refresh();
+      } else {
+        toast("Failed to delete policy", "error");
+      }
+    } catch {
+      toast("Failed to delete policy", "error");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -116,6 +464,21 @@ export function PolicyDetail({
           >
             {enabled ? "Enabled" : "Disabled"}
           </span>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setShowEdit(true)}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-surface-2 transition-colors"
+            >
+              Edit
+            </button>
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={deleting}
+              className="rounded-md border border-red/30 px-3 py-1.5 text-xs font-medium text-red hover:bg-red/10 transition-colors disabled:opacity-50"
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </button>
+          </div>
         </div>
         <p className="mt-1 text-sm text-muted font-mono">{policy.type}</p>
         <p className="mt-1 text-xs text-muted">
@@ -258,6 +621,37 @@ export function PolicyDetail({
           </div>
         )}
       </div>
+
+      {/* Edit modal */}
+      {showEdit && (
+        <EditPolicyForm policy={policy} onClose={() => setShowEdit(false)} />
+      )}
+
+      {/* Delete confirmation */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-lg border border-border bg-surface shadow-xl p-6">
+            <h3 className="text-sm font-semibold text-foreground mb-2">Delete Policy</h3>
+            <p className="text-sm text-muted mb-6">
+              Are you sure you want to delete &ldquo;{policy.name}&rdquo;? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="rounded-md border border-border px-4 py-2 text-sm text-muted hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                className="rounded-md bg-red px-4 py-2 text-sm font-medium text-white hover:bg-red/90 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

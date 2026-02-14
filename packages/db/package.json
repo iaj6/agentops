@@ -1,10 +1,36 @@
 {
   "name": "@agentops/db",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
+  "description": "SQLite persistence layer for AgentOps",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentops-ai/agentops",
+    "directory": "packages/db"
+  },
+  "keywords": [
+    "agentops",
+    "ai-agents",
+    "observability",
+    "control-plane",
+    "sqlite",
+    "drizzle-orm",
+    "persistence"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
@@ -14,7 +40,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@agentops/core": "*",
+    "@agentops/core": "0.1.0",
     "better-sqlite3": "^11.0.0",
     "drizzle-orm": "^0.39.0"
   },

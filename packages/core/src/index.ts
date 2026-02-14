@@ -165,3 +165,11 @@ export {
   cleanupStaleSessions,
   cleanupExpiredLocks,
 } from "./orchestrator.js";
+
+// Agent tree (Sprint 12)
+export type { AgentNode, AgentCommunication, AgentTimeline } from "./agent-tree.js";
+export { buildAgentTimeline } from "./agent-tree.js";
+
+// Summary (Sprint 9)
+export type { SessionSummary } from "./summary.js";
+export { generateSummary } from "./summary.js";

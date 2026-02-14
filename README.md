@@ -1,244 +1,108 @@
 # AgentOps
-### The Control Plane for Autonomous Agent Teams
 
-## Overview
+**The control plane for autonomous AI agents.**
 
-AgentOps is an operational control plane for autonomous AI agents.
+<!-- Badges: uncomment when published -->
+<!-- [![npm version](https://img.shields.io/npm/v/@agentops/cli)](https://www.npmjs.com/package/@agentops/cli) -->
+<!-- [![tests](https://github.com/agentops-ai/agentops/actions/workflows/test.yml/badge.svg)](https://github.com/agentops-ai/agentops/actions) -->
+<!-- [![license](https://img.shields.io/npm/l/@agentops/cli)](./LICENSE) -->
 
-Modern LLMs and agent frameworks can **produce code**, but production software requires more than capability. It requires **observability, constraints, verification, cost control, and accountability**.
+AgentOps observes what AI coding agents do, enforces policies, scores outcomes, and produces human-readable session summaries. It wraps agent runtimes like Claude Code — it does not replace them. Local-first, backed by SQLite.
 
-AgentOps fills that gap.
+## Quick Start
 
-It does not replace agent runtimes (Claude Code, Codex, etc.).  
-It **wraps them**, turning autonomous work into something teams can *trust*, *monitor*, and *deploy*.
+```bash
+npm install -g @agentops/cli
 
-AgentOps answers a single core question:
+agentops init
+agentops setup --global
+agentops serve
+```
 
-> *“Can we allow autonomous agents to ship code without increasing operational risk?”*
+Now use Claude Code normally. Every session is automatically tracked. Open [http://localhost:3000](http://localhost:3000) to see your dashboard.
 
----
+## Why
 
-## The Problem
+AI agents can write code, fix bugs, and ship features. But no one can answer basic questions about their work: what did it do, did it follow our rules, how much did it cost, and should we merge this? AgentOps adds the governance layer. Autonomy without guardrails is not velocity — it is liability.
 
-AI agents are increasingly capable of:
-- generating features
-- fixing bugs
-- refactoring systems
-- writing infrastructure code
+## What You Get
 
-But teams lack answers to basic operational questions:
+- **Session summaries** -- human-readable reports of what each agent session did
+- **Real-time monitoring** -- live dashboard updates as agents work
+- **Policy enforcement** -- block risky operations before they happen (path restrictions, cost ceilings, dangerous commands)
+- **Scoring** -- automated merge recommendations based on test results, scope, and policy compliance
+- **Cost tracking** -- per-session and per-run cost breakdowns
 
-- What exactly did the agent do?
-- Why did it make those changes?
-- Did it follow our rules?
-- Did it run the right tests?
-- How much did it cost?
-- What risk did it introduce?
-- Would we merge this if a human wrote it?
+<!-- TODO: Add dashboard screenshot -->
 
-Current tooling optimizes for **capability**, not **operability**.
+## Architecture
 
-AgentOps treats agents as **production actors**, not assistants.
+Five-package npm workspaces monorepo:
 
----
+```
+core  <-- db  <-- cli
+               <-- web
+      <-- sdk
+```
 
-## Core Philosophy
+| Package | Description |
+|---------|-------------|
+| `@agentops/core` | Domain types, policy engine, scoring algorithm. Zero dependencies. |
+| `@agentops/db` | SQLite persistence via Drizzle ORM. |
+| `@agentops/cli` | CLI entry point. Hooks into Claude Code, manages sessions, serves dashboard. |
+| `@agentops/sdk` | Lightweight HTTP client for custom agent runtimes. |
+| `@agentops/web` | Next.js dashboard with real-time updates. |
 
-### 1. Evidence Over Intelligence
-AgentOps does not try to prove agents are “smart.”  
-It proves their work is **safe, constrained, and verifiable**.
+See [CLAUDE.md](./CLAUDE.md) for detailed architecture, domain concepts, and conventions.
 
-### 2. Autonomy Requires Governance
-Autonomy without guardrails is not velocity — it’s liability.
+## SDK for Custom Agents
 
-### 3. Humans Are the Exception, Not the Loop
-Humans review *outcomes*, not *steps*.  
-Intervention should be rare, intentional, and auditable.
+If you are building your own agent runtime, use the SDK to report activity to AgentOps:
 
-### 4. Runs Are Sacred
-Every autonomous execution produces a durable, inspectable record.
+```typescript
+import { createClient } from '@agentops/sdk';
 
----
+const client = createClient({ baseUrl: 'http://localhost:3000' });
 
-## The Core Abstraction: A Run
+const session = await client.createSession({ agent: 'my-agent' });
+const run = await client.startRun({
+  goal: { summary: 'Fix auth bug' },
+  sessionId: session.id,
+});
 
-Everything in AgentOps revolves around a **Run**.
+await client.reportAction(run.id, { type: 'FileEdit', path: 'src/auth.ts' });
+await client.reportMetrics(run.id, { tokensUsed: 1200, cost: 0.04 });
+await client.completeRun(run.id);
+```
 
-A Run represents one autonomous unit of work (e.g. generating a PR).
+## CLI Reference
 
-A Run captures:
+```bash
+agentops init              # Bootstrap database
+agentops init --seed       # Bootstrap with sample data
+agentops init --clean      # Reset database
+agentops setup             # Configure Claude Code hooks (project-level)
+agentops setup --global    # Configure hooks globally
+agentops setup --uninstall # Remove hooks
+agentops serve             # Start dashboard (default: port 3000)
+agentops wrap "command"    # Wrap a command with real-time event streaming
+```
 
-- **Goal**
-    - Human-readable intent
-    - Structured task definition
-- **Agents**
-    - Models used
-    - Roles (lead, implementer, reviewer, etc.)
-- **Environment**
-    - Repo, branch, permissions, sandbox
-- **Actions**
-    - Tool calls
-    - File edits
-    - Commands executed
-- **Artifacts**
-    - Diffs
-    - Logs
-    - Test outputs
-    - Reports
-- **Metrics**
-    - Token usage
-    - Wall time
-    - Cost
-    - Flake rate
-- **Evaluations**
-    - Test results
-    - Policy checks
-    - Confidence score
-- **Decisions**
-    - Approvals
-    - Blocks
-    - Escalations
+Run any command with `--help` for details, or `--json` for machine-readable output.
 
-A Run is a **black box recorder** for agent behavior.
+## Development
 
----
+```bash
+git clone https://github.com/agentops-ai/agentops
+cd agentops
+npm install
+npm run build
+npm run test
+npm run dev    # Dashboard at localhost:3000
+```
 
-## Primary Use Case: Autonomous PR Factory
+Requires Node.js >= 20. Tests use Vitest. The web package uses Next.js 16 with React 19.
 
-AgentOps v0 focuses on one high-value workflow:
+## License
 
-> **Issue → Agent Work → PR → Evidence → Gate → Merge**
-
-### What “Done” Means
-A PR produced by AgentOps must include:
-- a clear diff
-- test evidence
-- policy compliance
-- a human-legible rationale
-- an explicit merge recommendation
-
-If the system cannot justify a merge, it must block itself.
-
----
-
-## System Architecture (Conceptual)
-
-### 1. Execution Layer (External)
-AgentOps does **not** execute agents itself.
-
-It integrates with:
-- Claude Code
-- Codex
-- CLI-based agents
-- Custom agent harnesses
-
-### 2. Instrumentation Layer
-Adapters capture agent activity:
-- Git events (diffs, commits, PRs)
-- Tool calls
-- Test runs
-- Logs
-- Cost metrics
-
-Nothing “important” happens without being observed.
-
-### 3. Policy Engine
-Policies are evaluated continuously:
-- Path restrictions
-- File count limits
-- Cost ceilings
-- Required approvals
-- Risky operation flags
-- Test enforcement
-
-Policies are **guardrails**, not prompts.
-
-### 4. Evaluation & Scoring
-AgentOps produces a confidence assessment:
-- correctness
-- regression risk
-- scope risk
-- policy compliance
-- unknowns
-
-This becomes a single “merge-worthiness” signal.
-
-### 5. Control & Kill Switches
-AgentOps can:
-- downshift model usage
-- narrow test scope
-- pause or terminate a run
-- quarantine outputs
-- require human approval
-
-Autonomy is revocable by design.
-
----
-
-## Agent Roles (Conceptual)
-
-AgentOps encourages **role specialization**, not generic swarms:
-
-- **Lead** – coordination only, no code changes
-- **Implementer** – writes code and tests
-- **Reviewer** – critiques changes
-- **CI / Evals** – runs tests and summarizes results
-- **Policy / Risk** – enforces constraints
-
-Roles exist to reduce overlap and surface disagreement.
-
----
-
-## Evidence Artifacts
-
-Each Run produces durable artifacts:
-- `RUN_REPORT.md`
-- structured logs
-- test summaries
-- cost breakdowns
-- diff analysis
-
-Artifacts are first-class outputs, not byproducts.
-
----
-
-## What AgentOps Is *Not*
-
-- ❌ A general-purpose agent framework
-- ❌ A prompt library
-- ❌ A task planner
-- ❌ A chatbot
-- ❌ “AutoGPT but better”
-
-AgentOps is **boring on purpose**.
-
-It exists to make autonomous systems survivable in real organizations.
-
----
-
-## Success Criteria
-
-AgentOps is successful when:
-
-- Teams trust autonomous PRs *more* than human ones
-- Engineers spend less time reviewing mechanics and more time reviewing intent
-- Incidents decrease, not increase
-- Cost becomes predictable
-- Autonomy scales without fear
-
----
-
-## The Long-Term Vision
-
-AgentOps evolves into:
-- the CI/CD layer for agents
-- the SRE toolkit for autonomy
-- the audit log for AI-generated systems
-
-As agents become more capable, AgentOps becomes more necessary.
-
-> Capability scales.  
-> Risk compounds.  
-> Control must exist.
-
----
+MIT

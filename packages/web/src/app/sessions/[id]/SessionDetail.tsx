@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { Session, Run } from "@agentops/core";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import { ResourceUsageBar } from "@/components/ResourceUsageBar";
+import { toast } from "@/hooks/useToast";
 import Link from "next/link";
 
 const TERMINAL_STATUSES = new Set(["terminated"]);
@@ -233,25 +234,71 @@ export function SessionDetail({
     };
   }, [session.id, session.status]);
 
-  const handleAction = useCallback(
-    async (action: "pause" | "resume" | "terminate") => {
-      setActionLoading(true);
-      try {
-        const res = await fetch(`/api/sessions/${session.id as string}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
-        });
-        if (res.ok) {
-          const updated = await res.json();
-          setSession(updated);
-        }
-      } finally {
-        setActionLoading(false);
+  const handlePause = useCallback(async () => {
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${session.id as string}/pause`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setSession(updated);
+        toast("Session paused", "success");
+      } else {
+        const err = await res.json().catch(() => ({ error: "Pause failed" }));
+        toast(err.error ?? "Failed to pause session", "error");
       }
-    },
-    [session.id],
-  );
+    } catch {
+      toast("Network error", "error");
+    } finally {
+      setActionLoading(false);
+    }
+  }, [session.id]);
+
+  const handleResume = useCallback(async () => {
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${session.id as string}/resume`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setSession(updated);
+        toast("Session resumed", "success");
+      } else {
+        const err = await res.json().catch(() => ({ error: "Resume failed" }));
+        toast(err.error ?? "Failed to resume session", "error");
+      }
+    } catch {
+      toast("Network error", "error");
+    } finally {
+      setActionLoading(false);
+    }
+  }, [session.id]);
+
+  const handleTerminate = useCallback(async () => {
+    if (!confirm("Are you sure you want to terminate this session? This cannot be undone.")) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${session.id as string}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "terminate" }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setSession(updated);
+        toast("Session terminated", "success");
+      } else {
+        const err = await res.json().catch(() => ({ error: "Terminate failed" }));
+        toast(err.error ?? "Failed to terminate session", "error");
+      }
+    } catch {
+      toast("Network error", "error");
+    } finally {
+      setActionLoading(false);
+    }
+  }, [session.id]);
 
   const canPause = session.status === "active";
   const canResume = session.status === "paused";
@@ -307,7 +354,7 @@ export function SessionDetail({
         <div className="mb-6 flex items-center gap-2">
           {canPause && (
             <button
-              onClick={() => handleAction("pause")}
+              onClick={handlePause}
               disabled={actionLoading}
               className="rounded-md border border-yellow/30 bg-yellow/10 px-3 py-1.5 text-xs font-medium text-yellow hover:bg-yellow/20 transition-colors disabled:opacity-50"
             >
@@ -316,7 +363,7 @@ export function SessionDetail({
           )}
           {canResume && (
             <button
-              onClick={() => handleAction("resume")}
+              onClick={handleResume}
               disabled={actionLoading}
               className="rounded-md border border-green/30 bg-green/10 px-3 py-1.5 text-xs font-medium text-green hover:bg-green/20 transition-colors disabled:opacity-50"
             >
@@ -324,7 +371,7 @@ export function SessionDetail({
             </button>
           )}
           <button
-            onClick={() => handleAction("terminate")}
+            onClick={handleTerminate}
             disabled={actionLoading}
             className="rounded-md border border-red/30 bg-red/10 px-3 py-1.5 text-xs font-medium text-red hover:bg-red/20 transition-colors disabled:opacity-50"
           >
