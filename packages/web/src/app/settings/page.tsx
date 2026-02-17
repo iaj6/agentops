@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AdminApiStatus } from "./AdminApiStatus";
 
 export const metadata: Metadata = {
   title: "Settings",
@@ -27,6 +28,8 @@ export default function SettingsPage() {
             {process.env.AGENTOPS_DB_PATH ?? "~/.agentops/agentops.db"}
           </div>
         </div>
+
+        <AdminApiStatus />
 
         <div className="rounded-lg border border-border bg-surface p-6">
           <h2 className="text-sm font-semibold text-foreground mb-1">

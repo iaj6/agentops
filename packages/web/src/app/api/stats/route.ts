@@ -1,12 +1,8 @@
 import { NextResponse } from "next/server";
 import {
   listRunsWithSummaries,
-  listJobs,
-  countJobsActive,
-  countActiveSessions,
   listSessions,
   countEvents,
-  listLocks,
 } from "@agentops/db";
 import { db } from "@/lib/db";
 
@@ -27,7 +23,6 @@ export async function GET() {
       completedRuns + failedRuns > 0
         ? Math.round((completedRuns / (completedRuns + failedRuns)) * 1000) / 10
         : 0;
-    const totalCost = runs.reduce((s, r) => s + r.metrics.costUsd, 0);
     const avgDuration =
       totalRuns > 0
         ? runs.reduce((s, r) => s + r.metrics.wallTimeMs, 0) / totalRuns
@@ -41,9 +36,6 @@ export async function GET() {
     const runsToday = runs.filter((r) => r.createdAt >= todayStart);
     const runsThisWeek = runs.filter((r) => r.createdAt >= weekAgo);
 
-    const costToday = runsToday.reduce((s, r) => s + r.metrics.costUsd, 0);
-    const costThisWeek = runsThisWeek.reduce((s, r) => s + r.metrics.costUsd, 0);
-
     // Most active repos from summaries
     const repoCounts: Record<string, number> = {};
     for (const r of runsThisWeek) {
@@ -54,14 +46,6 @@ export async function GET() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([repo, count]) => ({ repo, count }));
-
-    // Jobs
-    const allJobs = listJobs(d, { limit: 10000 });
-    const jobQueued = allJobs.filter((j) => j.status === "queued").length;
-    const jobDispatched = allJobs.filter((j) => j.status === "dispatched").length;
-    const jobRunning = allJobs.filter((j) => j.status === "running").length;
-    const jobCompleted = allJobs.filter((j) => j.status === "completed").length;
-    const jobFailed = allJobs.filter((j) => j.status === "failed").length;
 
     // Sessions
     const allSessions = listSessions(d, { limit: 10000 });
@@ -74,30 +58,17 @@ export async function GET() {
     const eventsLast24h = countEvents(d, { since: oneDayAgo });
     const eventsLastHour = countEvents(d, { since: oneHourAgo });
 
-    // Locks
-    const activeLocks = listLocks(d, { active: true });
-
     return NextResponse.json({
       runs: {
         total: totalRuns,
         running: runningRuns,
         successRate,
-        totalCost: Math.round(totalCost * 100) / 100,
         avgDuration: Math.round(avgDuration),
       },
       summary: {
         runsToday: runsToday.length,
         runsThisWeek: runsThisWeek.length,
-        costToday: Math.round(costToday * 100) / 100,
-        costThisWeek: Math.round(costThisWeek * 100) / 100,
         topRepos,
-      },
-      jobs: {
-        queued: jobQueued,
-        dispatched: jobDispatched,
-        running: jobRunning,
-        completed: jobCompleted,
-        failed: jobFailed,
       },
       sessions: {
         active: sessActive,
@@ -106,9 +77,6 @@ export async function GET() {
       events: {
         last24h: eventsLast24h,
         lastHour: eventsLastHour,
-      },
-      locks: {
-        active: activeLocks.length,
       },
     });
   } catch (error) {

@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Session, Run } from "@agentops/core";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
-import { ResourceUsageBar } from "@/components/ResourceUsageBar";
 import { toast } from "@/hooks/useToast";
 import Link from "next/link";
 
@@ -66,7 +65,6 @@ function CompletedRunsTable({ runIds }: { runIds: readonly string[] }) {
             <th className="pb-2 pr-4">Run ID</th>
             <th className="pb-2 pr-4">Status</th>
             <th className="pb-2 pr-4">Goal</th>
-            <th className="pb-2 pr-4 text-right">Cost</th>
             <th className="pb-2 text-right">Duration</th>
           </tr>
         </thead>
@@ -103,9 +101,6 @@ function CompletedRunsTable({ runIds }: { runIds: readonly string[] }) {
                 <td className="py-2 pr-4 max-w-[200px] truncate text-xs text-muted">
                   {run?.goal.humanReadable ?? "-"}
                 </td>
-                <td className="py-2 pr-4 text-right font-mono text-xs text-foreground">
-                  {run ? `$${run.metrics.costUsd.toFixed(4)}` : "-"}
-                </td>
                 <td className="py-2 text-right font-mono text-xs text-foreground">
                   {run
                     ? `${Math.round(run.metrics.wallTimeMs / 1000)}s`
@@ -116,80 +111,6 @@ function CompletedRunsTable({ runIds }: { runIds: readonly string[] }) {
           })}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-function ResourceChart({ usage }: { usage: Session["resourceUsage"] }) {
-  const items = [
-    {
-      label: "Memory",
-      value: usage.memoryMb,
-      max: 2048,
-      unit: "MB",
-      pct: Math.min((usage.memoryMb / 2048) * 100, 100),
-    },
-    {
-      label: "CPU",
-      value: usage.cpuPercent,
-      max: 100,
-      unit: "%",
-      pct: Math.min(usage.cpuPercent, 100),
-    },
-    {
-      label: "Token Budget",
-      value: usage.tokensBudgetRemaining,
-      max: 500000,
-      unit: "tokens",
-      pct: Math.min((usage.tokensBudgetRemaining / 500000) * 100, 100),
-    },
-    {
-      label: "Cost Budget",
-      value: usage.costBudgetRemaining,
-      max: 50,
-      unit: "USD",
-      pct: Math.min((usage.costBudgetRemaining / 50) * 100, 100),
-    },
-  ];
-
-  return (
-    <div className="space-y-4">
-      {items.map((item) => {
-        const color =
-          item.label === "Memory" || item.label === "CPU"
-            ? item.pct > 80
-              ? "bg-red"
-              : item.pct > 50
-                ? "bg-yellow"
-                : "bg-green"
-            : item.pct < 20
-              ? "bg-red"
-              : item.pct < 50
-                ? "bg-yellow"
-                : "bg-green";
-
-        return (
-          <div key={item.label}>
-            <div className="flex items-center justify-between text-xs mb-1.5">
-              <span className="text-muted">{item.label}</span>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-foreground">
-                  {item.value.toFixed(1)} {item.unit}
-                </span>
-                <span className="font-mono text-muted text-[10px]">
-                  ({item.pct.toFixed(0)}%)
-                </span>
-              </div>
-            </div>
-            <div className="h-3 w-full rounded-full bg-surface-2">
-              <div
-                className={`h-3 rounded-full ${color} transition-all`}
-                style={{ width: `${item.pct}%` }}
-              />
-            </div>
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -377,14 +298,6 @@ export function SessionDetail({
           ) : (
             <p className="text-sm text-muted">No run currently assigned.</p>
           )}
-        </div>
-
-        {/* Resource Usage Chart */}
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
-            Resource Usage
-          </h3>
-          <ResourceChart usage={session.resourceUsage} />
         </div>
 
         {/* Completed Runs Table */}

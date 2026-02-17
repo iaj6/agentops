@@ -5,28 +5,14 @@ import { MetricCard } from "@/components/MetricCard";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { useStats } from "@/hooks/useStats";
 
-function formatCost(usd: number): string {
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(2)}`;
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainSec = seconds % 60;
-  return `${minutes}m ${remainSec}s`;
-}
-
 export function FleetOverview({ children }: { children: ReactNode }) {
   const { stats, loading } = useStats();
 
   if (loading || !stats) {
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-          {Array.from({ length: 8 }).map((_, i) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {Array.from({ length: 5 }).map((_, i) => (
             <div
               key={i}
               className="h-[88px] animate-pulse rounded-lg border border-border bg-surface"
@@ -38,12 +24,10 @@ export function FleetOverview({ children }: { children: ReactNode }) {
     );
   }
 
-  const activeJobs = stats.jobs.queued + stats.jobs.dispatched + stats.jobs.running;
-
   return (
     <div className="space-y-6">
       {/* Row 1: Summary stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <MetricCard label="Total Runs" value={String(stats.runs.total)} />
         <MetricCard
           label="Running Now"
@@ -53,26 +37,13 @@ export function FleetOverview({ children }: { children: ReactNode }) {
           label="Success Rate"
           value={`${stats.runs.successRate}%`}
         />
-        <MetricCard label="Total Cost" value={formatCost(stats.runs.totalCost)} />
         <MetricCard
           label="Today"
           value={String(stats.summary.runsToday)}
-          sub={`${formatCost(stats.summary.costToday)} spent`}
         />
         <MetricCard
           label="This Week"
           value={String(stats.summary.runsThisWeek)}
-          sub={`${formatCost(stats.summary.costThisWeek)} spent`}
-        />
-        <MetricCard
-          label="Events (24h)"
-          value={String(stats.events.last24h)}
-          sub={`${stats.events.lastHour} last hour`}
-        />
-        <MetricCard
-          label="Active Jobs"
-          value={String(activeJobs)}
-          sub={`${stats.sessions.active} sessions`}
         />
       </div>
 

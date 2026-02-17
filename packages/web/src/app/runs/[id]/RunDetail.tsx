@@ -1,20 +1,18 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import type { Run, SessionSummary } from "@agentops/core";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MetricCard } from "@/components/MetricCard";
 import { ScoreBar } from "@/components/ScoreBar";
 import { DiffViewer } from "@/components/DiffViewer";
 import { ActionTimeline } from "@/components/ActionTimeline";
-import { AgentTimelineView } from "@/components/AgentTimeline";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { SummaryTab } from "@/components/SummaryTab";
 import { useRunDetail } from "@/hooks/useRunDetail";
-import { toast } from "@/hooks/useToast";
 import Link from "next/link";
 
-type Tab = "summary" | "agents" | "overview" | "actions" | "artifacts" | "metrics" | "policy" | "decision" | "github";
+type Tab = "summary" | "overview" | "actions" | "artifacts" | "activity" | "policy";
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -23,17 +21,6 @@ function formatDuration(ms: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainSec = seconds % 60;
   return `${minutes}m ${remainSec}s`;
-}
-
-function formatCost(usd: number): string {
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(2)}`;
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
 }
 
 export function RunDetail({ run: initialRun, initialSummary }: { run: Run; initialSummary: SessionSummary | null }) {
@@ -45,63 +32,16 @@ export function RunDetail({ run: initialRun, initialSummary }: { run: Run; initi
   const run = liveRun ?? initialRun;
   const summary = liveSummary ?? initialSummary;
   const [tab, setTab] = useState<Tab>(summary ? "summary" : "overview");
-  const [decideLoading, setDecideLoading] = useState(false);
-  const [localRun, setLocalRun] = useState<Run | null>(null);
-
-  // Use localRun if available (after a decision is made), otherwise liveRun
-  const displayRun = localRun ?? run;
-
-  const handleDecide = useCallback(
-    async (decision: "Approve" | "Block", reason: string) => {
-      setDecideLoading(true);
-      try {
-        const res = await fetch(`/api/runs/${displayRun.id as string}/decide`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            decision,
-            reason: reason || `${decision}d via dashboard`,
-            actor: "dashboard-operator",
-          }),
-        });
-        if (res.ok) {
-          const updated = await res.json();
-          setLocalRun(updated);
-          toast(
-            decision === "Approve" ? "Run approved" : "Run blocked",
-            decision === "Approve" ? "success" : "warning",
-          );
-        } else {
-          const err = await res.json().catch(() => ({ error: "Request failed" }));
-          toast(err.error ?? `Failed to ${decision.toLowerCase()} run`, "error");
-        }
-      } catch {
-        toast("Network error", "error");
-      } finally {
-        setDecideLoading(false);
-      }
-    },
-    [displayRun.id],
-  );
+  const displayRun = run;
 
   const tabs: { key: Tab; label: string }[] = [
     ...(summary ? [{ key: "summary" as Tab, label: "Summary" }] : []),
-    { key: "agents", label: "Agents" },
     { key: "overview", label: "Overview" },
     { key: "actions", label: "Actions" },
     { key: "artifacts", label: "Artifacts" },
-    { key: "metrics", label: "Metrics" },
+    { key: "activity", label: "Activity" },
     { key: "policy", label: "Policy" },
-    { key: "decision", label: "Decision" },
-    { key: "github", label: "GitHub" },
   ];
-
-  // Whether this run can be approved/blocked
-  const canDecide =
-    displayRun.status === "completed" &&
-    displayRun.decisions.every(
-      (d) => d.type !== "approval" && d.type !== "block",
-    );
 
   return (
     <div className="p-6">
@@ -164,46 +104,38 @@ export function RunDetail({ run: initialRun, initialSummary }: { run: Run; initi
       {tab === "summary" && summary && (
         <SummaryTab summary={summary} onViewActions={() => setTab("actions")} />
       )}
-      {tab === "agents" && <AgentTimelineView runId={displayRun.id as string} />}
       {tab === "overview" && <OverviewTab run={displayRun} />}
       {tab === "actions" && <ActionsTab run={displayRun} />}
       {tab === "artifacts" && <ArtifactsTab run={displayRun} />}
-      {tab === "metrics" && <MetricsTab run={displayRun} />}
+      {tab === "activity" && <ActivityTab run={displayRun} />}
       {tab === "policy" && <PolicyTab run={displayRun} />}
-      {tab === "decision" && (
-        <DecisionTab
-          run={displayRun}
-          canDecide={canDecide}
-          decideLoading={decideLoading}
-          onDecide={handleDecide}
-        />
-      )}
-      {tab === "github" && <GitHubTab run={displayRun} />}
     </div>
   );
 }
 
 function OverviewTab({ run }: { run: Run }) {
+  const totalFileEdits = run.actions.reduce((sum, a) => sum + a.fileEdits.length, 0);
+  const totalToolCalls = run.actions.reduce((sum, a) => sum + a.toolCalls.length, 0);
+
   return (
     <div className="space-y-6">
       {/* Quick metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
-          label="Cost"
-          value={formatCost(run.metrics.costUsd)}
-        />
-        <MetricCard
           label="Duration"
           value={formatDuration(run.metrics.wallTimeMs)}
         />
         <MetricCard
-          label="Tokens"
-          value={formatTokens(run.metrics.tokenUsage.total)}
-          sub={`${formatTokens(run.metrics.tokenUsage.input)} in / ${formatTokens(run.metrics.tokenUsage.output)} out`}
+          label="Files Changed"
+          value={String(totalFileEdits)}
         />
         <MetricCard
-          label="Agents"
-          value={String(run.agents.length)}
+          label="Tool Calls"
+          value={String(totalToolCalls)}
+        />
+        <MetricCard
+          label="Actions"
+          value={String(run.actions.length)}
         />
       </div>
 
@@ -216,29 +148,6 @@ function OverviewTab({ run }: { run: Run }) {
         <div className="mt-2 rounded bg-surface-2 p-3 font-mono text-xs text-muted">
           <span className="text-accent">{run.goal.structured.type}</span>
           : {run.goal.structured.description}
-        </div>
-      </div>
-
-      {/* Agents */}
-      <div className="rounded-lg border border-border bg-surface p-4">
-        <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
-          Agents
-        </h3>
-        <div className="space-y-2">
-          {run.agents.map((agent) => (
-            <div
-              key={agent.id as string}
-              className="flex items-center gap-3 rounded bg-surface-2 px-3 py-2 text-sm"
-            >
-              <span className="rounded bg-accent/15 px-1.5 py-0.5 text-xs font-medium text-accent">
-                {agent.role}
-              </span>
-              <span className="font-mono text-xs text-muted">{agent.model}</span>
-              <span className="ml-auto font-mono text-xs text-muted/60">
-                {(agent.id as string).slice(0, 8)}
-              </span>
-            </div>
-          ))}
         </div>
       </div>
 
@@ -411,86 +320,90 @@ function ArtifactsTab({ run }: { run: Run }) {
   );
 }
 
-function MetricsTab({ run }: { run: Run }) {
+function ActivityTab({ run }: { run: Run }) {
+  const totalActions = run.actions.length;
+  const allToolCalls = run.actions.flatMap((a) => a.toolCalls);
+  const totalToolCalls = allToolCalls.length;
+  const totalFileEdits = run.actions.reduce((sum, a) => sum + a.fileEdits.length, 0);
+  const allCommands = run.actions.flatMap((a) => a.commands);
+  const totalCommands = allCommands.length;
+  const successCommands = allCommands.filter((c) => c.exitCode === 0).length;
+  const failedCommands = totalCommands - successCommands;
+
+  // Build tool call breakdown by name
+  const toolBreakdown: Record<string, number> = {};
+  for (const tc of allToolCalls) {
+    toolBreakdown[tc.name] = (toolBreakdown[tc.name] ?? 0) + 1;
+  }
+  const sortedTools = Object.entries(toolBreakdown).sort((a, b) => b[1] - a[1]);
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Summary metrics */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <MetricCard
-          label="Total Cost"
-          value={formatCost(run.metrics.costUsd)}
+          label="Actions"
+          value={String(totalActions)}
         />
         <MetricCard
-          label="Wall Time"
+          label="Tool Calls"
+          value={String(totalToolCalls)}
+        />
+        <MetricCard
+          label="File Edits"
+          value={String(totalFileEdits)}
+        />
+        <MetricCard
+          label="Commands"
+          value={String(totalCommands)}
+          sub={`${successCommands} ok / ${failedCommands} failed`}
+        />
+        <MetricCard
+          label="Duration"
           value={formatDuration(run.metrics.wallTimeMs)}
-        />
-        <MetricCard
-          label="Total Tokens"
-          value={formatTokens(run.metrics.tokenUsage.total)}
-        />
-        <MetricCard
-          label="Flake Rate"
-          value={`${(run.metrics.flakeRate * 100).toFixed(1)}%`}
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
-            Token Breakdown
-          </h3>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted">Input tokens</span>
-              <span className="font-mono text-foreground">
-                {run.metrics.tokenUsage.input.toLocaleString()}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted">Output tokens</span>
-              <span className="font-mono text-foreground">
-                {run.metrics.tokenUsage.output.toLocaleString()}
-              </span>
-            </div>
-            <div className="border-t border-border pt-2 flex items-center justify-between text-sm font-medium">
-              <span className="text-foreground">Total</span>
-              <span className="font-mono text-foreground">
-                {run.metrics.tokenUsage.total.toLocaleString()}
-              </span>
+        {/* Tool call breakdown */}
+        {sortedTools.length > 0 && (
+          <div className="rounded-lg border border-border bg-surface p-4">
+            <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+              Tool Calls by Name
+            </h3>
+            <div className="space-y-2">
+              {sortedTools.map(([name, count]) => (
+                <div key={name} className="flex items-center justify-between text-sm">
+                  <span className="font-mono text-foreground">{name}</span>
+                  <span className="font-mono text-muted">{count}</span>
+                </div>
+              ))}
             </div>
           </div>
-        </div>
+        )}
 
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
-            Activity Summary
-          </h3>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted">Actions</span>
-              <span className="font-mono text-foreground">
-                {run.actions.length}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted">Tool calls</span>
-              <span className="font-mono text-foreground">
-                {run.actions.reduce((sum, a) => sum + a.toolCalls.length, 0)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted">File edits</span>
-              <span className="font-mono text-foreground">
-                {run.actions.reduce((sum, a) => sum + a.fileEdits.length, 0)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted">Commands</span>
-              <span className="font-mono text-foreground">
-                {run.actions.reduce((sum, a) => sum + a.commands.length, 0)}
-              </span>
+        {/* Command results */}
+        {totalCommands > 0 && (
+          <div className="rounded-lg border border-border bg-surface p-4">
+            <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+              Command Results
+            </h3>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted">Succeeded (exit 0)</span>
+                <span className="font-mono text-green">{successCommands}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted">Failed (non-zero exit)</span>
+                <span className="font-mono text-red">{failedCommands}</span>
+              </div>
+              <div className="border-t border-border pt-2 flex items-center justify-between text-sm font-medium">
+                <span className="text-foreground">Total</span>
+                <span className="font-mono text-foreground">{totalCommands}</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -601,271 +514,6 @@ function PolicyTab({ run }: { run: Run }) {
           </div>
         );
       })}
-    </div>
-  );
-}
-
-function DecisionTab({
-  run,
-  canDecide,
-  decideLoading,
-  onDecide,
-}: {
-  run: Run;
-  canDecide: boolean;
-  decideLoading: boolean;
-  onDecide: (decision: "Approve" | "Block", reason: string) => void;
-}) {
-  const [blockReason, setBlockReason] = useState("");
-  const [showBlockInput, setShowBlockInput] = useState(false);
-
-  const typeColors: Record<string, string> = {
-    approval: "bg-green/15 text-green",
-    block: "bg-red/15 text-red",
-    escalation: "bg-yellow/15 text-yellow",
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Approve / Block controls */}
-      {canDecide && (
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
-            Review Decision
-          </h3>
-          <p className="mb-3 text-sm text-muted">
-            This run is awaiting review. Approve to accept the changes, or block to reject them.
-          </p>
-          <div className="flex items-start gap-2">
-            <button
-              onClick={() => onDecide("Approve", "Approved via dashboard")}
-              disabled={decideLoading}
-              className="rounded-md border border-green/30 bg-green/10 px-4 py-1.5 text-xs font-medium text-green hover:bg-green/20 transition-colors disabled:opacity-50"
-            >
-              Approve
-            </button>
-            {!showBlockInput ? (
-              <button
-                onClick={() => setShowBlockInput(true)}
-                disabled={decideLoading}
-                className="rounded-md border border-red/30 bg-red/10 px-4 py-1.5 text-xs font-medium text-red hover:bg-red/20 transition-colors disabled:opacity-50"
-              >
-                Block
-              </button>
-            ) : (
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  placeholder="Reason for blocking..."
-                  value={blockReason}
-                  onChange={(e) => setBlockReason(e.target.value)}
-                  className="rounded border border-border bg-surface-2 px-3 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
-                />
-                <button
-                  onClick={() => {
-                    onDecide("Block", blockReason || "Blocked via dashboard");
-                    setShowBlockInput(false);
-                    setBlockReason("");
-                  }}
-                  disabled={decideLoading}
-                  className="rounded-md border border-red/30 bg-red/10 px-3 py-1.5 text-xs font-medium text-red hover:bg-red/20 transition-colors disabled:opacity-50"
-                >
-                  Confirm Block
-                </button>
-                <button
-                  onClick={() => {
-                    setShowBlockInput(false);
-                    setBlockReason("");
-                  }}
-                  className="text-xs text-muted hover:text-foreground transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Existing decisions */}
-      {run.decisions.length === 0 && !canDecide ? (
-        <EmptyState message="No decisions recorded for this run." />
-      ) : (
-        run.decisions.map((decision) => (
-          <div
-            key={decision.id as string}
-            className="rounded-lg border border-border bg-surface p-4"
-          >
-            <div className="flex items-center gap-3 mb-2">
-              <span
-                className={`rounded-full px-2 py-0.5 text-xs font-medium ${typeColors[decision.type] ?? "bg-muted/15 text-muted"}`}
-              >
-                {decision.type.toUpperCase()}
-              </span>
-              <span className="text-sm font-medium text-foreground">
-                {decision.actor}
-              </span>
-              <span className="ml-auto text-xs text-muted">
-                {new Date(decision.timestamp).toLocaleString()}
-              </span>
-            </div>
-            <p className="text-sm text-muted">{decision.reason}</p>
-          </div>
-        ))
-      )}
-    </div>
-  );
-}
-
-function GitHubTab({ run }: { run: Run }) {
-  const gh = run.github;
-
-  if (!gh || (!gh.pr && !gh.issue && (!gh.checks || gh.checks.length === 0))) {
-    return (
-      <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-surface py-16">
-        <p className="text-sm text-muted mb-2">No GitHub integration for this run.</p>
-        <p className="text-xs text-muted/70">
-          Use <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono">agentops link pr {'<runId>'}</code> or{" "}
-          <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono">agentops pr {'<runId>'}</code> to connect GitHub.
-        </p>
-      </div>
-    );
-  }
-
-  const checkConclusion = (conclusion: string | null) => {
-    switch (conclusion) {
-      case "success":
-        return "bg-green/15 text-green border-green/30";
-      case "failure":
-        return "bg-red/15 text-red border-red/30";
-      case "neutral":
-      case "skipped":
-        return "bg-muted/15 text-muted border-muted/30";
-      default:
-        return "bg-yellow/15 text-yellow border-yellow/30";
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Linked PR */}
-      {gh.pr && (
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
-            Pull Request
-          </h3>
-          <div className="flex items-start gap-3">
-            <span
-              className={`mt-0.5 rounded-full border px-2 py-0.5 text-xs font-medium ${
-                gh.pr.state === "open"
-                  ? "bg-green/15 text-green border-green/30"
-                  : gh.pr.state === "merged"
-                    ? "bg-purple/15 text-purple border-purple/30"
-                    : "bg-red/15 text-red border-red/30"
-              }`}
-            >
-              {gh.pr.state}
-            </span>
-            <div className="flex-1 min-w-0">
-              <a
-                href={gh.pr.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm font-medium text-accent hover:underline"
-              >
-                #{gh.pr.number} {gh.pr.title}
-              </a>
-              <div className="mt-1 flex items-center gap-4 text-xs text-muted">
-                <span>
-                  <span className="font-mono">{gh.pr.headBranch}</span>
-                  {" -> "}
-                  <span className="font-mono">{gh.pr.baseBranch}</span>
-                </span>
-                <span className="text-green">+{gh.pr.additions}</span>
-                <span className="text-red">-{gh.pr.deletions}</span>
-                <span>{gh.pr.changedFiles} file(s)</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Linked Issue */}
-      {gh.issue && (
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
-            Issue
-          </h3>
-          <div className="flex items-start gap-3">
-            <span
-              className={`mt-0.5 rounded-full border px-2 py-0.5 text-xs font-medium ${
-                gh.issue.state === "open"
-                  ? "bg-green/15 text-green border-green/30"
-                  : "bg-red/15 text-red border-red/30"
-              }`}
-            >
-              {gh.issue.state}
-            </span>
-            <div className="flex-1 min-w-0">
-              <a
-                href={gh.issue.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm font-medium text-accent hover:underline"
-              >
-                #{gh.issue.number} {gh.issue.title}
-              </a>
-              {gh.issue.labels.length > 0 && (
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {gh.issue.labels.map((label) => (
-                    <span
-                      key={label}
-                      className="rounded-full border border-border bg-surface-2 px-2 py-0.5 text-xs text-muted"
-                    >
-                      {label}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Check Runs */}
-      {gh.checks && gh.checks.length > 0 && (
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
-            Check Runs
-          </h3>
-          <div className="space-y-2">
-            {gh.checks.map((check, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-3 rounded bg-surface-2 px-3 py-2 text-sm"
-              >
-                <span
-                  className={`rounded-full border px-2 py-0.5 text-xs font-medium ${checkConclusion(check.conclusion)}`}
-                >
-                  {check.conclusion ?? check.status}
-                </span>
-                <span className="text-foreground">{check.name}</span>
-                <span className="ml-auto text-xs text-muted">{check.status}</span>
-                {check.url && (
-                  <a
-                    href={check.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-accent hover:underline"
-                  >
-                    Details
-                  </a>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { listRuns, listJobs, listSessions } from "@agentops/db";
+import { listRuns } from "@agentops/db";
 import { db } from "@/lib/db";
 import { AnalyticsDashboard } from "./AnalyticsDashboard";
 
@@ -17,29 +17,25 @@ export default function AnalyticsPage() {
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  // Build cost data
-  const dailyCost = new Map<string, number>();
+  // Build daily success/failure counts
   const dailyCounts = new Map<string, { completed: number; failed: number }>();
-  const repoCounts = new Map<string, { count: number; totalCost: number }>();
+  const repoCounts = new Map<string, { count: number }>();
 
   for (let i = 0; i < 30; i++) {
     const dd = new Date(thirtyDaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
     const key = dd.toISOString().slice(0, 10);
-    dailyCost.set(key, 0);
     dailyCounts.set(key, { completed: 0, failed: 0 });
   }
 
   for (const run of runs) {
     const created = new Date(run.createdAt);
     const repo = run.environment.repo;
-    const repoEntry = repoCounts.get(repo) ?? { count: 0, totalCost: 0 };
+    const repoEntry = repoCounts.get(repo) ?? { count: 0 };
     repoEntry.count++;
-    repoEntry.totalCost += run.metrics.costUsd;
     repoCounts.set(repo, repoEntry);
 
     if (created >= thirtyDaysAgo) {
       const key = created.toISOString().slice(0, 10);
-      dailyCost.set(key, (dailyCost.get(key) ?? 0) + run.metrics.costUsd);
 
       const entry = dailyCounts.get(key) ?? { completed: 0, failed: 0 };
       if (run.status === "completed") entry.completed++;
@@ -47,10 +43,6 @@ export default function AnalyticsPage() {
       dailyCounts.set(key, entry);
     }
   }
-
-  const costData = Array.from(dailyCost.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, cost]) => ({ date, cost: Math.round(cost * 100) / 100 }));
 
   const successData = Array.from(dailyCounts.entries())
     .sort(([a], [b]) => a.localeCompare(b))
@@ -60,86 +52,13 @@ export default function AnalyticsPage() {
     .map(([repo, stats]) => ({
       repo,
       count: stats.count,
-      totalCost: Math.round(stats.totalCost * 100) / 100,
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 
-  // Most expensive runs
-  const expensiveRuns = [...runs]
-    .sort((a, b) => b.metrics.costUsd - a.metrics.costUsd)
-    .slice(0, 10)
-    .map((r) => ({
-      id: r.id as string,
-      goal: r.goal.humanReadable,
-      status: r.status,
-      repo: r.environment.repo,
-      cost: r.metrics.costUsd,
-      duration: r.metrics.wallTimeMs,
-    }));
-
   // Summary stats
-  const totalCost = runs.reduce((s, r) => s + r.metrics.costUsd, 0);
   const totalCompleted = runs.filter((r) => r.status === "completed").length;
   const totalFailed = runs.filter((r) => r.status === "failed").length;
-  const avgDuration =
-    runs.length > 0
-      ? runs.reduce((s, r) => s + r.metrics.wallTimeMs, 0) / runs.length
-      : 0;
-
-  // Job throughput data
-  const allJobs = listJobs(d, { limit: 10000 });
-  const dailyJobCompleted = new Map<string, number>();
-  for (let i = 0; i < 30; i++) {
-    const dd = new Date(thirtyDaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
-    dailyJobCompleted.set(dd.toISOString().slice(0, 10), 0);
-  }
-  for (const job of allJobs) {
-    if (job.completedAt) {
-      const completed = new Date(job.completedAt);
-      if (completed >= thirtyDaysAgo) {
-        const key = completed.toISOString().slice(0, 10);
-        dailyJobCompleted.set(key, (dailyJobCompleted.get(key) ?? 0) + 1);
-      }
-    }
-  }
-  const jobThroughput = Array.from(dailyJobCompleted.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, completed]) => ({ date, completed }));
-
-  // Cost by priority
-  const costByPriority: Record<string, number> = { critical: 0, high: 0, normal: 0, low: 0 };
-  for (const job of allJobs) {
-    if (job.priority in costByPriority) {
-      costByPriority[job.priority]++;
-    }
-  }
-  const priorityData = Object.entries(costByPriority).map(([priority, count]) => ({
-    priority: priority.charAt(0).toUpperCase() + priority.slice(1),
-    count,
-  }));
-
-  // Session utilization
-  const allSessions = listSessions(d, { limit: 10000 });
-  const dailySessionActive = new Map<string, number>();
-  for (let i = 0; i < 30; i++) {
-    const dd = new Date(thirtyDaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
-    dailySessionActive.set(dd.toISOString().slice(0, 10), 0);
-  }
-  for (const session of allSessions) {
-    const start = new Date(session.startedAt);
-    const end = session.terminatedAt ? new Date(session.terminatedAt) : now;
-    for (const [dateStr] of dailySessionActive) {
-      const dayStart = new Date(dateStr);
-      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-      if (start < dayEnd && end >= dayStart) {
-        dailySessionActive.set(dateStr, (dailySessionActive.get(dateStr) ?? 0) + 1);
-      }
-    }
-  }
-  const sessionActivity = Array.from(dailySessionActive.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, active]) => ({ date, active }));
 
   if (runs.length === 0) {
     return (
@@ -167,18 +86,11 @@ export default function AnalyticsPage() {
 
   return (
     <AnalyticsDashboard
-      costData={costData}
       successData={successData}
       topRepos={topRepos}
-      expensiveRuns={expensiveRuns}
       totalRuns={runs.length}
-      totalCost={totalCost}
       totalCompleted={totalCompleted}
       totalFailed={totalFailed}
-      avgDuration={avgDuration}
-      jobThroughput={jobThroughput}
-      priorityData={priorityData}
-      sessionActivity={sessionActivity}
     />
   );
 }

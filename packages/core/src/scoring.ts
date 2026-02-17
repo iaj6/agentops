@@ -1,6 +1,6 @@
 import type { Run } from "./types.js";
 import { RunStatus } from "./types.js";
-import { PolicyEngine, type Policy } from "./policy.js";
+import { PolicyEngine, runHasMutations, type Policy } from "./policy.js";
 
 // ─── Score types ─────────────────────────────────────────────────────────────
 
@@ -33,6 +33,9 @@ function clamp(value: number): number {
 function scoreCorrectness(run: Run): ScoreDimension {
   const allTests = run.evaluations.flatMap((e) => e.testResults);
   if (allTests.length === 0) {
+    if (!runHasMutations(run)) {
+      return { score: 1, rationale: "Read-only session — no tests required" };
+    }
     return { score: 0, rationale: "No test results available" };
   }
   const passing = allTests.filter((t) => t.passed).length;
@@ -45,6 +48,10 @@ function scoreCorrectness(run: Run): ScoreDimension {
 }
 
 function scoreRegressionRisk(run: Run): ScoreDimension {
+  if (!runHasMutations(run)) {
+    return { score: 1, rationale: "Read-only session — no regression risk" };
+  }
+
   const flakeRate = run.metrics.flakeRate;
   const allTests = run.evaluations.flatMap((e) => e.testResults);
   const failingTests = allTests.filter((t) => !t.passed);
@@ -107,6 +114,10 @@ function scorePolicyCompliance(run: Run, policies: ReadonlyArray<Policy>): Score
 }
 
 function scoreUnknowns(run: Run): ScoreDimension {
+  if (!runHasMutations(run)) {
+    return { score: 1, rationale: "Read-only session — no evidence required" };
+  }
+
   const hasTests = run.evaluations.some((e) => e.testResults.length > 0);
   const hasArtifacts = run.artifacts.length > 0;
   const hasEvaluations = run.evaluations.length > 0;

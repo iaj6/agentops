@@ -5,6 +5,7 @@ import {
   PolicySeverity,
   PolicyMode,
   getPolicyMode,
+  runHasMutations,
 } from "../policy.js";
 import type { Policy } from "../policy.js";
 import type { Run, Action } from "../types.js";
@@ -181,8 +182,18 @@ describe("PolicyEngine", () => {
       expect(results[0]!.passed).toBe(true);
     });
 
-    it("fails when tests are required but none exist", () => {
-      const run = makeRun({ evaluations: [] });
+    it("passes for read-only session even when tests are required", () => {
+      const run = makeRun({ actions: [], evaluations: [] });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(true);
+      expect(results[0]!.message).toContain("No code changes");
+    });
+
+    it("fails when tests are required but none exist and run has mutations", () => {
+      const run = makeRun({
+        actions: [makeAction([{ path: "src/a.ts", diff: "+code", timestamp: "2025-01-01T00:00:00.000Z" }])],
+        evaluations: [],
+      });
       const results = engine.evaluate(run, [policy]);
       expect(results[0]!.passed).toBe(false);
       expect(results[0]!.message).toContain("No test results found");
@@ -281,6 +292,133 @@ describe("PolicyEngine", () => {
     });
   });
 
+  describe("SecretDetection policy", () => {
+    const policy: Policy = {
+      id: createPolicyId("policy_secret"),
+      name: "No secrets",
+      type: PolicyType.SecretDetection,
+      config: {
+        type: PolicyType.SecretDetection,
+        patterns: [
+          "AKIA[0-9A-Z]{16}",
+          "-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----",
+        ],
+      },
+      severity: PolicySeverity.Error,
+    };
+
+    it("passes when no secrets in file edits", () => {
+      const run = makeRun({
+        actions: [makeAction([{ path: "src/index.ts", diff: "+const x = 1;", timestamp: "2025-01-01T00:00:00.000Z" }])],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(true);
+      expect(results[0]!.message).toContain("No secrets detected");
+    });
+
+    it("fails when AWS key pattern found in diff", () => {
+      const run = makeRun({
+        actions: [makeAction([{ path: "src/config.ts", diff: "+const key = 'AKIAIOSFODNN7EXAMPLE';", timestamp: "2025-01-01T00:00:00.000Z" }])],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(false);
+      expect(results[0]!.message).toContain("Secrets detected");
+    });
+
+    it("fails when private key found in diff", () => {
+      const run = makeRun({
+        actions: [makeAction([{ path: "certs/key.pem", diff: "+-----BEGIN RSA PRIVATE KEY-----", timestamp: "2025-01-01T00:00:00.000Z" }])],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(false);
+    });
+
+    it("handles multiple patterns, reports all matches", () => {
+      const run = makeRun({
+        actions: [makeAction([
+          { path: "src/a.ts", diff: "+AKIAIOSFODNN7EXAMPLE", timestamp: "2025-01-01T00:00:00.000Z" },
+          { path: "src/b.ts", diff: "+-----BEGIN PRIVATE KEY-----", timestamp: "2025-01-01T00:00:00.000Z" },
+        ])],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(false);
+      const matched = (results[0]!.details as { matched: string[] }).matched;
+      expect(matched.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe("BranchProtection policy", () => {
+    const policy: Policy = {
+      id: createPolicyId("policy_branch"),
+      name: "Protected branches",
+      type: PolicyType.BranchProtection,
+      config: {
+        type: PolicyType.BranchProtection,
+        protectedBranches: ["main", "master", "production"],
+      },
+      severity: PolicySeverity.Warning,
+    };
+
+    it("passes when branch is not protected", () => {
+      const run = makeRun({
+        environment: {
+          repo: "test/repo",
+          branch: "feature/foo",
+          permissions: [],
+          sandbox: { enabled: false, isolationLevel: "none" },
+        },
+        actions: [makeAction([{ path: "src/a.ts", diff: "+code", timestamp: "2025-01-01T00:00:00.000Z" }])],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(true);
+      expect(results[0]!.message).toContain("not protected");
+    });
+
+    it("fails when on main with file edits", () => {
+      const run = makeRun({
+        environment: {
+          repo: "test/repo",
+          branch: "main",
+          permissions: [],
+          sandbox: { enabled: false, isolationLevel: "none" },
+        },
+        actions: [makeAction([{ path: "src/a.ts", diff: "+code", timestamp: "2025-01-01T00:00:00.000Z" }])],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(false);
+      expect(results[0]!.message).toContain("Mutations on protected branch");
+    });
+
+    it("fails when on production with commands", () => {
+      const run = makeRun({
+        environment: {
+          repo: "test/repo",
+          branch: "production",
+          permissions: [],
+          sandbox: { enabled: false, isolationLevel: "none" },
+        },
+        actions: [makeAction([], [{ command: "npm run deploy", exitCode: 0, stdout: "", stderr: "", timestamp: "2025-01-01T00:00:00.000Z" }])],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(false);
+    });
+
+    it("passes when on protected branch but no actions", () => {
+      const run = makeRun({
+        environment: {
+          repo: "test/repo",
+          branch: "main",
+          permissions: [],
+          sandbox: { enabled: false, isolationLevel: "none" },
+        },
+        actions: [],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(true);
+      expect(results[0]!.message).toContain("no mutations detected");
+    });
+  });
+
   describe("getPolicyMode", () => {
     it("returns Guard for PathRestriction", () => {
       expect(getPolicyMode(PolicyType.PathRestriction)).toBe(PolicyMode.Guard);
@@ -292,6 +430,14 @@ describe("PolicyEngine", () => {
 
     it("returns Guard for RiskyOpFlag", () => {
       expect(getPolicyMode(PolicyType.RiskyOpFlag)).toBe(PolicyMode.Guard);
+    });
+
+    it("returns Guard for SecretDetection", () => {
+      expect(getPolicyMode(PolicyType.SecretDetection)).toBe(PolicyMode.Guard);
+    });
+
+    it("returns Guard for BranchProtection", () => {
+      expect(getPolicyMode(PolicyType.BranchProtection)).toBe(PolicyMode.Guard);
     });
 
     it("returns Check for TestEnforcement", () => {
@@ -316,5 +462,39 @@ describe("PolicyEngine", () => {
       expect(results[0]!.message).toContain("Skipped");
       expect(results[0]!.message).toContain("costCeiling");
     });
+  });
+});
+
+describe("runHasMutations", () => {
+  it("returns false for a run with no actions", () => {
+    const run = makeRun({ actions: [] });
+    expect(runHasMutations(run)).toBe(false);
+  });
+
+  it("returns false for a run with only tool calls (no edits or commands)", () => {
+    const run = makeRun({
+      actions: [{
+        id: createActionId("action_read"),
+        toolCalls: [{ name: "Read", input: { file_path: "src/a.ts" }, output: "content", timestamp: "2025-01-01T00:00:00.000Z" }],
+        fileEdits: [],
+        commands: [],
+        timestamp: "2025-01-01T00:00:00.000Z",
+      }],
+    });
+    expect(runHasMutations(run)).toBe(false);
+  });
+
+  it("returns true for a run with file edits", () => {
+    const run = makeRun({
+      actions: [makeAction([{ path: "src/a.ts", diff: "+code", timestamp: "2025-01-01T00:00:00.000Z" }])],
+    });
+    expect(runHasMutations(run)).toBe(true);
+  });
+
+  it("returns true for a run with commands", () => {
+    const run = makeRun({
+      actions: [makeAction([], [{ command: "npm test", exitCode: 0, stdout: "", stderr: "", timestamp: "2025-01-01T00:00:00.000Z" }])],
+    });
+    expect(runHasMutations(run)).toBe(true);
   });
 });

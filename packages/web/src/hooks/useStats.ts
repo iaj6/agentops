@@ -3,12 +3,10 @@
 import { useState, useEffect, useCallback } from "react";
 
 interface StatsData {
-  runs: { total: number; running: number; successRate: number; totalCost: number; avgDuration: number };
-  summary: { runsToday: number; runsThisWeek: number; costToday: number; costThisWeek: number; topRepos: { repo: string; count: number }[] };
-  jobs: { queued: number; dispatched: number; running: number; completed: number; failed: number };
-  sessions: { active: number; paused: number; terminated: number };
+  runs: { total: number; running: number; successRate: number; avgDuration: number };
+  summary: { runsToday: number; runsThisWeek: number; topRepos: { repo: string; count: number }[] };
+  sessions: { active: number; terminated: number };
   events: { last24h: number; lastHour: number };
-  locks: { active: number };
 }
 
 interface UseStatsReturn {

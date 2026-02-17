@@ -24,7 +24,7 @@ import {
   PolicySeverity,
   generateSummary,
 } from "@agentops/core";
-import type { Action, ToolCall, FileEdit, Command as CmdType, Policy, FileLimitCountConfig } from "@agentops/core";
+import type { Action, ToolCall, FileEdit, Command as CmdType, Policy, FileLimitCountConfig, SecretDetectionConfig, BranchProtectionConfig } from "@agentops/core";
 import { getDb, insertRun, updateRun, getRun, insertSession, updateSession, insertEvent, listPolicies, updateRunSummary } from "@agentops/db";
 import { getCurrentRepo, getCurrentBranch, getChangedFiles, getWorkingTreeDiff } from "../git.js";
 
@@ -161,10 +161,15 @@ interface PolicyViolation {
   severity: string;
 }
 
+interface GuardContext {
+  editedFiles?: ReadonlySet<string>;
+  branch?: string;
+}
+
 function checkPreToolPolicies(
   input: HookInput,
   activePolicies: ReadonlyArray<Policy & { enabled: boolean }>,
-  existingEditedFiles?: ReadonlySet<string>,
+  context?: GuardContext,
 ): PolicyViolation[] {
   const violations: PolicyViolation[] = [];
   const toolName = input.tool_name ?? "";
@@ -222,7 +227,7 @@ function checkPreToolPolicies(
     ) {
       const filePath = toolInput["file_path"] as string;
       const config = policy.config as FileLimitCountConfig;
-      const currentFiles = existingEditedFiles ?? new Set<string>();
+      const currentFiles = context?.editedFiles ?? new Set<string>();
       // If this file is already in the set, it won't increase the count
       if (!currentFiles.has(filePath) && currentFiles.size >= config.maxFiles) {
         violations.push({
@@ -230,6 +235,50 @@ function checkPreToolPolicies(
           message: `File limit exceeded: editing "${filePath}" would be file ${currentFiles.size + 1}, limit is ${config.maxFiles}`,
           severity: policy.severity,
         });
+      }
+    }
+
+    if (
+      policy.config.type === PolicyType.SecretDetection &&
+      (toolName === "Write" || toolName === "Edit")
+    ) {
+      const content = toolName === "Write"
+        ? (typeof toolInput["content"] === "string" ? toolInput["content"] as string : "")
+        : (typeof toolInput["new_string"] === "string" ? toolInput["new_string"] as string : "");
+
+      if (content) {
+        const config = policy.config as SecretDetectionConfig;
+        const matched: string[] = [];
+        for (const pattern of config.patterns) {
+          const re = new RegExp(pattern);
+          if (re.test(content)) {
+            matched.push(pattern);
+          }
+        }
+        if (matched.length > 0) {
+          violations.push({
+            policy: policy.name,
+            message: `Secret pattern(s) detected: ${matched.join(", ")}`,
+            severity: policy.severity,
+          });
+        }
+      }
+    }
+
+    if (
+      policy.config.type === PolicyType.BranchProtection &&
+      (toolName === "Write" || toolName === "Edit" || toolName === "Bash")
+    ) {
+      const branch = context?.branch;
+      if (branch) {
+        const config = policy.config as BranchProtectionConfig;
+        if (config.protectedBranches.some((b) => b === branch)) {
+          violations.push({
+            policy: policy.name,
+            message: `Mutation on protected branch "${branch}"`,
+            severity: policy.severity,
+          });
+        }
       }
     }
   }
@@ -316,17 +365,17 @@ async function handlePreToolUse(input: HookInput, dbPath?: string): Promise<void
   // Load active policies
   const activePolicies = listPolicies(db, { enabled: true });
 
-  // Get existing edited files from run for FileLimitCount guard
-  let existingEditedFiles: Set<string> | undefined;
+  // Build guard context from current run
   const currentRun = getRun(db, state.runId as any);
-  if (currentRun) {
-    existingEditedFiles = new Set(
-      currentRun.actions.flatMap((a) => a.fileEdits.map((e) => e.path)),
-    );
-  }
+  const context: GuardContext = {
+    editedFiles: currentRun
+      ? new Set(currentRun.actions.flatMap((a) => a.fileEdits.map((e) => e.path)))
+      : undefined,
+    branch: currentRun?.environment.branch,
+  };
 
   // Check policies
-  const violations = checkPreToolPolicies(input, activePolicies, existingEditedFiles);
+  const violations = checkPreToolPolicies(input, activePolicies, context);
 
   // Check for error-severity violations that should block
   const errorViolations = violations.filter((v) => v.severity === PolicySeverity.Error);
@@ -829,4 +878,4 @@ export {
   handleSubagentStart as _handleSubagentStart,
   handleSubagentStop as _handleSubagentStop,
 };
-export type { HookInput };
+export type { HookInput, GuardContext };

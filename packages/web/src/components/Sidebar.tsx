@@ -5,11 +5,10 @@ import { usePathname } from "next/navigation";
 
 const navItems = [
   { href: "/", label: "Runs", icon: RunsIcon },
-  { href: "/jobs", label: "Jobs", icon: JobsIcon },
   { href: "/sessions", label: "Sessions", icon: SessionsIcon },
   { href: "/events", label: "Events", icon: EventsIcon },
-  { href: "/coordination", label: "Coordination", icon: CoordinationIcon },
   { href: "/analytics", label: "Analytics", icon: AnalyticsIcon },
+  { href: "/usage", label: "Usage", icon: UsageIcon },
   { href: "/policies", label: "Policies", icon: PoliciesIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
@@ -77,22 +76,6 @@ function RunsIcon({ active }: { active: boolean }) {
   );
 }
 
-function JobsIcon({ active }: { active: boolean }) {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      className={active ? "text-accent" : "text-muted"}
-    >
-      <rect x="2" y="2" width="12" height="3" rx="1" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="2" y="6.5" width="12" height="3" rx="1" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="2" y="11" width="12" height="3" rx="1" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
 function SessionsIcon({ active }: { active: boolean }) {
   return (
     <svg
@@ -132,23 +115,6 @@ function EventsIcon({ active }: { active: boolean }) {
   );
 }
 
-function CoordinationIcon({ active }: { active: boolean }) {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      className={active ? "text-accent" : "text-muted"}
-    >
-      <circle cx="4" cy="4" r="2" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="12" cy="4" r="2" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="8" cy="12" r="2" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M5.5 5.5L7 10.5M10.5 5.5L9 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function AnalyticsIcon({ active }: { active: boolean }) {
   return (
     <svg
@@ -161,6 +127,24 @@ function AnalyticsIcon({ active }: { active: boolean }) {
       <rect x="2" y="8" width="3" height="6" rx="0.5" stroke="currentColor" strokeWidth="1.5" />
       <rect x="6.5" y="5" width="3" height="9" rx="0.5" stroke="currentColor" strokeWidth="1.5" />
       <rect x="11" y="2" width="3" height="12" rx="0.5" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function UsageIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      className={active ? "text-accent" : "text-muted"}
+    >
+      <rect x="2" y="9" width="3" height="5" rx="0.5" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="6.5" y="5" width="3" height="9" rx="0.5" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="11" y="2" width="3" height="12" rx="0.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M3.5 7V6.5a1 1 0 0 1 1-1h0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <circle cx="5.5" cy="4.5" r="0.75" fill="currentColor" />
     </svg>
   );
 }

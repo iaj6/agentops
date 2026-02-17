@@ -65,10 +65,8 @@ export function registerInitCommand(program: Command): void {
             console.log(`  Policies:       ${counts.policies}`);
             console.log(`  Runs:           ${counts.runs}`);
             console.log(`  Policy results: ${counts.policyResults}`);
-            console.log(`  Jobs:           ${counts.jobs}`);
             console.log(`  Sessions:       ${counts.sessions}`);
             console.log(`  Events:         ${counts.events}`);
-            console.log(`  Locks:          ${counts.locks}`);
           }
         } else {
           if (json) {

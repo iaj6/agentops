@@ -17,7 +17,7 @@ describe("seed", () => {
     const counts = await seed(db);
 
     expect(counts.runs).toBe(50);
-    expect(counts.policies).toBe(7);
+    expect(counts.policies).toBe(9);
     expect(counts.policyResults).toBeGreaterThan(0);
   });
 
@@ -28,11 +28,11 @@ describe("seed", () => {
     expect(runs).toHaveLength(50);
   });
 
-  it("populates the policies table with 7 policies", async () => {
+  it("populates the policies table with 9 policies", async () => {
     await seed(db);
 
     const policies = listPolicies(db);
-    expect(policies).toHaveLength(7);
+    expect(policies).toHaveLength(9);
   });
 
   it("creates runs with a mix of statuses", async () => {
@@ -78,14 +78,14 @@ describe("seed", () => {
     }
   });
 
-  it("creates runs with metrics that have positive cost", async () => {
+  it("creates runs with realistic metrics (wallTime > 0, cost = 0)", async () => {
     await seed(db);
 
     const runs = listRuns(db);
     for (const run of runs) {
-      expect(run.metrics.costUsd).toBeGreaterThan(0);
+      expect(run.metrics.costUsd).toBe(0);
       expect(run.metrics.wallTimeMs).toBeGreaterThan(0);
-      expect(run.metrics.tokenUsage.total).toBeGreaterThan(0);
+      expect(run.metrics.tokenUsage.total).toBe(0);
     }
   });
 

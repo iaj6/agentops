@@ -7,6 +7,8 @@ export enum PolicyType {
   FileLimitCount = "fileLimitCount",
   TestEnforcement = "testEnforcement",
   RiskyOpFlag = "riskyOpFlag",
+  SecretDetection = "secretDetection",
+  BranchProtection = "branchProtection",
 }
 
 // ─── Policy mode (guard = real-time blocking, check = post-hoc evaluation) ──
@@ -21,6 +23,8 @@ export function getPolicyMode(type: PolicyType): PolicyMode {
     case PolicyType.PathRestriction:
     case PolicyType.FileLimitCount:
     case PolicyType.RiskyOpFlag:
+    case PolicyType.SecretDetection:
+    case PolicyType.BranchProtection:
       return PolicyMode.Guard;
     case PolicyType.TestEnforcement:
       return PolicyMode.Check;
@@ -45,7 +49,9 @@ export type PolicyConfig =
   | PathRestrictionConfig
   | FileLimitCountConfig
   | TestEnforcementConfig
-  | RiskyOpFlagConfig;
+  | RiskyOpFlagConfig
+  | SecretDetectionConfig
+  | BranchProtectionConfig;
 
 export interface PathRestrictionConfig {
   readonly type: PolicyType.PathRestriction;
@@ -68,6 +74,16 @@ export interface RiskyOpFlagConfig {
   readonly riskyPatterns: ReadonlyArray<string>;
 }
 
+export interface SecretDetectionConfig {
+  readonly type: PolicyType.SecretDetection;
+  readonly patterns: ReadonlyArray<string>;
+}
+
+export interface BranchProtectionConfig {
+  readonly type: PolicyType.BranchProtection;
+  readonly protectedBranches: ReadonlyArray<string>;
+}
+
 // ─── Policy result ───────────────────────────────────────────────────────────
 
 export interface PolicyResult {
@@ -75,6 +91,15 @@ export interface PolicyResult {
   readonly policy: Policy;
   readonly message: string;
   readonly details: Record<string, unknown>;
+}
+
+// ─── Run mutation detection ──────────────────────────────────────────────────
+
+/** Returns true if the run contains file edits or commands (i.e. is not read-only). */
+export function runHasMutations(run: Run): boolean {
+  return run.actions.some(
+    (a) => a.fileEdits.length > 0 || a.commands.length > 0,
+  );
 }
 
 // ─── Policy engine ───────────────────────────────────────────────────────────
@@ -116,6 +141,15 @@ function evaluateFileLimitCount(run: Run, policy: Policy, config: FileLimitCount
 function evaluateTestEnforcement(run: Run, policy: Policy, config: TestEnforcementConfig): PolicyResult {
   const allTests = run.evaluations.flatMap((e) => e.testResults);
   if (allTests.length === 0) {
+    // Read-only sessions (no file edits or commands) don't require tests
+    if (!runHasMutations(run)) {
+      return {
+        passed: true,
+        policy,
+        message: "No code changes — tests not required",
+        details: { testCount: 0, readOnlySession: true },
+      };
+    }
     return {
       passed: !config.requirePassing,
       policy,
@@ -154,6 +188,71 @@ function evaluateRiskyOpFlag(run: Run, policy: Policy, config: RiskyOpFlagConfig
   };
 }
 
+function evaluateSecretDetection(run: Run, policy: Policy, config: SecretDetectionConfig): PolicyResult {
+  const compiledPatterns = config.patterns.map((p) => ({ source: p, re: new RegExp(p) }));
+  const matched: string[] = [];
+
+  for (const action of run.actions) {
+    for (const edit of action.fileEdits) {
+      for (const { source, re } of compiledPatterns) {
+        if (re.test(edit.diff)) {
+          matched.push(`Pattern "${source}" matched in file edit: ${edit.path}`);
+        }
+      }
+    }
+    for (const cmd of action.commands) {
+      for (const { source, re } of compiledPatterns) {
+        if (re.test(cmd.stdout)) {
+          matched.push(`Pattern "${source}" matched in command output`);
+        }
+      }
+    }
+  }
+
+  return {
+    passed: matched.length === 0,
+    policy,
+    message:
+      matched.length === 0
+        ? "No secrets detected"
+        : `Secrets detected: ${matched.join("; ")}`,
+    details: { matched },
+  };
+}
+
+function evaluateBranchProtection(run: Run, policy: Policy, config: BranchProtectionConfig): PolicyResult {
+  const branch = run.environment.branch;
+  const isProtected = config.protectedBranches.some((b) => b === branch);
+
+  if (!isProtected) {
+    return {
+      passed: true,
+      policy,
+      message: `Branch "${branch}" is not protected`,
+      details: { branch, protectedBranches: config.protectedBranches },
+    };
+  }
+
+  const hasEdits = run.actions.some((a) => a.fileEdits.length > 0);
+  const hasCommands = run.actions.some((a) => a.commands.length > 0);
+
+  if (!hasEdits && !hasCommands) {
+    return {
+      passed: true,
+      policy,
+      message: `On protected branch "${branch}" but no mutations detected`,
+      details: { branch, protectedBranches: config.protectedBranches },
+    };
+  }
+
+  return {
+    passed: false,
+    policy,
+    message: `Mutations on protected branch "${branch}"`,
+    details: { branch, protectedBranches: config.protectedBranches },
+  };
+}
+
 function evaluatePolicy(run: Run, policy: Policy): PolicyResult {
   const config = policy.config;
   switch (config.type) {
@@ -165,6 +264,10 @@ function evaluatePolicy(run: Run, policy: Policy): PolicyResult {
       return evaluateTestEnforcement(run, policy, config);
     case PolicyType.RiskyOpFlag:
       return evaluateRiskyOpFlag(run, policy, config);
+    case PolicyType.SecretDetection:
+      return evaluateSecretDetection(run, policy, config);
+    case PolicyType.BranchProtection:
+      return evaluateBranchProtection(run, policy, config);
     default:
       return {
         passed: true,

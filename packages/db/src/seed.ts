@@ -3,13 +3,11 @@ import type { Run, Agent, Action, Artifact, Evaluation, Decision, Metrics } from
 import {
   RunStatus,
   AgentRole,
-  DecisionType,
   createRunId,
   createPolicyId,
   createAgentId,
   createActionId,
   createArtifactId,
-  createDecisionId,
   createSessionId,
   createEventId,
   SessionStatus,
@@ -25,7 +23,7 @@ import { insertRun } from "./runs.js";
 import { insertPolicy } from "./policies.js";
 import { insertEvent } from "./events.js";
 import { insertSession } from "./sessions.js";
-import { policyResults, runMetrics, jobs, sessions, events, locks } from "./schema.js";
+import { policyResults, runMetrics } from "./schema.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -912,6 +910,31 @@ function buildPolicies(): Policy[] {
       },
       severity: PolicySeverity.Error,
     },
+    {
+      id: createPolicyId("pol_secret_detection"),
+      name: "No secrets in source code",
+      type: PolicyType.SecretDetection,
+      config: {
+        type: PolicyType.SecretDetection,
+        patterns: [
+          "AKIA[0-9A-Z]{16}",
+          "-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----",
+          "(?:api[_-]?key|apikey|secret[_-]?key)\\s*[:=]\\s*[\"'][A-Za-z0-9+/=]{20,}",
+          "(?:token|bearer)\\s*[:=]\\s*[\"'][A-Za-z0-9._\\-]{20,}",
+        ],
+      },
+      severity: PolicySeverity.Error,
+    },
+    {
+      id: createPolicyId("pol_branch_protection"),
+      name: "Protected branch guard",
+      type: PolicyType.BranchProtection,
+      config: {
+        type: PolicyType.BranchProtection,
+        protectedBranches: ["main", "master", "production"],
+      },
+      severity: PolicySeverity.Warning,
+    },
   ];
 }
 
@@ -1142,74 +1165,25 @@ function buildEvaluations(
 }
 
 function buildDecisions(
-  status: RunStatus,
-  createdAt: Date,
+  _status: RunStatus,
+  _createdAt: Date,
 ): Decision[] {
-  if (status === RunStatus.Completed) {
-    return [
-      {
-        id: createDecisionId(`dec_${uid()}`),
-        type: DecisionType.Approval,
-        actor: pick(APPROVAL_ACTORS),
-        reason: pick([
-          "All tests passing, policy checks green — auto-approved",
-          "LGTM — reviewed changes, merging",
-          "Approved after manual review of diff",
-          "CI passed, code owner approved",
-        ]),
-        timestamp: minutesAfter(createdAt, 10, 20).toISOString(),
-      },
-    ];
-  }
-
-  if (status === RunStatus.Failed) {
-    return [
-      {
-        id: createDecisionId(`dec_${uid()}`),
-        type: DecisionType.Block,
-        actor: "system",
-        reason: pick(FAIL_REASONS),
-        timestamp: minutesAfter(createdAt, 5, 15).toISOString(),
-      },
-    ];
-  }
-
-  if (status === RunStatus.Blocked) {
-    return [
-      {
-        id: createDecisionId(`dec_${uid()}`),
-        type: DecisionType.Escalation,
-        actor: pick(APPROVAL_ACTORS),
-        reason: pick(BLOCK_REASONS),
-        timestamp: minutesAfter(createdAt, 3, 10).toISOString(),
-      },
-    ];
-  }
-
+  // Decisions are not populated by hooks — return empty for honest representation
   return [];
 }
 
 function buildMetrics(status: RunStatus, actionCount: number): Metrics {
-  const inputTokens = randInt(5000, 180000);
-  const outputTokens = randInt(2000, 60000);
-  const costBase = (inputTokens * 0.000003 + outputTokens * 0.000015);
-  // Add some variance
-  const costUsd =
-    status === RunStatus.Running
-      ? randFloat(0.05, 2.5)
-      : parseFloat((costBase * randFloat(0.8, 1.4)).toFixed(2));
-
   return {
     tokenUsage: {
-      input: inputTokens,
-      output: outputTokens,
-      total: inputTokens + outputTokens,
+      input: 0,
+      output: 0,
+      total: 0,
     },
     wallTimeMs:
       status === RunStatus.Running
         ? randInt(30000, 120000)
         : randInt(30000, 900000),
-    costUsd: Math.max(0.05, costUsd),
+    costUsd: 0,
     flakeRate: randFloat(0, 0.12),
   };
 }
@@ -1283,115 +1257,7 @@ function generateRun(
 
 // ─── Orchestration seed functions (populated by workstream agents) ──────────
 
-function seedJobs(db: AgentOpsDb): number {
-  const JOB_STATUSES = ["queued", "dispatched", "running", "completed", "failed", "cancelled"] as const;
-  const JOB_PRIORITIES = ["critical", "high", "normal", "low"] as const;
-
-  interface JobBlueprint {
-    status: (typeof JOB_STATUSES)[number];
-    priority: (typeof JOB_PRIORITIES)[number];
-  }
-
-  const blueprints: JobBlueprint[] = [
-    // 5 queued
-    { status: "queued", priority: "critical" },
-    { status: "queued", priority: "high" },
-    { status: "queued", priority: "normal" },
-    { status: "queued", priority: "normal" },
-    { status: "queued", priority: "low" },
-    // 3 dispatched
-    { status: "dispatched", priority: "high" },
-    { status: "dispatched", priority: "normal" },
-    { status: "dispatched", priority: "normal" },
-    // 4 running
-    { status: "running", priority: "critical" },
-    { status: "running", priority: "high" },
-    { status: "running", priority: "normal" },
-    { status: "running", priority: "normal" },
-    // 10 completed
-    { status: "completed", priority: "critical" },
-    { status: "completed", priority: "high" },
-    { status: "completed", priority: "high" },
-    { status: "completed", priority: "normal" },
-    { status: "completed", priority: "normal" },
-    { status: "completed", priority: "normal" },
-    { status: "completed", priority: "normal" },
-    { status: "completed", priority: "normal" },
-    { status: "completed", priority: "low" },
-    { status: "completed", priority: "low" },
-    // 4 failed
-    { status: "failed", priority: "high" },
-    { status: "failed", priority: "normal" },
-    { status: "failed", priority: "normal" },
-    { status: "failed", priority: "low" },
-    // 2 cancelled
-    { status: "cancelled", priority: "normal" },
-    { status: "cancelled", priority: "low" },
-  ];
-
-  let count = 0;
-  for (let i = 0; i < blueprints.length; i++) {
-    const bp = blueprints[i]!;
-    const goal = GOALS[i % GOALS.length]!;
-    const createdAt = daysAgo(randInt(0, 21));
-    const branch = pick(BRANCHES);
-
-    const queuedAt = createdAt;
-    const dispatchedAt = ["dispatched", "running", "completed", "failed"].includes(bp.status)
-      ? minutesAfter(createdAt, 1, 5)
-      : null;
-    const completedAt = bp.status === "completed"
-      ? minutesAfter(createdAt, 10, 30)
-      : null;
-
-    const attempt = bp.status === "failed" ? randInt(1, 3) : 0;
-    const maxAttempts = 3;
-
-    db.insert(jobs)
-      .values({
-        id: `job_${uid()}`,
-        status: bp.status,
-        priority: bp.priority,
-        goal: {
-          humanReadable: goal.human,
-          structured: { type: goal.type, description: goal.desc, parameters: {} },
-        } as unknown as Record<string, unknown>,
-        environment: {
-          repo: goal.repo,
-          branch,
-          permissions: ["read", "write"],
-          sandbox: { enabled: true, isolationLevel: "container" },
-        } as unknown as Record<string, unknown>,
-        repo: goal.repo,
-        branch,
-        retryPolicy: {
-          maxRetries: 3,
-          backoffMs: 1000,
-          backoffMultiplier: 2,
-        } as unknown as Record<string, unknown>,
-        concurrencyLimits: {
-          perRepo: 5,
-          perOrg: 10,
-          global: 50,
-        } as unknown as Record<string, unknown>,
-        runIds: (bp.status === "running" || bp.status === "completed" || bp.status === "failed"
-          ? [`run_${uid()}`]
-          : []) as unknown as Record<string, unknown>,
-        sessionId: ["dispatched", "running"].includes(bp.status) ? `session_${uid()}` : null,
-        attempt,
-        maxAttempts,
-        queuedAt: queuedAt.toISOString(),
-        dispatchedAt: dispatchedAt?.toISOString() ?? null,
-        completedAt: completedAt?.toISOString() ?? null,
-        createdAt: createdAt.toISOString(),
-        updatedAt: (completedAt ?? dispatchedAt ?? createdAt).toISOString(),
-      })
-      .run();
-    count++;
-  }
-
-  return count;
-}
+// seedJobs removed — jobs are not surfaced in the dashboard
 
 function seedSessions(db: AgentOpsDb): number {
   const AGENT_NAMES = [
@@ -1522,95 +1388,11 @@ function seedEvents(db: AgentOpsDb): number {
   return count;
 }
 
-function seedLocks(db: AgentOpsDb): number {
-  const LOCK_TYPES = ["repo", "path", "branch"] as const;
-  const LOCK_RESOURCES = [
-    "acme/backend",
-    "acme/frontend",
-    "acme/infra",
-    "acme/backend/src/routes/",
-    "acme/backend/src/services/",
-    "acme/frontend/src/components/",
-    "main",
-    "develop",
-    "feat/add-pagination",
-    "fix/n-plus-one-query",
-    "refactor/auth-to-jwt",
-  ] as const;
-  const LOCK_HOLDERS = [
-    "agent_lead_01",
-    "agent_impl_02",
-    "agent_impl_03",
-    "agent_review_04",
-    "agent_ci_05",
-  ] as const;
-
-  interface LockBlueprint {
-    state: "active" | "expired" | "released";
-  }
-
-  const blueprints: LockBlueprint[] = [
-    { state: "active" },
-    { state: "active" },
-    { state: "active" },
-    { state: "active" },
-    { state: "active" },
-    { state: "expired" },
-    { state: "expired" },
-    { state: "expired" },
-    { state: "released" },
-    { state: "released" },
-    { state: "released" },
-    { state: "released" },
-  ];
-
-  let count = 0;
-  for (const bp of blueprints) {
-    const lockType = pick(LOCK_TYPES);
-    let resource: string;
-    if (lockType === "repo") {
-      resource = pick(LOCK_RESOURCES.slice(0, 3));
-    } else if (lockType === "path") {
-      resource = pick(LOCK_RESOURCES.slice(3, 6));
-    } else {
-      resource = pick(LOCK_RESOURCES.slice(6));
-    }
-
-    const acquiredAt = daysAgo(randInt(0, 7));
-    let expiresAt: Date;
-    let released: boolean;
-
-    if (bp.state === "active") {
-      expiresAt = minutesAfter(new Date(), randInt(30, 480), randInt(481, 1440));
-      released = false;
-    } else if (bp.state === "expired") {
-      expiresAt = minutesAfter(acquiredAt, 5, 60);
-      released = false;
-    } else {
-      expiresAt = minutesAfter(acquiredAt, 60, 480);
-      released = true;
-    }
-
-    db.insert(locks)
-      .values({
-        id: `lock_${uid()}`,
-        lockType,
-        resource,
-        holderId: pick(LOCK_HOLDERS),
-        acquiredAt: acquiredAt.toISOString(),
-        expiresAt: expiresAt.toISOString(),
-        released,
-      })
-      .run();
-    count++;
-  }
-
-  return count;
-}
+// seedLocks removed — locks are not surfaced in the dashboard
 
 // ─── Seed function ──────────────────────────────────────────────────────────
 
-export async function seed(db: AgentOpsDb): Promise<{ runs: number; policies: number; policyResults: number; jobs: number; sessions: number; events: number; locks: number }> {
+export async function seed(db: AgentOpsDb): Promise<{ runs: number; policies: number; policyResults: number; sessions: number; events: number }> {
   const allPolicies = buildPolicies();
 
   // Insert policies
@@ -1699,20 +1481,16 @@ export async function seed(db: AgentOpsDb): Promise<{ runs: number; policies: nu
     }
   }
 
-  // Seed orchestration tables
-  const jobCount = seedJobs(db);
+  // Seed orchestration tables (jobs and locks removed — not surfaced in dashboard)
   const sessionCount = seedSessions(db);
   const eventCount = seedEvents(db);
-  const lockCount = seedLocks(db);
 
   return {
     runs: blueprints.length,
     policies: allPolicies.length,
     policyResults: policyResultCount,
-    jobs: jobCount,
     sessions: sessionCount,
     events: eventCount,
-    locks: lockCount,
   };
 }
 
@@ -1738,10 +1516,8 @@ async function main() {
   console.log(`  Policies:       ${counts.policies}`);
   console.log(`  Runs:           ${counts.runs}`);
   console.log(`  Policy results: ${counts.policyResults}`);
-  console.log(`  Jobs:           ${counts.jobs}`);
   console.log(`  Sessions:       ${counts.sessions}`);
   console.log(`  Events:         ${counts.events}`);
-  console.log(`  Locks:          ${counts.locks}`);
   console.log("\nDone.");
 }
 

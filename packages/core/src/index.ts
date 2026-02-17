@@ -65,10 +65,12 @@ export type {
   FileLimitCountConfig,
   TestEnforcementConfig,
   RiskyOpFlagConfig,
+  SecretDetectionConfig,
+  BranchProtectionConfig,
   PolicyResult,
 } from "./policy.js";
 
-export { PolicyType, PolicySeverity, PolicyMode, PolicyEngine, getPolicyMode } from "./policy.js";
+export { PolicyType, PolicySeverity, PolicyMode, PolicyEngine, getPolicyMode, runHasMutations } from "./policy.js";
 
 // Scoring
 export type { ScoreDimension, ScoreCard } from "./scoring.js";

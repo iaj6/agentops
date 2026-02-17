@@ -13,26 +13,6 @@ type SortDir = "asc" | "desc";
 
 const ALL_STATUSES = Object.values(SessionStatus);
 
-function MiniResourceBar({
-  value,
-  max,
-  color,
-}: {
-  value: number;
-  max: number;
-  color: string;
-}) {
-  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
-  return (
-    <div className="h-1.5 w-full rounded-full bg-surface-2" title={`${pct.toFixed(0)}%`}>
-      <div
-        className={`h-1.5 rounded-full ${color} transition-all`}
-        style={{ width: `${pct}%` }}
-      />
-    </div>
-  );
-}
-
 export function SessionsTable({
   sessions: initialSessions,
 }: {
@@ -213,9 +193,6 @@ export function SessionsTable({
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted">
                 Completed
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted w-28">
-                Resources
-              </th>
               <th
                 className="cursor-pointer select-none px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted hover:text-foreground"
                 onClick={() => handleSort("created")}
@@ -229,7 +206,7 @@ export function SessionsTable({
             {displaySessions.length === 0 && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={6}
                   className="px-4 py-12 text-center text-sm text-muted"
                 >
                   No sessions match the current filters.
@@ -240,23 +217,6 @@ export function SessionsTable({
               const id = session.id as string;
               const isUpdated = recentlyUpdated.has(id);
               const isSelected = idx === selectedIdx;
-              const cpuPct = session.resourceUsage.cpuPercent;
-              const memPct = Math.min(
-                (session.resourceUsage.memoryMb / 2048) * 100,
-                100,
-              );
-              const cpuColor =
-                cpuPct > 80
-                  ? "bg-red"
-                  : cpuPct > 50
-                    ? "bg-yellow"
-                    : "bg-green";
-              const memColor =
-                memPct > 80
-                  ? "bg-red"
-                  : memPct > 50
-                    ? "bg-yellow"
-                    : "bg-green";
 
               return (
                 <tr
@@ -303,26 +263,6 @@ export function SessionsTable({
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-muted">
                     {session.completedRunIds.length}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-7 text-[10px] text-muted">CPU</span>
-                        <MiniResourceBar
-                          value={session.resourceUsage.cpuPercent}
-                          max={100}
-                          color={cpuColor}
-                        />
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-7 text-[10px] text-muted">Mem</span>
-                        <MiniResourceBar
-                          value={session.resourceUsage.memoryMb}
-                          max={2048}
-                          color={memColor}
-                        />
-                      </div>
-                    </div>
                   </td>
                   <td className="px-4 py-3 text-xs text-muted">
                     {new Date(session.createdAt).toLocaleString()}

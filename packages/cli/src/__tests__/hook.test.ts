@@ -422,7 +422,7 @@ describe("Pre-tool-use policy checking", () => {
     };
 
     const existingFiles = new Set(["/src/a.ts"]);
-    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], existingFiles);
+    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], { editedFiles: existingFiles });
     expect(violations).toHaveLength(0);
   });
 
@@ -434,7 +434,7 @@ describe("Pre-tool-use policy checking", () => {
     };
 
     const existingFiles = new Set(["/src/a.ts", "/src/b.ts"]);
-    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], existingFiles);
+    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], { editedFiles: existingFiles });
     expect(violations).toHaveLength(0);
   });
 
@@ -446,7 +446,7 @@ describe("Pre-tool-use policy checking", () => {
     };
 
     const existingFiles = new Set(["/src/a.ts", "/src/b.ts"]);
-    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], existingFiles);
+    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], { editedFiles: existingFiles });
     expect(violations).toHaveLength(1);
     expect(violations[0]!.message).toContain("File limit exceeded");
     expect(violations[0]!.message).toContain("/src/c.ts");
@@ -460,7 +460,7 @@ describe("Pre-tool-use policy checking", () => {
     };
 
     const existingFiles = new Set(["/src/a.ts", "/src/b.ts"]);
-    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], existingFiles);
+    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], { editedFiles: existingFiles });
     expect(violations).toHaveLength(1);
     expect(violations[0]!.severity).toBe("error");
   });
@@ -473,7 +473,154 @@ describe("Pre-tool-use policy checking", () => {
     };
 
     const existingFiles = new Set(["/src/a.ts", "/src/b.ts"]);
-    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], existingFiles);
+    const violations = _checkPreToolPolicies(input, [fileLimitPolicy], { editedFiles: existingFiles });
+    expect(violations).toHaveLength(0);
+  });
+
+  // ─── SecretDetection guard tests ─────────────────────────────────────────────
+
+  const secretPolicy: Policy & { enabled: boolean } = {
+    id: createPolicyId("pol_secret"),
+    name: "No secrets in code",
+    type: PolicyType.SecretDetection,
+    config: {
+      type: PolicyType.SecretDetection,
+      patterns: [
+        "AKIA[0-9A-Z]{16}",
+        "-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----",
+      ],
+    },
+    severity: PolicySeverity.Error,
+    enabled: true,
+  };
+
+  it("blocks Write with AWS key in content", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Write",
+      tool_input: { file_path: "/src/config.ts", content: "const key = 'AKIAIOSFODNN7EXAMPLE';" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [secretPolicy]);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.message).toContain("Secret pattern");
+  });
+
+  it("blocks Edit with private key in new_string", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Edit",
+      tool_input: { file_path: "/certs/key.pem", old_string: "old", new_string: "-----BEGIN RSA PRIVATE KEY-----\nMIIE..." },
+    };
+
+    const violations = _checkPreToolPolicies(input, [secretPolicy]);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.message).toContain("Secret pattern");
+  });
+
+  it("allows Write with no secrets", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Write",
+      tool_input: { file_path: "/src/index.ts", content: "export const foo = 42;" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [secretPolicy]);
+    expect(violations).toHaveLength(0);
+  });
+
+  it("allows Read tool (not scanned by SecretDetection)", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Read",
+      tool_input: { file_path: "/src/config.ts" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [secretPolicy]);
+    expect(violations).toHaveLength(0);
+  });
+
+  // ─── BranchProtection guard tests ──────────────────────────────────────────
+
+  const branchPolicy: Policy & { enabled: boolean } = {
+    id: createPolicyId("pol_branch"),
+    name: "Protected branches",
+    type: PolicyType.BranchProtection,
+    config: {
+      type: PolicyType.BranchProtection,
+      protectedBranches: ["main", "master", "production"],
+    },
+    severity: PolicySeverity.Warning,
+    enabled: true,
+  };
+
+  it("blocks Edit on main branch", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Edit",
+      tool_input: { file_path: "/src/a.ts", old_string: "old", new_string: "new" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [branchPolicy], { branch: "main" });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.message).toContain("protected branch");
+    expect(violations[0]!.severity).toBe("warning");
+  });
+
+  it("blocks Write on production branch", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Write",
+      tool_input: { file_path: "/src/new.ts", content: "code" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [branchPolicy], { branch: "production" });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.message).toContain("production");
+  });
+
+  it("blocks Bash on protected branch", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Bash",
+      tool_input: { command: "npm run build" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [branchPolicy], { branch: "master" });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.message).toContain("master");
+  });
+
+  it("allows Edit on feature branch", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Edit",
+      tool_input: { file_path: "/src/a.ts", old_string: "old", new_string: "new" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [branchPolicy], { branch: "feature/foo" });
+    expect(violations).toHaveLength(0);
+  });
+
+  it("allows Read on protected branch (read-only, not blocked)", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Read",
+      tool_input: { file_path: "/src/a.ts" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [branchPolicy], { branch: "main" });
+    expect(violations).toHaveLength(0);
+  });
+
+  it("handles missing branch context gracefully (allows)", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Edit",
+      tool_input: { file_path: "/src/a.ts", old_string: "old", new_string: "new" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [branchPolicy]);
     expect(violations).toHaveLength(0);
   });
 

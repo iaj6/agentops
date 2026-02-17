@@ -158,9 +158,16 @@ describe("computeScore", () => {
     });
   });
 
-  describe("run with no tests", () => {
-    it("returns unknown score and Review recommendation", () => {
+  describe("run with no tests but has mutations", () => {
+    it("returns unknown score and Block recommendation", () => {
       const run = makeRun({
+        actions: [{
+          id: createActionId("a1"),
+          toolCalls: [],
+          fileEdits: [{ path: "src/a.ts", diff: "+code", timestamp: "2025-01-01T00:00:00.000Z" }],
+          commands: [],
+          timestamp: "2025-01-01T00:00:00.000Z",
+        }],
         evaluations: [],
         artifacts: [],
       });
@@ -172,6 +179,47 @@ describe("computeScore", () => {
       expect(score.unknowns.rationale).toContain("no tests");
       // With correctness at 0, should be Block
       expect(score.mergeRecommendation).toBe(MergeRecommendation.Block);
+    });
+  });
+
+  describe("read-only session (no mutations)", () => {
+    it("returns Merge recommendation with high scores", () => {
+      const run = makeRun({
+        actions: [],
+        evaluations: [],
+        artifacts: [],
+      });
+
+      const score = computeScore(run);
+
+      expect(score.correctness.score).toBe(1);
+      expect(score.correctness.rationale).toContain("Read-only");
+      expect(score.regressionRisk.score).toBe(1);
+      expect(score.regressionRisk.rationale).toContain("Read-only");
+      expect(score.unknowns.score).toBe(1);
+      expect(score.unknowns.rationale).toContain("Read-only");
+      expect(score.mergeRecommendation).toBe(MergeRecommendation.Merge);
+    });
+
+    it("handles run with only Read tool calls (no edits or commands)", () => {
+      const run = makeRun({
+        actions: [{
+          id: createActionId("a_read"),
+          toolCalls: [{ name: "Read", input: { file_path: "src/a.ts" }, output: "content", timestamp: "2025-01-01T00:00:00.000Z" }],
+          fileEdits: [],
+          commands: [],
+          timestamp: "2025-01-01T00:00:00.000Z",
+        }],
+        evaluations: [],
+        artifacts: [],
+      });
+
+      const score = computeScore(run);
+
+      expect(score.correctness.score).toBe(1);
+      expect(score.regressionRisk.score).toBe(1);
+      expect(score.unknowns.score).toBe(1);
+      expect(score.mergeRecommendation).toBe(MergeRecommendation.Merge);
     });
   });
 
@@ -254,6 +302,13 @@ describe("computeScore", () => {
           confidenceScore: 1,
         }],
         artifacts: [{ id: createArtifactId("a1"), diffs: [], logs: [], testOutputs: [], reports: [] }],
+        actions: [{
+          id: createActionId("a_flake"),
+          toolCalls: [],
+          fileEdits: [{ path: "src/a.ts", diff: "+code", timestamp: "2025-01-01T00:00:00.000Z" }],
+          commands: [],
+          timestamp: "2025-01-01T00:00:00.000Z",
+        }],
       });
 
       const score = computeScore(run);
