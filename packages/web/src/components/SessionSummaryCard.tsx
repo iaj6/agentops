@@ -13,11 +13,6 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${remainSec}s`;
 }
 
-function formatCost(usd: number): string {
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(2)}`;
-}
-
 const outcomeColors: Record<string, string> = {
   success: "bg-green/15 text-green border-green/30",
   failure: "bg-red/15 text-red border-red/30",
@@ -114,12 +109,6 @@ export function SessionSummaryCard({
           </span>
         </span>
         <span>
-          <span className="text-muted/70">Cost</span>{" "}
-          <span className="font-mono text-foreground">
-            {summary.cost ? formatCost(summary.cost.totalUsd) : "--"}
-          </span>
-        </span>
-        <span>
           <span className="text-muted/70">Actions</span>{" "}
           <span className="font-mono text-foreground">
             {summary.actions.total}
@@ -172,7 +161,6 @@ export function RunFallbackCard({
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
         <span className="font-mono">{run.environment.repo}</span>
         <span className="font-mono">{run.environment.branch}</span>
-        <span className="font-mono">{formatCost(run.metrics.costUsd)}</span>
         <span className="font-mono">{formatDuration(run.metrics.wallTimeMs)}</span>
         <span className="ml-auto">
           <TimeAgo date={run.createdAt} />

@@ -8,8 +8,6 @@ export interface Filters {
   branch: string[];
   from: string;
   to: string;
-  minCost: string;
-  maxCost: string;
 }
 
 export const emptyFilters: Filters = {
@@ -18,8 +16,6 @@ export const emptyFilters: Filters = {
   branch: [],
   from: "",
   to: "",
-  minCost: "",
-  maxCost: "",
 };
 
 const ALL_STATUSES = ["pending", "running", "completed", "failed", "blocked", "cancelled"];
@@ -95,9 +91,7 @@ export function FilterPanel({ filters, onChange, onClear }: FilterPanelProps) {
     filters.repo.length > 0 ||
     filters.branch.length > 0 ||
     filters.from !== "" ||
-    filters.to !== "" ||
-    filters.minCost !== "" ||
-    filters.maxCost !== "";
+    filters.to !== "";
 
   function toggleStatus(s: string) {
     const next = filters.status.includes(s)
@@ -152,19 +146,6 @@ export function FilterPanel({ filters, onChange, onClear }: FilterPanelProps) {
       remove: () => onChange({ ...filters, to: "" }),
     });
   }
-  if (filters.minCost) {
-    activeChips.push({
-      label: `min cost: $${filters.minCost}`,
-      remove: () => onChange({ ...filters, minCost: "" }),
-    });
-  }
-  if (filters.maxCost) {
-    activeChips.push({
-      label: `max cost: $${filters.maxCost}`,
-      remove: () => onChange({ ...filters, maxCost: "" }),
-    });
-  }
-
   return (
     <div>
       {/* Active filter chips */}
@@ -294,41 +275,6 @@ export function FilterPanel({ filters, onChange, onClear }: FilterPanelProps) {
             </div>
           </div>
 
-          {/* Cost range */}
-          <div className="flex gap-4">
-            <div>
-              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted">
-                Min cost ($)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={filters.minCost}
-                onChange={(e) =>
-                  onChange({ ...filters, minCost: e.target.value })
-                }
-                placeholder="0.00"
-                className="h-8 w-24 rounded border border-border bg-surface-2 px-2 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted">
-                Max cost ($)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={filters.maxCost}
-                onChange={(e) =>
-                  onChange({ ...filters, maxCost: e.target.value })
-                }
-                placeholder="99.99"
-                className="h-8 w-24 rounded border border-border bg-surface-2 px-2 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
-              />
-            </div>
-          </div>
         </div>
       )}
     </div>

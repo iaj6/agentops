@@ -13,17 +13,6 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${remainSec}s`;
 }
 
-function formatCost(usd: number): string {
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(2)}`;
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
 const outcomeColors: Record<string, string> = {
   success: "bg-green/15 text-green border-green/30",
   failure: "bg-red/15 text-red border-red/30",
@@ -87,11 +76,6 @@ export function SummaryTab({
             summary.filesChanged.modified.length > 0 ? `${summary.filesChanged.modified.length} modified` : null,
             summary.filesChanged.deleted.length > 0 ? `${summary.filesChanged.deleted.length} deleted` : null,
           ].filter(Boolean).join(", ") || undefined}
-        />
-        <MetricCard
-          label="Cost"
-          value={summary.cost ? formatCost(summary.cost.totalUsd) : "--"}
-          sub={summary.cost ? `${formatTokens(summary.cost.inputTokens)} in / ${formatTokens(summary.cost.outputTokens)} out` : undefined}
         />
         <MetricCard
           label="Actions"

@@ -21,17 +21,7 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${remainSec}s`;
 }
 
-function formatCost(usd: number): string {
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(2)}`;
-}
-
-function truncate(str: string, max: number): string {
-  if (str.length <= max) return str;
-  return str.slice(0, max) + "...";
-}
-
-type SortField = "status" | "cost" | "duration" | "created" | "score";
+type SortField = "status" | "duration" | "created" | "score";
 type SortDir = "asc" | "desc";
 
 const PAGE_SIZES = [25, 50, 100];
@@ -52,8 +42,6 @@ export function RunsTable({ runs: initialRuns }: { runs: RunWithSummary[] }) {
     branch: searchParams.getAll("branch"),
     from: searchParams.get("from") ?? "",
     to: searchParams.get("to") ?? "",
-    minCost: searchParams.get("minCost") ?? "",
-    maxCost: searchParams.get("maxCost") ?? "",
   });
   const [sortBy, setSortBy] = useState<SortField>(
     (searchParams.get("sortBy") as SortField) ?? "created"
@@ -80,9 +68,7 @@ export function RunsTable({ runs: initialRuns }: { runs: RunWithSummary[] }) {
     filters.repo.length > 0 ||
     filters.branch.length > 0 ||
     filters.from !== "" ||
-    filters.to !== "" ||
-    filters.minCost !== "" ||
-    filters.maxCost !== "";
+    filters.to !== "";
 
   // Fetch from search API when filters/search are active
   const fetchSearchResults = useCallback(async () => {
@@ -102,8 +88,6 @@ export function RunsTable({ runs: initialRuns }: { runs: RunWithSummary[] }) {
       for (const b of filters.branch) p.append("branch", b);
       if (filters.from) p.set("from", filters.from);
       if (filters.to) p.set("to", filters.to);
-      if (filters.minCost) p.set("minCost", filters.minCost);
-      if (filters.maxCost) p.set("maxCost", filters.maxCost);
       p.set("sortBy", sortBy);
       p.set("sortDir", sortDir);
       p.set("limit", String(pageSize));
@@ -136,8 +120,6 @@ export function RunsTable({ runs: initialRuns }: { runs: RunWithSummary[] }) {
       for (const b of filters.branch) p.append("branch", b);
       if (filters.from) p.set("from", filters.from);
       if (filters.to) p.set("to", filters.to);
-      if (filters.minCost) p.set("minCost", filters.minCost);
-      if (filters.maxCost) p.set("maxCost", filters.maxCost);
       if (sortBy !== "created") p.set("sortBy", sortBy);
       if (sortDir !== "desc") p.set("sortDir", sortDir);
       if (page > 1) p.set("page", String(page));
@@ -160,9 +142,6 @@ export function RunsTable({ runs: initialRuns }: { runs: RunWithSummary[] }) {
       switch (sortBy) {
         case "status":
           cmp = a.run.status.localeCompare(b.run.status);
-          break;
-        case "cost":
-          cmp = a.run.metrics.costUsd - b.run.metrics.costUsd;
           break;
         case "duration":
           cmp = a.run.metrics.wallTimeMs - b.run.metrics.wallTimeMs;
@@ -310,7 +289,7 @@ export function RunsTable({ runs: initialRuns }: { runs: RunWithSummary[] }) {
       {/* Sort controls */}
       <div className="mb-3 flex items-center gap-2 text-xs text-muted">
         <span>Sort by:</span>
-        {(["created", "status", "cost", "duration", "score"] as SortField[]).map((field) => (
+        {(["created", "status", "duration", "score"] as SortField[]).map((field) => (
           <button
             key={field}
             onClick={() => handleSort(field)}

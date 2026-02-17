@@ -17,7 +17,7 @@ describe("seed", () => {
     const counts = await seed(db);
 
     expect(counts.runs).toBe(50);
-    expect(counts.policies).toBe(9);
+    expect(counts.policies).toBe(8);
     expect(counts.policyResults).toBeGreaterThan(0);
   });
 
@@ -28,11 +28,11 @@ describe("seed", () => {
     expect(runs).toHaveLength(50);
   });
 
-  it("populates the policies table with 9 policies", async () => {
+  it("populates the policies table with 8 policies", async () => {
     await seed(db);
 
     const policies = listPolicies(db);
-    expect(policies).toHaveLength(9);
+    expect(policies).toHaveLength(8);
   });
 
   it("creates runs with a mix of statuses", async () => {

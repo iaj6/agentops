@@ -868,17 +868,8 @@ function buildPolicies(): Policy[] {
       },
       severity: PolicySeverity.Error,
     },
-    {
-      id: createPolicyId("pol_test_enforce"),
-      name: "Require passing tests",
-      type: PolicyType.TestEnforcement,
-      config: {
-        type: PolicyType.TestEnforcement,
-        requirePassing: true,
-        minCoverage: 80,
-      },
-      severity: PolicySeverity.Error,
-    },
+    // TestEnforcement removed: hooks cannot populate test results from command output,
+    // so this policy always produces false "No test results found" violations.
     {
       id: createPolicyId("pol_risky_migration"),
       name: "Flag database migrations",
