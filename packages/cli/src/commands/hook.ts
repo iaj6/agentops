@@ -220,7 +220,7 @@ async function handleSessionStart(input: HookInput, dbPath?: string): Promise<vo
   const branch = getCurrentBranch();
 
   const config = resolveOpsConfig(dbPath);
-  const ops = createOps(config);
+  const ops = createOps(config, input.session_id);
 
   let runId: string;
   let sessionId: string;
@@ -272,7 +272,7 @@ async function handlePreToolUse(input: HookInput, dbPath?: string): Promise<void
     ? readSessionUsage(transcriptPath(cwd, input.session_id), backend)
     : ZERO_USAGE;
 
-  const ops = createOps(opsConfigFromState(state, dbPath));
+  const ops = createOps(opsConfigFromState(state, dbPath), input.session_id);
 
   let decision: { decision: "allow" | "block"; reason?: string; warnings: ReadonlyArray<PolicyViolation> };
   try {
@@ -309,7 +309,7 @@ async function handlePostToolUse(input: HookInput, dbPath?: string): Promise<voi
   }
 
   const action = mapToolToAction(input);
-  const ops = createOps(opsConfigFromState(state, dbPath));
+  const ops = createOps(opsConfigFromState(state, dbPath), input.session_id);
 
   try {
     await ops.reportAction(state.runId, action);
@@ -337,7 +337,7 @@ function opsConfigFromState(state: HookState, dbPath?: string) {
 // ─── Shared finalization logic ───────────────────────────────────────────────
 
 async function finalizeSession(input: HookInput, state: HookState, dbPath?: string): Promise<void> {
-  const ops = createOps(opsConfigFromState(state, dbPath));
+  const ops = createOps(opsConfigFromState(state, dbPath), input.session_id);
 
   // Compute wall time + git diff locally — both are on this machine.
   const changedFiles = getChangedFiles();
@@ -500,7 +500,7 @@ async function handleSubagentStop(input: HookInput, dbPath?: string): Promise<vo
   }
 
   if (extractedActions.length > 0) {
-    const ops = createOps(opsConfigFromState(state, dbPath));
+    const ops = createOps(opsConfigFromState(state, dbPath), input.session_id);
     for (const action of extractedActions) {
       try {
         await ops.reportAction(state.runId, action);

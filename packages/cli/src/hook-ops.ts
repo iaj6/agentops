@@ -50,6 +50,7 @@ import {
   updateRunSummary,
 } from "@agentops/db";
 import { credentialsPath } from "./credentials.js";
+import { Outbox, outboxPath, type OutboxEntry } from "./outbox.js";
 
 // ─── Public types ──────────────────────────────────────────────────────────
 
@@ -141,9 +142,15 @@ export function resolveOpsConfig(dbPath?: string): OpsConfig {
   };
 }
 
-export function createOps(config: OpsConfig): HookOps {
+/**
+ * claudeSessionId is required when the caller wants SdkOps to use a local
+ * outbox for transient retry. Without it, SdkOps still works but transient
+ * failures result in dropped events (logged to stderr) instead of being
+ * queued for retry on the next hook fire.
+ */
+export function createOps(config: OpsConfig, claudeSessionId?: string): HookOps {
   if (isSdkMode(config)) {
-    return new SdkOps(config.serverUrl!, config.token!);
+    return new SdkOps(config.serverUrl!, config.token!, claudeSessionId);
   }
   return new DirectOps(config.dbPath);
 }
@@ -346,34 +353,203 @@ class DirectOps implements HookOps {
 }
 
 // ─── SdkOps: writes via HTTP to a remote dashboard ─────────────────────────
+//
+// Transient failures (5xx, network errors) on reportAction/reportArtifact/
+// reportMetrics are queued in a per-session local outbox and retried on
+// every subsequent SDK call. Permanent failures (4xx — auth or bad input)
+// are NOT queued; they propagate as SdkError so the caller can fail-open.
+//
+// startSessionAndRun is never outboxed: without successful IDs there's
+// nothing to anchor future calls against. terminateSession and completeRun
+// (the "session-final" calls) also skip the outbox — if they fail, the run
+// stays in "running" status until an admin intervenes, which is surfaced
+// to the operator via a loud stderr warning.
 
 class SdkOps implements HookOps {
   private readonly base: string;
   private readonly token: string;
+  /** Per-session outbox. Null when claudeSessionId was not provided. */
+  private readonly outbox: Outbox | null;
 
-  constructor(serverUrl: string, token: string) {
+  constructor(serverUrl: string, token: string, claudeSessionId?: string) {
     this.base = serverUrl;
     this.token = token;
+    this.outbox = claudeSessionId
+      ? new Outbox(outboxPath(claudeSessionId))
+      : null;
+  }
+
+  // Public method so the hook can drain any leftover before exiting.
+  async drainOutbox(): Promise<{ sent: number; remaining: number; dropped: number }> {
+    if (!this.outbox) return { sent: 0, remaining: 0, dropped: 0 };
+    return this.outbox.drain((entry) => this.dispatchOutboxEntry(entry));
+  }
+
+  outboxSize(): number {
+    return this.outbox?.size() ?? 0;
+  }
+
+  private isPermanentFailure(err: unknown): boolean {
+    // 4xx are permanent — auth, validation, ownership; retrying won't help.
+    // 5xx + network failures (status=0 / no SdkError) are transient.
+    if (err instanceof SdkError) {
+      return err.status >= 400 && err.status < 500;
+    }
+    return false;
   }
 
   private async post<T>(
     path: string,
     body: unknown,
   ): Promise<{ status: number; data: T }> {
-    const res = await fetch(this.base + path, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.token}`,
-      },
-      body: JSON.stringify(body),
-    });
-    const data = (await res.json().catch(() => ({}))) as T;
-    return { status: res.status, data };
+    try {
+      const res = await fetch(this.base + path, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json().catch(() => ({}))) as T;
+      return { status: res.status, data };
+    } catch (err) {
+      // Network failure surfaces as status 0 so callers treat as transient.
+      const message = err instanceof Error ? err.message : String(err);
+      return { status: 0, data: { error: message } as unknown as T };
+    }
   }
 
+  // ── Direct HTTP calls (used by both public methods and outbox replay) ───
+
+  private async doReportAction(runId: string, action: Action): Promise<void> {
+    const res = await this.post<{ ok?: boolean; error?: string }>(
+      `/api/sdk/runs/${encodeURIComponent(runId)}/actions`,
+      {
+        id: action.id,
+        toolCalls: action.toolCalls,
+        fileEdits: action.fileEdits,
+        commands: action.commands,
+        timestamp: action.timestamp,
+      },
+    );
+    if (res.status !== 200) {
+      throw new SdkError("reportAction", res.status, res.data.error);
+    }
+  }
+
+  private async doReportArtifactDiff(runId: string, diff: string): Promise<void> {
+    const r = await this.post<{ ok?: boolean; error?: string }>(
+      `/api/sdk/runs/${encodeURIComponent(runId)}/artifacts`,
+      { diffs: [diff], logs: [], testOutputs: [], reports: [] },
+    );
+    if (r.status !== 200) {
+      throw new SdkError("reportArtifact", r.status, r.data.error);
+    }
+  }
+
+  private async doReportMetrics(runId: string, metrics: Metrics): Promise<void> {
+    const m = await this.post<{ ok?: boolean; error?: string }>(
+      `/api/sdk/runs/${encodeURIComponent(runId)}/metrics`,
+      {
+        costUsd: metrics.costUsd,
+        wallTimeMs: metrics.wallTimeMs,
+        flakeRate: metrics.flakeRate,
+        tokenUsage: metrics.tokenUsage,
+      },
+    );
+    if (m.status !== 200) {
+      throw new SdkError("reportMetrics", m.status, m.data.error);
+    }
+  }
+
+  private async doCompleteRun(runId: string): Promise<void> {
+    const c = await this.post<{ error?: string }>(
+      `/api/sdk/runs/${encodeURIComponent(runId)}/complete`,
+      {},
+    );
+    if (c.status !== 200) {
+      throw new SdkError("completeRun", c.status, c.data.error);
+    }
+  }
+
+  private async doTerminateSession(sessionId: string): Promise<void> {
+    const res = await this.post<{ error?: string }>(
+      `/api/sdk/sessions/${encodeURIComponent(sessionId)}/terminate`,
+      {},
+    );
+    if (res.status !== 200) {
+      throw new SdkError("terminateSession", res.status, res.data.error);
+    }
+  }
+
+  // ── Outbox dispatch (replay of queued entries) ────────────────────────
+
+  private async dispatchOutboxEntry(entry: OutboxEntry) {
+    try {
+      switch (entry.op) {
+        case "reportAction":
+          await this.doReportAction(
+            entry.args[0] as string,
+            entry.args[1] as Action,
+          );
+          return { ok: true };
+        case "reportArtifact":
+          await this.doReportArtifactDiff(
+            entry.args[0] as string,
+            entry.args[1] as string,
+          );
+          return { ok: true };
+        case "reportMetrics":
+          await this.doReportMetrics(
+            entry.args[0] as string,
+            entry.args[1] as Metrics,
+          );
+          return { ok: true };
+        default:
+          // Unknown op type — drop it (likely added by a newer CLI).
+          return { ok: false, permanent: true };
+      }
+    } catch (err) {
+      const permanent = this.isPermanentFailure(err);
+      return {
+        ok: false,
+        permanent,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  // ── Retriable wrapper for the three "queueable" call types ───────────
+
+  private async withOutbox<T>(
+    op: string,
+    args: ReadonlyArray<unknown>,
+    doIt: () => Promise<T>,
+  ): Promise<T | void> {
+    // Best-effort drain of any prior backlog before issuing the new call.
+    await this.drainOutbox();
+    try {
+      return await doIt();
+    } catch (err) {
+      if (this.isPermanentFailure(err) || !this.outbox) {
+        throw err;
+      }
+      const detail = err instanceof Error ? err.message : String(err);
+      this.outbox.enqueue(op, args, detail);
+      process.stderr.write(
+        `[agentops] ${op} queued for retry (outbox: ${this.outbox.size()}). Reason: ${detail}\n`,
+      );
+      return;
+    }
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────
+
   async startSessionAndRun(args: StartArgs): Promise<{ runId: string; sessionId: string }> {
-    // Two HTTP calls: create session, then create run linked to it.
+    // Never outboxed — without the returned IDs there's nothing to anchor
+    // subsequent calls against. If this fails the hook fails-open and the
+    // session is invisible to the dashboard.
     const sessionRes = await this.post<{ sessionId?: string; error?: string }>(
       "/api/sdk/sessions",
       {
@@ -413,6 +589,9 @@ class SdkOps implements HookOps {
   }
 
   async checkPolicy(args: CheckPolicyArgs): Promise<PolicyDecision> {
+    // Synchronous decision — never outbox. Drain pending writes first so
+    // the server sees the latest state when it evaluates.
+    await this.drainOutbox();
     const res = await this.post<{
       decision?: "allow" | "block";
       reason?: string;
@@ -437,63 +616,44 @@ class SdkOps implements HookOps {
   }
 
   async reportAction(runId: string, action: Action): Promise<void> {
-    const res = await this.post<{ ok?: boolean; error?: string }>(
-      `/api/sdk/runs/${encodeURIComponent(runId)}/actions`,
-      {
-        id: action.id,
-        toolCalls: action.toolCalls,
-        fileEdits: action.fileEdits,
-        commands: action.commands,
-        timestamp: action.timestamp,
-      },
-    );
-    if (res.status !== 200) {
-      throw new SdkError("reportAction", res.status, res.data.error);
-    }
+    await this.withOutbox("reportAction", [runId, action], () =>
+      this.doReportAction(runId, action));
   }
 
   async finalizeRun(args: FinalizeArgs): Promise<void> {
-    // Three calls: artifacts (if diff), metrics, complete.
+    // Drain everything pending before we report the final state.
+    await this.drainOutbox();
+
     if (args.diff) {
-      const r = await this.post<{ ok?: boolean; error?: string }>(
-        `/api/sdk/runs/${encodeURIComponent(args.runId)}/artifacts`,
-        { diffs: [args.diff], logs: [], testOutputs: [], reports: [] },
+      await this.withOutbox(
+        "reportArtifact",
+        [args.runId, args.diff],
+        () => this.doReportArtifactDiff(args.runId, args.diff!),
       );
-      if (r.status !== 200) {
-        throw new SdkError("reportArtifact", r.status, r.data.error);
-      }
     }
-
-    const m = await this.post<{ ok?: boolean; error?: string }>(
-      `/api/sdk/runs/${encodeURIComponent(args.runId)}/metrics`,
-      {
-        costUsd: args.metrics.costUsd,
-        wallTimeMs: args.metrics.wallTimeMs,
-        flakeRate: args.metrics.flakeRate,
-        tokenUsage: args.metrics.tokenUsage,
-      },
+    await this.withOutbox(
+      "reportMetrics",
+      [args.runId, args.metrics],
+      () => this.doReportMetrics(args.runId, args.metrics),
     );
-    if (m.status !== 200) {
-      throw new SdkError("reportMetrics", m.status, m.data.error);
-    }
+    // Complete is NOT outboxed — failure here means the run stays "running"
+    // in the dashboard. The hook surfaces the failure to the operator via
+    // logSdkFailure in hook.ts.
+    await this.doCompleteRun(args.runId);
 
-    const c = await this.post<{ error?: string }>(
-      `/api/sdk/runs/${encodeURIComponent(args.runId)}/complete`,
-      {},
-    );
-    if (c.status !== 200) {
-      throw new SdkError("completeRun", c.status, c.data.error);
+    if (this.outbox && this.outbox.size() > 0) {
+      process.stderr.write(
+        `[agentops] WARNING: session is finalizing but ${this.outbox.size()} event(s) remain in the outbox at ${this.outbox.path}. ` +
+          `These will be retried the next time agentops runs against this session id — typically not at all. ` +
+          `If the dashboard recovers, you can drop the outbox manually.\n`,
+      );
     }
   }
 
   async terminateSession(sessionId: string): Promise<void> {
-    const res = await this.post<{ error?: string }>(
-      `/api/sdk/sessions/${encodeURIComponent(sessionId)}/terminate`,
-      {},
-    );
-    if (res.status !== 200) {
-      throw new SdkError("terminateSession", res.status, res.data.error);
-    }
+    // Last call of the session lifecycle — no outboxing. If this fails the
+    // session row stays "active". Surfaced via logSdkFailure in hook.ts.
+    await this.doTerminateSession(sessionId);
   }
 }
 
