@@ -1,7 +1,7 @@
 import { Command } from "commander";
-import { readFileSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, chmodSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve, sep } from "node:path";
 import {
   createRun,
   startRun,
@@ -58,12 +58,34 @@ export interface HookState {
   backend?: Backend;
 }
 
+// State files live under ~/.agentops/state/ (not /tmp). /tmp is shared across
+// users on multi-user systems and the filename is predictable from the Claude
+// session id — a hostile local user could pre-create the path as a symlink to
+// a target file before our writeFileSync clobbers it. Confining state to a
+// user-private directory with mode 0700 closes that.
+function stateDir(): string {
+  return join(homedir(), ".agentops", "state");
+}
+
 export function stateFilePath(claudeSessionId: string): string {
-  return join(tmpdir(), `agentops-hook-${claudeSessionId}.json`);
+  // Sanitize the session id to prevent path traversal from a malicious stdin.
+  const safe = claudeSessionId.replace(/[^A-Za-z0-9._-]/g, "_");
+  return join(stateDir(), `${safe}.json`);
 }
 
 function writeState(claudeSessionId: string, state: HookState): void {
-  writeFileSync(stateFilePath(claudeSessionId), JSON.stringify(state), "utf-8");
+  const dir = stateDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+  const path = stateFilePath(claudeSessionId);
+  writeFileSync(path, JSON.stringify(state), { encoding: "utf-8", mode: 0o600 });
+  // chmod in case the file already existed with looser perms.
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    // Best-effort; not all filesystems support chmod.
+  }
 }
 
 function readState(claudeSessionId: string): HookState | null {
@@ -170,6 +192,23 @@ interface GuardContext {
   cumulativeCostUsd?: number;
 }
 
+// Truncate user-supplied strings before they appear in violation messages.
+// Violation messages flow to stdout where Claude Code surfaces them in the
+// terminal and CI logs frequently capture the output. Without truncation,
+// full file paths (incl. ~/secret/cred.txt) and the bash command that
+// matched a SecretDetection pattern (incl. the secret itself) would leak.
+function summarizePath(p: string): string {
+  // Show last two segments at most; that's enough context for the user to
+  // know what they tripped on without echoing the full filesystem location.
+  const parts = p.split("/").filter(Boolean);
+  if (parts.length <= 2) return p;
+  return ".../" + parts.slice(-2).join("/");
+}
+
+function summarizeCommand(cmd: string): string {
+  return cmd.length > 80 ? cmd.slice(0, 77) + "..." : cmd;
+}
+
 function checkPreToolPolicies(
   input: HookInput,
   activePolicies: ReadonlyArray<Policy & { enabled: boolean }>,
@@ -200,7 +239,7 @@ function checkPreToolPolicies(
       if (flagged.length > 0) {
         violations.push({
           policy: policy.name,
-          message: `Risky operation detected: ${flagged.join(", ")} in command "${cmd}"`,
+          message: `Risky operation detected: ${flagged.join(", ")} in command "${summarizeCommand(cmd)}"`,
           severity: policy.severity,
         });
       }
@@ -218,7 +257,7 @@ function checkPreToolPolicies(
       if (blocked.length > 0) {
         violations.push({
           policy: policy.name,
-          message: `Path restriction violated: ${filePath} matches blocked path(s): ${blocked.join(", ")}`,
+          message: `Path restriction violated: ${summarizePath(filePath)} matches blocked path(s): ${blocked.join(", ")}`,
           severity: policy.severity,
         });
       }
@@ -236,7 +275,7 @@ function checkPreToolPolicies(
       if (!currentFiles.has(filePath) && currentFiles.size >= config.maxFiles) {
         violations.push({
           policy: policy.name,
-          message: `File limit exceeded: editing "${filePath}" would be file ${currentFiles.size + 1}, limit is ${config.maxFiles}`,
+          message: `File limit exceeded: editing "${summarizePath(filePath)}" would be file ${currentFiles.size + 1}, limit is ${config.maxFiles}`,
           severity: policy.severity,
         });
       }
@@ -260,9 +299,11 @@ function checkPreToolPolicies(
           }
         }
         if (matched.length > 0) {
+          // Surface that a pattern matched, but never echo the matched content
+          // (the matched substring is by definition the secret we just caught).
           violations.push({
             policy: policy.name,
-            message: `Secret pattern(s) detected: ${matched.join(", ")}`,
+            message: `Secret pattern(s) detected: ${matched.length} match${matched.length === 1 ? "" : "es"}`,
             severity: policy.severity,
           });
         }
@@ -310,7 +351,17 @@ function checkPreToolPolicies(
     if (policy.config.type === PolicyType.CostCeiling) {
       const config = policy.config as CostCeilingConfig;
       const cost = context?.cumulativeCostUsd ?? 0;
-      if (cost >= config.maxUsd) {
+      // Validate inputs to avoid silent enforcement bypass. A NaN or negative
+      // cost (from a malformed transcript) would otherwise compare false here
+      // and let the action through; a non-positive ceiling is a misconfiguration
+      // that should fail closed.
+      if (!Number.isFinite(cost) || cost < 0 || !Number.isFinite(config.maxUsd) || config.maxUsd <= 0) {
+        violations.push({
+          policy: policy.name,
+          message: `Cost ceiling check failed: invalid cost ($${String(cost)}) or maxUsd ($${String(config.maxUsd)}). Failing closed.`,
+          severity: policy.severity,
+        });
+      } else if (cost >= config.maxUsd) {
         violations.push({
           policy: policy.name,
           message: `Cost ceiling reached: $${cost.toFixed(2)} spent, limit is $${config.maxUsd.toFixed(2)}`,
@@ -721,38 +772,52 @@ async function handleSubagentStop(input: HookInput, dbPath?: string): Promise<vo
   const updatedState = { ...state, agentsCompleted: (state.agentsCompleted ?? 0) + 1 };
   writeState(input.session_id, updatedState);
 
-  // If transcript path is provided, attempt to read and extract tool calls
+  // If transcript path is provided, attempt to read and extract tool calls.
+  // agent_transcript_path comes from stdin, which we treat as untrusted —
+  // confine reads to ~/.claude/projects/ (where Claude Code writes them) and
+  // cap the read at MAX_TRANSCRIPT_BYTES to prevent OOM or arbitrary
+  // file disclosure (e.g. spoofed payload pointing at /etc/passwd).
+  const MAX_TRANSCRIPT_BYTES = 16 * 1024 * 1024;
   const extractedActions: Action[] = [];
   if (input.agent_transcript_path) {
-    try {
-      if (existsSync(input.agent_transcript_path)) {
-        const transcriptRaw = readFileSync(input.agent_transcript_path, "utf-8");
-        const lines = transcriptRaw.split("\n").filter((line) => line.trim().length > 0);
-        for (const line of lines) {
-          try {
-            const entry = JSON.parse(line) as Record<string, unknown>;
-            if (entry.type === "tool_use" || entry.tool_name) {
-              const toolCall: ToolCall = {
-                name: (entry.tool_name as string) ?? (entry.name as string) ?? "unknown",
-                input: (entry.tool_input as Record<string, unknown>) ?? (entry.input as Record<string, unknown>) ?? {},
-                output: typeof entry.output === "string" ? entry.output : JSON.stringify(entry.output ?? "").slice(0, 2000),
-                timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
-              };
-              extractedActions.push({
-                id: createActionId(`action_subagent_${Date.now()}_${extractedActions.length}`),
-                toolCalls: [toolCall],
-                fileEdits: [],
-                commands: [],
-                timestamp: toolCall.timestamp,
-              });
+    const claudeProjectsRoot = join(homedir(), ".claude", "projects");
+    const resolved = resolve(input.agent_transcript_path);
+    if (!resolved.startsWith(claudeProjectsRoot + sep)) {
+      // Silently ignore paths outside the Claude transcript root.
+    } else {
+      try {
+        if (existsSync(resolved)) {
+          const stat = statSync(resolved);
+          if (stat.size <= MAX_TRANSCRIPT_BYTES) {
+            const transcriptRaw = readFileSync(resolved, "utf-8");
+            const lines = transcriptRaw.split("\n").filter((line) => line.trim().length > 0);
+            for (const line of lines) {
+              try {
+                const entry = JSON.parse(line) as Record<string, unknown>;
+                if (entry.type === "tool_use" || entry.tool_name) {
+                  const toolCall: ToolCall = {
+                    name: (entry.tool_name as string) ?? (entry.name as string) ?? "unknown",
+                    input: (entry.tool_input as Record<string, unknown>) ?? (entry.input as Record<string, unknown>) ?? {},
+                    output: typeof entry.output === "string" ? entry.output : JSON.stringify(entry.output ?? "").slice(0, 2000),
+                    timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
+                  };
+                  extractedActions.push({
+                    id: createActionId(`action_subagent_${Date.now()}_${extractedActions.length}`),
+                    toolCalls: [toolCall],
+                    fileEdits: [],
+                    commands: [],
+                    timestamp: toolCall.timestamp,
+                  });
+                }
+              } catch {
+                // Skip unparseable lines
+              }
             }
-          } catch {
-            // Skip unparseable lines
           }
         }
+      } catch {
+        // Don't fail if transcript can't be read
       }
-    } catch {
-      // Don't fail if transcript can't be read
     }
   }
 

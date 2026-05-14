@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { Command } from "commander";
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { registerHookCommand } from "../commands/hook.js";
 import {
@@ -123,9 +123,18 @@ describe("State file management", () => {
     expect(() => _cleanupState("nonexistent-session-" + Date.now())).not.toThrow();
   });
 
-  it("generates correct state file path", () => {
+  it("generates correct state file path under ~/.agentops/state/", () => {
     const path = stateFilePath("abc123");
-    expect(path).toBe(join(tmpdir(), "agentops-hook-abc123.json"));
+    const expected = join(homedir(), ".agentops", "state", "abc123.json");
+    expect(path).toBe(expected);
+  });
+
+  it("sanitizes path-traversal attempts in session id", () => {
+    const path = stateFilePath("../../etc/passwd");
+    // Slashes are replaced with underscores so traversal can't escape stateDir.
+    expect(path).toBe(join(homedir(), ".agentops", "state", ".._.._etc_passwd.json"));
+    // Sanity: result must still live inside stateDir.
+    expect(path.startsWith(join(homedir(), ".agentops", "state"))).toBe(true);
   });
 });
 
@@ -706,6 +715,86 @@ describe("Pre-tool-use policy checking", () => {
 
     const violations = _checkPreToolPolicies(input, [costPolicy]);
     expect(violations).toHaveLength(0);
+  });
+
+  it("fails closed when cumulative cost is NaN", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [costPolicy], { cumulativeCostUsd: NaN });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.message).toContain("Failing closed");
+  });
+
+  it("fails closed when maxUsd is zero or negative", () => {
+    const zeroPolicy: Policy & { enabled: boolean } = {
+      id: createPolicyId("pol_zero"),
+      name: "Zero ceiling",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 0 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+    };
+
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [zeroPolicy], { cumulativeCostUsd: 0 });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.message).toContain("Failing closed");
+  });
+
+  it("truncates file path in PathRestriction violation message", () => {
+    const pathPolicy: Policy & { enabled: boolean } = {
+      id: createPolicyId("pol_path_trunc"),
+      name: "Block infra changes",
+      type: PolicyType.PathRestriction,
+      config: { type: PolicyType.PathRestriction, blockedPaths: ["/infra/"] },
+      severity: PolicySeverity.Error,
+      enabled: true,
+    };
+
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Edit",
+      tool_input: { file_path: "/infra/terraform/staging/secrets.tf" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [pathPolicy]);
+    expect(violations).toHaveLength(1);
+    // The user's full path should not appear — only the trailing segments.
+    expect(violations[0]!.message).not.toContain("terraform/staging/secrets.tf");
+    expect(violations[0]!.message).toContain(".../staging/secrets.tf");
+  });
+
+  it("does not echo matched secret content in SecretDetection violation", () => {
+    const secretPolicy: Policy & { enabled: boolean } = {
+      id: createPolicyId("pol_secret_redact"),
+      name: "No AWS keys",
+      type: PolicyType.SecretDetection,
+      config: { type: PolicyType.SecretDetection, patterns: ["AKIA[0-9A-Z]{16}"] },
+      severity: PolicySeverity.Error,
+      enabled: true,
+    };
+
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Write",
+      tool_input: { file_path: "/x.ts", content: "const k = 'AKIAIOSFODNN7EXAMPLE';" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [secretPolicy]);
+    expect(violations).toHaveLength(1);
+    // Pattern source should NOT appear in the message anymore.
+    expect(violations[0]!.message).not.toContain("AKIA[0-9A-Z]");
+    expect(violations[0]!.message).toContain("Secret pattern");
+    expect(violations[0]!.message).toContain("1 match");
   });
 
   // ─── End CostCeiling tests ──────────────────────────────────────────────
