@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateHeartbeat, updateResourceUsage, createSessionId } from "@agentops/core";
+import { updateHeartbeat, updateResourceUsage } from "@agentops/core";
 import type { ResourceUsage } from "@agentops/core";
-import { getSession, updateSession } from "@agentops/db";
+import { updateSession } from "@agentops/db";
 import { db } from "@/lib/db";
+import { requireOwnedSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -12,10 +13,9 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const session = getSession(db(), createSessionId(id));
-    if (!session) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
+    const ownership = await requireOwnedSession(request, id);
+    if (ownership instanceof NextResponse) return ownership;
+    const { session } = ownership;
 
     let body: Record<string, unknown>;
     try {

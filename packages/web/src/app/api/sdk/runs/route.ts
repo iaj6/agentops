@@ -11,10 +11,14 @@ import {
 } from "@agentops/core";
 import { insertRun, insertEvent, getSession, updateSession } from "@agentops/db";
 import { db } from "@/lib/db";
+import { requireBearerUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const user = await requireBearerUser(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     let body: Record<string, unknown>;
     try {
@@ -54,15 +58,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const run = startRun(createRun(goal, environment));
+    const baseRun = startRun(createRun(goal, environment));
+    // Tag the run with the authenticated user so the dashboard can scope
+    // by owner. Both insertRun and rowToRun round-trip this field.
+    const run = { ...baseRun, userId: user.id };
 
     insertRun(db(), run);
 
-    // If sessionId provided, attach the run to the session
+    // If sessionId provided, attach the run to the session — but only if
+    // the caller actually owns that session (or is admin).
     const sessionId = body.sessionId as string | undefined;
     if (sessionId) {
       const session = getSession(db(), createSessionId(sessionId));
-      if (session) {
+      if (session && (user.role === "admin" || session.userId === user.id)) {
         const updated = assignRun(session, run.id);
         updateSession(db(), updated.id, {
           currentRunId: updated.currentRunId,

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   completeRun,
-  createRunId,
   computeScore,
   PolicyEngine,
   createEvent,
@@ -10,8 +9,9 @@ import {
   generateSummary,
 } from "@agentops/core";
 import type { Evaluation } from "@agentops/core";
-import { getRun, updateRun, insertEvent, listPolicies, updateRunSummary } from "@agentops/db";
+import { updateRun, insertEvent, listPolicies, updateRunSummary } from "@agentops/db";
 import { db } from "@/lib/db";
+import { requireOwnedRun } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +21,9 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const run = getRun(db(), createRunId(id));
-    if (!run) {
-      return NextResponse.json({ error: "Run not found" }, { status: 404 });
-    }
+    const ownership = await requireOwnedRun(request, id);
+    if (ownership instanceof NextResponse) return ownership;
+    const { run } = ownership;
 
     let body: Record<string, unknown>;
     try {

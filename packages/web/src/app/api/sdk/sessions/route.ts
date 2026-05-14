@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSession, activateSession, createEvent, EventCategory, EVENT_TYPES } from "@agentops/core";
 import { insertSession, insertEvent } from "@agentops/db";
 import { db } from "@/lib/db";
+import { requireBearerUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const user = await requireBearerUser(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     let body: Record<string, unknown>;
     try {
@@ -31,7 +35,8 @@ export async function POST(request: NextRequest) {
 
     const metadata = (body.metadata as Record<string, unknown>) ?? {};
 
-    const session = activateSession(createSession(agentId, metadata));
+    const baseSession = activateSession(createSession(agentId, metadata));
+    const session = { ...baseSession, userId: user.id };
     insertSession(db(), session);
 
     const event = createEvent(

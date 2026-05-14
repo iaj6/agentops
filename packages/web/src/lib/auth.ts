@@ -3,8 +3,16 @@ import { cookies } from "next/headers";
 import {
   getUserBySessionId,
   getUserByRawApiToken,
+  getRun,
+  getSession,
   type User,
 } from "@agentops/db";
+import {
+  createRunId,
+  createSessionId,
+  type Run,
+  type Session,
+} from "@agentops/core";
 import { db } from "./db";
 import { SESSION_COOKIE_NAME } from "./auth-constants";
 
@@ -95,4 +103,36 @@ export async function requireAdmin(
   if (result instanceof NextResponse) return result;
   if (result.role !== "admin") return forbidden("Admin role required");
   return result;
+}
+
+/**
+ * Resolve the run by id, require Bearer auth, and verify the caller owns
+ * the run. Admin role bypasses the ownership check. Runs with userId=null
+ * are pre-auth / local-dev rows; only admins may touch them via the SDK.
+ */
+export async function requireOwnedRun(
+  req: NextRequest,
+  runId: string,
+): Promise<{ user: User; run: Run } | NextResponse> {
+  const user = await requireBearerUser(req);
+  if (user instanceof NextResponse) return user;
+  const run = getRun(db(), createRunId(runId));
+  if (!run) return NextResponse.json({ error: "Run not found" }, { status: 404 });
+  if (user.role === "admin") return { user, run };
+  if (run.userId === user.id) return { user, run };
+  return forbidden("You do not own this run");
+}
+
+export async function requireOwnedSession(
+  req: NextRequest,
+  sessionId: string,
+): Promise<{ user: User; session: Session } | NextResponse> {
+  const user = await requireBearerUser(req);
+  if (user instanceof NextResponse) return user;
+  const session = getSession(db(), createSessionId(sessionId));
+  if (!session)
+    return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  if (user.role === "admin") return { user, session };
+  if (session.userId === user.id) return { user, session };
+  return forbidden("You do not own this session");
 }
