@@ -92,6 +92,10 @@ export function RunsTable({ runs: initialRuns }: { runs: RunWithSummary[] }) {
       p.set("sortDir", sortDir);
       p.set("limit", String(pageSize));
       p.set("offset", String((page - 1) * pageSize));
+      // Carry through the current view scope so the search API applies
+      // the same Team/Mine filter the SSR page used.
+      const view = searchParams.get("view");
+      if (view) p.set("view", view);
 
       const res = await fetch(`/api/runs/search?${p.toString()}`);
       if (res.ok) {

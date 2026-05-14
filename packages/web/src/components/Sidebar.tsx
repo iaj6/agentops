@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { ViewToggle } from "./ViewToggle";
 
 const navItems = [
   { href: "/", label: "Runs", icon: RunsIcon },
@@ -91,7 +92,8 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="border-t border-border px-3 md:px-4 py-3 space-y-2">
+      <div className="border-t border-border px-3 md:px-4 py-3 space-y-3">
+        {user?.role === "admin" && <ViewToggle canToggle={true} />}
         {user && (
           <div className="hidden md:block">
             <p className="text-xs font-medium text-foreground truncate" title={user.email}>

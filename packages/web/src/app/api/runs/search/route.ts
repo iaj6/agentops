@@ -2,12 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { searchRuns, countRuns, getDistinctRepos, getDistinctBranches } from "@agentops/db";
 import type { SearchRunsFilters } from "@agentops/db";
 import { db } from "@/lib/db";
+import { requireUser, resolveViewScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const user = await requireUser(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     const params = request.nextUrl.searchParams;
+    const scope = resolveViewScope(user, params);
 
     const filters: SearchRunsFilters = {
       q: params.get("q") ?? undefined,
@@ -22,6 +27,9 @@ export async function GET(request: NextRequest) {
       sortDir: (params.get("sortDir") as SearchRunsFilters["sortDir"]) ?? undefined,
       limit: params.get("limit") ? Number(params.get("limit")) : 50,
       offset: params.get("offset") ? Number(params.get("offset")) : 0,
+      // Members are always scoped to their own runs; admins see the team
+      // unless they opted into "mine" view via ?view=mine.
+      ...(scope.userId ? { userId: scope.userId } : {}),
     };
 
     const database = db();

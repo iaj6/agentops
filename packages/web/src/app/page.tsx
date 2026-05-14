@@ -1,13 +1,28 @@
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { listRunsWithSummaries } from "@agentops/db";
 import { db } from "@/lib/db";
+import { getRequestUser, resolveViewScope } from "@/lib/auth";
 import { RunsTable } from "./RunsTable";
 import { FleetOverview } from "./FleetOverview";
 
 export const dynamic = "force-dynamic";
 
-export default function HomePage() {
-  const runsWithSummaries = listRunsWithSummaries(db(), { limit: 50 });
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
+  const user = await getRequestUser();
+  if (!user) redirect("/login?next=/");
+
+  const params = await searchParams;
+  const scope = resolveViewScope(user, params);
+
+  const runsWithSummaries = listRunsWithSummaries(db(), {
+    limit: 50,
+    ...(scope.userId ? { userId: scope.userId } : {}),
+  });
 
   return (
     <div className="p-6">
@@ -15,7 +30,9 @@ export default function HomePage() {
         <div>
           <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
           <p className="text-sm text-muted">
-            Fleet overview and agent operations
+            {scope.active === "mine"
+              ? "Your runs"
+              : "Fleet overview — every user's runs"}
           </p>
         </div>
       </div>
@@ -28,7 +45,11 @@ export default function HomePage() {
                 <path d="M18 24h12M24 18v12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
             </div>
-            <p className="text-sm font-medium text-foreground">No runs yet</p>
+            <p className="text-sm font-medium text-foreground">
+              {scope.active === "mine"
+                ? "You have no runs yet"
+                : "No runs yet"}
+            </p>
             <p className="text-xs text-muted mt-1">
               Start an agent run using the CLI to see it here.
             </p>

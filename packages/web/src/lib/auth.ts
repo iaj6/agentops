@@ -136,3 +136,38 @@ export async function requireOwnedSession(
   if (session.userId === user.id) return { user, session };
   return forbidden("You do not own this session");
 }
+
+// ─── View scoping for SSR pages ────────────────────────────────────────────
+//
+// Members are always scoped to their own runs/sessions. Admins default to
+// the team view (no filter) but can opt into "my runs" via ?view=mine.
+// Returns a filter object suitable for listRuns/listSessions.
+
+export interface ViewScope {
+  readonly userId?: string;
+  /** What's actually being shown — used by the sidebar toggle and page chrome. */
+  readonly active: "mine" | "team";
+  /** Whether the user has any choice in the matter (admins do, members don't). */
+  readonly canToggle: boolean;
+}
+
+export function resolveViewScope(
+  user: User,
+  searchParams: { view?: string } | URLSearchParams,
+): ViewScope {
+  const viewParam =
+    searchParams instanceof URLSearchParams
+      ? searchParams.get("view")
+      : (searchParams.view ?? null);
+
+  if (user.role !== "admin") {
+    // Members never see anyone else's data, regardless of query param.
+    return { userId: user.id, active: "mine", canToggle: false };
+  }
+
+  // Admin: ?view=mine forces self-scope; default is team-wide.
+  if (viewParam === "mine") {
+    return { userId: user.id, active: "mine", canToggle: true };
+  }
+  return { active: "team", canToggle: true };
+}
