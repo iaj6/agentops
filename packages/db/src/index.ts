@@ -3,7 +3,50 @@ export { getDb } from "./connection.js";
 export type { AgentOpsDb } from "./connection.js";
 
 // Schema
-export { runs, policies, policyResults, runMetrics, jobs, sessions, events, locks } from "./schema.js";
+export {
+  runs,
+  policies,
+  policyResults,
+  runMetrics,
+  jobs,
+  sessions,
+  events,
+  locks,
+  users,
+  apiTokens,
+  authSessions,
+  deviceCodes,
+} from "./schema.js";
+
+// Auth
+export type { User, ApiToken, AuthSession, DeviceCode } from "./auth.js";
+export {
+  hashPassword,
+  verifyPassword,
+  generateApiToken,
+  hashApiToken,
+  countUsers,
+  insertUser,
+  getUserByEmail,
+  getUserById,
+  getUserWithPasswordByEmail,
+  listUsers,
+  setUserPassword,
+  issueApiToken,
+  getUserByRawApiToken,
+  listApiTokensForUser,
+  revokeApiToken,
+  createAuthSession,
+  getUserBySessionId,
+  deleteAuthSession,
+  deleteExpiredAuthSessions,
+  createDeviceCode,
+  getDeviceCodeByUserCode,
+  getDeviceCodeByDeviceCode,
+  approveDeviceCode,
+  denyDeviceCode,
+  deleteExpiredDeviceCodes,
+} from "./auth.js";
 
 // Run repository
 export { insertRun, getRun, listRuns, updateRun, getRunMetrics, searchRuns, countRuns, getDistinctRepos, getDistinctBranches, updateRunSummary, getRunSummary, listRunsWithSummaries } from "./runs.js";

@@ -125,3 +125,56 @@ export const locks = sqliteTable("locks", {
   expiresAt: text("expires_at").notNull(),
   released: integer("released", { mode: "boolean" }).notNull().default(false),
 });
+
+// ─── Auth: users ───────────────────────────────────────────────────────────
+
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  name: text("name"),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull().default("member"),
+  mustChangePassword: integer("must_change_password", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull(),
+});
+
+// ─── Auth: API tokens (used by CLI hooks/SDK) ──────────────────────────────
+// We store only SHA-256 of the bearer token. The raw token is returned to
+// the user exactly once at issue time.
+
+export const apiTokens = sqliteTable("api_tokens", {
+  id: text("id").primaryKey(),
+  tokenHash: text("token_hash").notNull().unique(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id),
+  name: text("name").notNull(),
+  createdAt: text("created_at").notNull(),
+  lastUsedAt: text("last_used_at"),
+  expiresAt: text("expires_at"),
+});
+
+// ─── Auth: browser sessions (cookie-backed) ────────────────────────────────
+// Named auth_sessions to avoid clashing with the existing agent-session table.
+
+export const authSessions = sqliteTable("auth_sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id),
+  createdAt: text("created_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+});
+
+// ─── Auth: device authorization grant codes (RFC 8628) ─────────────────────
+
+export const deviceCodes = sqliteTable("device_codes", {
+  deviceCode: text("device_code").primaryKey(),
+  userCode: text("user_code").notNull().unique(),
+  status: text("status").notNull().default("pending"),
+  userId: text("user_id").references(() => users.id),
+  tokenId: text("token_id").references(() => apiTokens.id),
+  createdAt: text("created_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  approvedAt: text("approved_at"),
+});
