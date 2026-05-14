@@ -9,9 +9,15 @@ export function registerServeCommand(program: Command): void {
     .command("serve")
     .description("Start the AgentOps web dashboard")
     .option("--port <port>", "Port to serve on", "3000")
-    .action((opts: { port: string }) => {
+    .option(
+      "--host <host>",
+      "Host interface to bind (use 0.0.0.0 to expose on LAN)",
+      "127.0.0.1",
+    )
+    .action((opts: { port: string; host: string }) => {
       const dbPath = program.opts()["dbPath"] as string | undefined;
       const port = opts.port;
+      const host = opts.host;
 
       // Find the web package wherever it's installed
       const require = createRequire(import.meta.url);
@@ -42,12 +48,20 @@ export function registerServeCommand(program: Command): void {
         process.exit(1);
       }
 
-      console.log(`AgentOps dashboard starting at http://localhost:${port}`);
+      const displayHost = host === "0.0.0.0" ? "localhost" : host;
+      console.log(`AgentOps dashboard starting at http://${displayHost}:${port}`);
+      if (host !== "127.0.0.1" && host !== "localhost") {
+        console.warn(
+          `WARNING: dashboard is binding to ${host}. The API is currently unauthenticated — `
+          + `anyone with network reach can read and mutate data. Bind to 127.0.0.1 unless `
+          + `you have added auth.`,
+        );
+      }
 
       const env: Record<string, string> = {
         ...(process.env as Record<string, string>),
         PORT: port,
-        HOSTNAME: "0.0.0.0",
+        HOSTNAME: host,
       };
 
       if (dbPath) {

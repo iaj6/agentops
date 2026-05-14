@@ -20,19 +20,23 @@ export async function GET(request: Request) {
     if (endDate) params.set("end_date", endDate);
 
     const queryString = params.toString();
-    const url = `https://api.anthropic.com/v1/organizations/usage${queryString ? `?${queryString}` : ""}`;
+    const url = `https://api.anthropic.com/v1/organizations/usage_report/messages${queryString ? `?${queryString}` : ""}`;
 
     const response = await fetch(url, {
       headers: {
         "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
     });
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error(
+        `[admin/analytics] Anthropic API ${response.status}: ${errorText.slice(0, 500)}`,
+      );
       return NextResponse.json(
-        { error: `Anthropic API error: ${response.status}`, details: errorText },
+        { error: `Anthropic API error: ${response.status}` },
         { status: response.status },
       );
     }

@@ -635,25 +635,15 @@ async function finalizeSession(input: HookInput, state: HookState, dbPath?: stri
 
 // ─── Stop handler (fires after every Claude response) ────────────────────────
 
-async function handleStop(input: HookInput, dbPath?: string): Promise<void> {
+async function handleStop(input: HookInput, _dbPath?: string): Promise<void> {
+  // Stop fires after every Claude response within a session — it is NOT a
+  // reliable "session ended" signal. We do not finalize here; SessionEnd
+  // is the sole finalization path. This handler exists only to acknowledge
+  // the event and exit cleanly so Claude Code is not blocked.
   const state = readState(input.session_id);
   if (!state) {
     process.exit(0);
   }
-
-  // Already finalized — nothing to do
-  if (state.finalized) {
-    process.exit(0);
-  }
-
-  // Check if all agents are done: either no agents were spawned (single-agent),
-  // or all spawned agents have completed
-  const allAgentsDone = state.agentsSpawned === state.agentsCompleted;
-
-  if (allAgentsDone) {
-    await finalizeSession(input, state, dbPath);
-  }
-
   process.exit(0);
 }
 

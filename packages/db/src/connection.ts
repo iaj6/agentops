@@ -21,6 +21,7 @@ export function getDb(dbPath?: string): AgentOpsDb {
   const sqlite = new Database(resolvedPath);
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
+  sqlite.pragma("busy_timeout = 5000");
 
   const db = drizzle(sqlite, { schema });
 

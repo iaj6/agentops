@@ -82,17 +82,8 @@ function buildHooksConfig(dbPathFlag?: string): HooksConfig {
         ],
       },
     ],
-    SubagentStart: [
-      {
-        matcher: "",
-        hooks: [
-          {
-            type: "command",
-            command: `agentops hook subagent-start${dbArg}`,
-          },
-        ],
-      },
-    ],
+    // SubagentStart is intentionally omitted — it is not a real Claude Code
+    // hook event. We track sub-agents via SubagentStop only.
     SubagentStop: [
       {
         matcher: "",

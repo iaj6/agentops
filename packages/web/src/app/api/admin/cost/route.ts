@@ -20,19 +20,25 @@ export async function GET(request: Request) {
     if (endDate) params.set("end_date", endDate);
 
     const queryString = params.toString();
-    const url = `https://api.anthropic.com/v1/organizations/usage${queryString ? `?${queryString}` : ""}`;
+    const url = `https://api.anthropic.com/v1/organizations/cost_report${queryString ? `?${queryString}` : ""}`;
 
     const response = await fetch(url, {
       headers: {
         "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
     });
 
     if (!response.ok) {
+      // Log full body server-side; do not echo upstream text to the browser
+      // since it may contain request headers or tokens on certain 4xx responses.
       const errorText = await response.text();
+      console.error(
+        `[admin/cost] Anthropic API ${response.status}: ${errorText.slice(0, 500)}`,
+      );
       return NextResponse.json(
-        { error: `Anthropic API error: ${response.status}`, details: errorText },
+        { error: `Anthropic API error: ${response.status}` },
         { status: response.status },
       );
     }

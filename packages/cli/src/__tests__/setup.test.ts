@@ -61,8 +61,9 @@ describe("agentops setup", () => {
     expect(hooks.PostToolUse).toBeDefined();
     expect(hooks.Stop).toBeDefined();
     expect(hooks.SessionEnd).toBeDefined();
-    expect(hooks.SubagentStart).toBeDefined();
     expect(hooks.SubagentStop).toBeDefined();
+    // SubagentStart is intentionally absent — not a real Claude Code event.
+    expect(hooks.SubagentStart).toBeUndefined();
   });
 
   it("generates correct hook commands", () => {
@@ -79,8 +80,6 @@ describe("agentops setup", () => {
     expect(hooks.PostToolUse![0]!.hooks[0]!.command).toBe("agentops hook post-tool-use");
     expect(hooks.Stop![0]!.hooks[0]!.command).toBe("agentops hook stop");
     expect(hooks.SessionEnd![0]!.hooks[0]!.command).toBe("agentops hook session-end");
-    expect(hooks.SubagentStart![0]!.matcher).toBe("");
-    expect(hooks.SubagentStart![0]!.hooks[0]!.command).toBe("agentops hook subagent-start");
     expect(hooks.SubagentStop![0]!.matcher).toBe("");
     expect(hooks.SubagentStop![0]!.hooks[0]!.command).toBe("agentops hook subagent-stop");
   });
@@ -251,8 +250,8 @@ describe("agentops setup", () => {
     expect(parsed.hooks).toContain("PostToolUse");
     expect(parsed.hooks).toContain("Stop");
     expect(parsed.hooks).toContain("SessionEnd");
-    expect(parsed.hooks).toContain("SubagentStart");
     expect(parsed.hooks).toContain("SubagentStop");
+    expect(parsed.hooks).not.toContain("SubagentStart");
   });
 
   it("--db-path flag adds path to all hook commands", () => {
