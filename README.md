@@ -309,6 +309,13 @@ React 19. The dashboard's standalone build is verified by `docker build .`.
 
 ## Troubleshooting
 
+**First stop:** `agentops doctor`. Runs the diagnostic checklist: credentials,
+dashboard reachability, hook installation, recent activity, outbox state.
+Tells you what's wrong + the exact command to fix it. Use `--json` for
+scripting.
+
+Other common things:
+
 **"Bearer token required" when starting Claude Code**
 Your CLI sent a request without a token. Run `agentops login --server <url>`.
 
@@ -329,8 +336,17 @@ in local mode. Re-run `agentops setup` if anything looks off.
 
 **My runs aren't showing up in the dashboard**
 Check `agentops whoami` — that's the user runs will be tagged with. Then
-visit the dashboard signed in as that user. (Member users only see their
-own runs by default; the team-view toggle for admins is in progress.)
+visit the dashboard signed in as that user.
+
+**A request failed and I need help debugging it**
+Error responses from the dashboard include a `requestId`. Quote it to your
+operator; they grep the dashboard logs (`docker compose logs dashboard | grep <id>`)
+and one line returns with method, path, status, and stack. Increase
+`LOG_LEVEL=debug` in the dashboard's `.env` for more verbose tracing.
+
+**Hook failed three sessions ago — where's the evidence?**
+`~/.agentops/logs/hook.log` (5 MB rolling, 3 generations). Structured JSON
+per line. `agentops doctor` surfaces the most recent failures.
 
 ---
 

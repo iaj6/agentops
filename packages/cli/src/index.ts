@@ -20,6 +20,7 @@ import { registerSetupCommand } from "./commands/setup.js";
 import { registerHookCommand } from "./commands/hook.js";
 import { registerUserCommands } from "./commands/user.js";
 import { registerLoginCommands } from "./commands/login.js";
+import { registerDoctorCommand } from "./commands/doctor.js";
 
 const program = new Command();
 
@@ -48,5 +49,6 @@ registerSetupCommand(program);
 registerHookCommand(program);
 registerUserCommands(program);
 registerLoginCommands(program);
+registerDoctorCommand(program);
 
 program.parse();
