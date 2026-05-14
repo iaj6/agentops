@@ -44,6 +44,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        # ~50 MB total per service. Adjust upward if you need a longer log
+        # retention window — see `docker compose logs` and the LOG_LEVEL
+        # env var for tuning.
+        max-size: "10m"
+        max-file: "5"
 
   # ─── Backup sidecar (opt-in via --profile backup) ──────────────────────────
   #
@@ -74,3 +82,8 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     command: replicate -config /etc/litestream.yml
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
