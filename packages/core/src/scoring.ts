@@ -36,7 +36,7 @@ function scoreCorrectness(run: Run): ScoreDimension {
     if (!runHasMutations(run)) {
       return { score: 1, rationale: "Read-only session — no tests required" };
     }
-    return { score: 0, rationale: "No test results available" };
+    return { score: 1, rationale: "No test results — not scored" };
   }
   const passing = allTests.filter((t) => t.passed).length;
   const total = allTests.length;
@@ -118,17 +118,12 @@ function scoreUnknowns(run: Run): ScoreDimension {
     return { score: 1, rationale: "Read-only session — no evidence required" };
   }
 
-  const hasTests = run.evaluations.some((e) => e.testResults.length > 0);
   const hasArtifacts = run.artifacts.length > 0;
   const hasEvaluations = run.evaluations.length > 0;
 
   let unknowns = 0;
   const reasons: string[] = [];
 
-  if (!hasTests) {
-    unknowns++;
-    reasons.push("no tests");
-  }
   if (!hasArtifacts) {
     unknowns++;
     reasons.push("no artifacts");
@@ -142,7 +137,7 @@ function scoreUnknowns(run: Run): ScoreDimension {
     return { score: 1, rationale: "All evidence categories present" };
   }
 
-  const score = clamp(1 - unknowns / 3);
+  const score = clamp(1 - unknowns / 2);
   return {
     score,
     rationale: `Missing evidence: ${reasons.join(", ")}`,

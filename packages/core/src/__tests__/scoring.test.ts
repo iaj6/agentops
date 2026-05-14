@@ -159,7 +159,7 @@ describe("computeScore", () => {
   });
 
   describe("run with no tests but has mutations", () => {
-    it("returns unknown score and Block recommendation", () => {
+    it("returns neutral correctness and Review recommendation (missing evidence)", () => {
       const run = makeRun({
         actions: [{
           id: createActionId("a1"),
@@ -174,11 +174,12 @@ describe("computeScore", () => {
 
       const score = computeScore(run);
 
-      expect(score.correctness.score).toBe(0);
-      expect(score.unknowns.score).toBeLessThan(0.5);
-      expect(score.unknowns.rationale).toContain("no tests");
-      // With correctness at 0, should be Block
-      expect(score.mergeRecommendation).toBe(MergeRecommendation.Block);
+      expect(score.correctness.score).toBe(1);
+      expect(score.unknowns.score).toBe(0);
+      expect(score.unknowns.rationale).toContain("no artifacts");
+      expect(score.unknowns.rationale).toContain("no evaluations");
+      // Unknowns at 0 triggers Review
+      expect(score.mergeRecommendation).toBe(MergeRecommendation.Review);
     });
   });
 

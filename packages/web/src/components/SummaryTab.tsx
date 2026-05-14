@@ -22,9 +22,9 @@ const outcomeColors: Record<string, string> = {
 };
 
 const recommendationColors: Record<string, string> = {
-  Merge: "bg-green/15 text-green border-green/30",
-  Review: "bg-yellow/15 text-yellow border-yellow/30",
-  Block: "bg-red/15 text-red border-red/30",
+  merge: "bg-green/15 text-green border-green/30",
+  review: "bg-yellow/15 text-yellow border-yellow/30",
+  block: "bg-red/15 text-red border-red/30",
 };
 
 export function SummaryTab({
@@ -54,7 +54,7 @@ export function SummaryTab({
           </span>
           {recColor && (
             <span
-              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${recColor}`}
+              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium uppercase tracking-wide ${recColor}`}
             >
               {summary.score!.recommendation}
             </span>
@@ -91,16 +91,6 @@ export function SummaryTab({
             Score Card
           </h3>
           <div className="space-y-3">
-            <ScoreBar
-              label="Correctness"
-              score={summary.score.correctness}
-              rationale={`${Math.round(summary.score.correctness * 100)}%`}
-            />
-            <ScoreBar
-              label="Regression Risk"
-              score={1 - summary.score.regressionRisk}
-              rationale={`${Math.round(summary.score.regressionRisk * 100)}% risk`}
-            />
             <ScoreBar
               label="Scope Risk"
               score={1 - summary.score.scopeRisk}
