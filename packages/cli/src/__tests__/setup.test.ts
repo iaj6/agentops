@@ -66,8 +66,10 @@ describe("agentops setup", () => {
     expect(hooks.SubagentStart).toBeUndefined();
   });
 
-  it("generates correct hook commands", () => {
-    runSetup([], tmpDir);
+  it("generates correct hook commands (local mode)", () => {
+    // --local forces direct-SQLite mode regardless of any credentials.json
+    // that might exist on the test runner's machine.
+    runSetup(["--local"], tmpDir);
 
     const settingsPath = resolve(tmpDir, ".claude", "settings.json");
     const settings = readJson(settingsPath);
@@ -82,6 +84,22 @@ describe("agentops setup", () => {
     expect(hooks.SessionEnd![0]!.hooks[0]!.command).toBe("agentops hook session-end");
     expect(hooks.SubagentStop![0]!.matcher).toBe("");
     expect(hooks.SubagentStop![0]!.hooks[0]!.command).toBe("agentops hook subagent-stop");
+  });
+
+  it("--server bakes AGENTOPS_SERVER_URL into every hook command", () => {
+    runSetup(["--server", "https://acme.agentops.internal"], tmpDir);
+
+    const settingsPath = resolve(tmpDir, ".claude", "settings.json");
+    const settings = readJson(settingsPath);
+    const hooks = settings.hooks as Record<string, Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>>;
+
+    const prefix = "AGENTOPS_SERVER_URL=https://acme.agentops.internal ";
+    expect(hooks.SessionStart![0]!.hooks[0]!.command).toBe(prefix + "agentops hook session-start");
+    expect(hooks.PreToolUse![0]!.hooks[0]!.command).toBe(prefix + "agentops hook pre-tool-use");
+    expect(hooks.PostToolUse![0]!.hooks[0]!.command).toBe(prefix + "agentops hook post-tool-use");
+    expect(hooks.Stop![0]!.hooks[0]!.command).toBe(prefix + "agentops hook stop");
+    expect(hooks.SessionEnd![0]!.hooks[0]!.command).toBe(prefix + "agentops hook session-end");
+    expect(hooks.SubagentStop![0]!.hooks[0]!.command).toBe(prefix + "agentops hook subagent-stop");
   });
 
   it("merges with existing settings without overwriting them", () => {

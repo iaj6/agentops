@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { homedir } from "node:os";
+import { readCredentials, readConfig } from "../credentials.js";
 
 interface HookEntry {
   type: string;
@@ -24,77 +25,47 @@ interface SettingsJson {
 
 const AGENTOPS_HOOK_MARKER = "agentops hook";
 
-function buildHooksConfig(dbPathFlag?: string): HooksConfig {
-  const dbArg = dbPathFlag ? ` --db-path ${dbPathFlag}` : "";
+/**
+ * Resolve the dashboard server URL to bake into the hook command. Precedence:
+ *   --server flag > AGENTOPS_SERVER_URL env > credentials.json > config.json
+ * Returns null when nothing is configured (hooks will then run in
+ * direct-SQLite mode).
+ */
+function resolveServerForSetup(serverFlag?: string): string | null {
+  if (serverFlag && serverFlag.trim().length > 0) return serverFlag.trim();
+  const fromEnv = process.env["AGENTOPS_SERVER_URL"]?.trim();
+  if (fromEnv) return fromEnv;
+  const creds = readCredentials();
+  if (creds?.server) return creds.server;
+  const config = readConfig();
+  if (config.server) return config.server;
+  return null;
+}
+
+function buildHooksConfig(args: { dbPathFlag?: string; serverUrl?: string }): HooksConfig {
+  const dbArg = args.dbPathFlag ? ` --db-path ${args.dbPathFlag}` : "";
+  // When a dashboard is configured, prefix the hook command with the env
+  // var so AgentOps stays in SDK mode even if the user's shell environment
+  // changes. The token is still read from ~/.agentops/credentials.json at
+  // hook time — we never bake a token into a settings file.
+  const prefix = args.serverUrl
+    ? `AGENTOPS_SERVER_URL=${args.serverUrl} `
+    : "";
+  const cmd = (sub: string) => `${prefix}agentops hook ${sub}${dbArg}`;
   return {
-    SessionStart: [
-      {
-        matcher: "",
-        hooks: [
-          {
-            type: "command",
-            command: `agentops hook session-start${dbArg}`,
-          },
-        ],
-      },
-    ],
+    SessionStart: [{ matcher: "", hooks: [{ type: "command", command: cmd("session-start") }] }],
     PreToolUse: [
       {
         matcher: "Bash|Edit|Write|NotebookEdit",
-        hooks: [
-          {
-            type: "command",
-            command: `agentops hook pre-tool-use${dbArg}`,
-          },
-        ],
+        hooks: [{ type: "command", command: cmd("pre-tool-use") }],
       },
     ],
-    PostToolUse: [
-      {
-        matcher: ".*",
-        hooks: [
-          {
-            type: "command",
-            command: `agentops hook post-tool-use${dbArg}`,
-          },
-        ],
-      },
-    ],
-    Stop: [
-      {
-        matcher: "",
-        hooks: [
-          {
-            type: "command",
-            command: `agentops hook stop${dbArg}`,
-          },
-        ],
-      },
-    ],
-    SessionEnd: [
-      {
-        matcher: "",
-        hooks: [
-          {
-            type: "command",
-            command: `agentops hook session-end${dbArg}`,
-          },
-        ],
-      },
-    ],
+    PostToolUse: [{ matcher: ".*", hooks: [{ type: "command", command: cmd("post-tool-use") }] }],
+    Stop: [{ matcher: "", hooks: [{ type: "command", command: cmd("stop") }] }],
+    SessionEnd: [{ matcher: "", hooks: [{ type: "command", command: cmd("session-end") }] }],
     // SubagentStart is intentionally omitted — it is not a real Claude Code
     // hook event. We track sub-agents via SubagentStop only.
-    SubagentStop: [
-      {
-        matcher: "",
-        hooks: [
-          {
-            type: "command",
-            command: `agentops hook subagent-stop${dbArg}`,
-          },
-        ],
-      },
-    ],
+    SubagentStop: [{ matcher: "", hooks: [{ type: "command", command: cmd("subagent-stop") }] }],
   };
 }
 
@@ -165,8 +136,16 @@ export function registerSetupCommand(program: Command): void {
     .option("--global", "Write to ~/.claude/settings.json instead of project-level")
     .option("--uninstall", "Remove AgentOps hooks from the config")
     .option("--dry-run", "Show what would be written without actually writing")
+    .option(
+      "--server <url>",
+      "Dashboard URL to send hook events to (overrides credentials.json)",
+    )
+    .option(
+      "--local",
+      "Force direct-SQLite mode even if a dashboard is configured",
+    )
     .action(
-      (opts: { global?: boolean; uninstall?: boolean; dryRun?: boolean }) => {
+      (opts: { global?: boolean; uninstall?: boolean; dryRun?: boolean; server?: string; local?: boolean }) => {
         const dbPath = program.opts()["dbPath"] as string | undefined;
         const json = program.opts()["json"] as boolean | undefined;
 
@@ -211,14 +190,29 @@ export function registerSetupCommand(program: Command): void {
           return;
         }
 
+        // Resolve server URL (skipped if --local was passed).
+        const serverUrl = opts.local
+          ? null
+          : resolveServerForSetup(opts.server);
+
         // Install / update hooks
-        const incoming = buildHooksConfig(dbPath);
+        const incoming = buildHooksConfig({
+          ...(dbPath ? { dbPathFlag: dbPath } : {}),
+          ...(serverUrl ? { serverUrl } : {}),
+        });
         const mergedHooks = mergeHooks(settings.hooks ?? {}, incoming);
         const updatedSettings: SettingsJson = { ...settings, hooks: mergedHooks };
 
         if (opts.dryRun) {
           if (json) {
-            console.log(JSON.stringify({ status: "dry-run", action: "install", path: settingsPath, settings: updatedSettings }));
+            console.log(JSON.stringify({
+              status: "dry-run",
+              action: "install",
+              path: settingsPath,
+              mode: serverUrl ? "sdk" : "local",
+              serverUrl: serverUrl ?? null,
+              settings: updatedSettings,
+            }));
           } else {
             console.log(`Dry run — would write to ${settingsPath}:`);
             console.log(JSON.stringify(updatedSettings, null, 2));
@@ -232,17 +226,41 @@ export function registerSetupCommand(program: Command): void {
           console.log(JSON.stringify({
             status: "configured",
             path: settingsPath,
+            mode: serverUrl ? "sdk" : "local",
+            serverUrl: serverUrl ?? null,
             hooks: Object.keys(incoming),
           }));
         } else {
           console.log(`AgentOps hooks configured in ${settingsPath}`);
+          console.log();
+          if (serverUrl) {
+            console.log(`Mode:   SDK (events sent to ${serverUrl})`);
+            const creds = readCredentials();
+            if (!creds?.token) {
+              console.log();
+              console.log(`  ⚠  No credentials.json found at ~/.agentops/. Run:`);
+              console.log(`       agentops login --server ${serverUrl}`);
+              console.log(`     before starting Claude Code, otherwise hooks will fail open.`);
+            } else if (creds.server !== serverUrl) {
+              console.log();
+              console.log(`  ⚠  Your stored credentials are for ${creds.server},`);
+              console.log(`     but setup baked ${serverUrl} into the hook command.`);
+              console.log(`     Re-run agentops login --server ${serverUrl} or remove --server.`);
+            }
+          } else {
+            console.log(`Mode:   local (writing to ${dbPath ?? "~/.agentops/agentops.db"})`);
+            console.log();
+            console.log(`To send events to a team dashboard instead:`);
+            console.log(`  agentops login --server <dashboard-url>`);
+            console.log(`  agentops setup            # re-run after login`);
+          }
           console.log();
           console.log(`Hooks installed:`);
           for (const eventName of Object.keys(incoming)) {
             console.log(`  - ${eventName}`);
           }
           console.log();
-          console.log(`Run Claude Code and check the AgentOps dashboard to verify.`);
+          console.log(`Start a Claude Code session and check the dashboard to verify.`);
         }
       },
     );
