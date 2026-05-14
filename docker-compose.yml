@@ -17,6 +17,13 @@
 # (See litestream.yml + the "Disaster recovery" section in README.md.)
 # Without litestream you can still back up by stopping the dashboard and
 # copying ./agentops-data/, but you lose point-in-time recovery.
+#
+# Production deployment with HTTPS:
+#   1. Point DNS at this host (e.g. agentops.acme.com A <public-ip>)
+#   2. Open ports 80 + 443 on the host firewall
+#   3. Set AGENTOPS_HOSTNAME + LETSENCRYPT_EMAIL in .env
+#   4. docker compose --profile production up -d
+# See README's "Production deployment" section + Caddyfile.
 
 services:
   dashboard:
@@ -87,3 +94,44 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+  # ─── HTTPS reverse proxy (opt-in via --profile production) ─────────────────
+  #
+  # Caddy terminates TLS using Let's Encrypt and reverse-proxies to the
+  # dashboard over the internal docker network. The dashboard container
+  # keeps its 127.0.0.1:3000 binding — Caddy reaches it as "dashboard:3000"
+  # via service-name DNS, no host port involved.
+  #
+  # Customers without public DNS can switch to an internal CA — see the
+  # comment block at the top of Caddyfile for the swap.
+  caddy:
+    profiles: ["production"]
+    image: caddy:2-alpine
+    container_name: agentops-caddy
+    restart: unless-stopped
+    depends_on:
+      - dashboard
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      # Required. Compose will fail loudly if this isn't set.
+      AGENTOPS_HOSTNAME: ${AGENTOPS_HOSTNAME:?AGENTOPS_HOSTNAME is required for the production profile}
+      # Optional — see Caddyfile and .env.example.
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-}
+      AGENTOPS_ACME_CA: ${AGENTOPS_ACME_CA:-}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  # Caddy persists issued certificates + ACME account here. Backing this
+  # up means new container starts don't have to re-issue certs.
+  caddy-data:
+  caddy-config:

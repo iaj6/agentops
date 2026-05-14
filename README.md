@@ -97,6 +97,73 @@ docker compose up -d                    # restart picks up the new env
 The variable is referenced from `docker-compose.yml` and is **only** read by
 the dashboard. It does not need to be on developer machines.
 
+### Production deployment with HTTPS
+
+The default `docker compose up -d` binds the dashboard to `127.0.0.1:3000` —
+fine for "ssh tunnel to my laptop" but not for a real team. For an internet-
+facing or LAN-facing deployment, run with the `production` profile, which
+adds a Caddy sidecar that terminates TLS and reverse-proxies to the dashboard
+over the internal docker network.
+
+**Prerequisites:**
+1. **DNS** pointing at the host (e.g. `agentops.acme.com A 1.2.3.4`).
+2. **Ports 80 and 443** reachable from the public internet so Let's Encrypt
+   can complete the HTTP-01 challenge.
+3. **Email** to register with Let's Encrypt (optional but recommended — they
+   email if certs ever fail to renew).
+
+**Configure `.env`:**
+
+```bash
+AGENTOPS_HOSTNAME=agentops.acme.com
+LETSENCRYPT_EMAIL=ops@acme.com
+```
+
+**Start:**
+
+```bash
+docker compose --profile production up -d
+```
+
+Caddy auto-provisions a Let's Encrypt cert on first request. Subsequent
+restarts reuse the cert from the `caddy-data` named volume — back that
+volume up alongside `./agentops-data/` to survive `docker compose down -v`.
+
+**Verify from a dev machine:**
+
+```bash
+agentops login --server https://agentops.acme.com
+agentops doctor
+```
+
+The doctor should report ✓ for dashboard reachability and token validity.
+
+**Testing without burning Let's Encrypt rate limits:**
+
+```bash
+# In .env
+AGENTOPS_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory
+```
+
+Staging issues untrusted certs that browsers warn about, but it lets you
+verify the full flow without using your production cert quota.
+
+**No public DNS? Use Caddy's internal CA.**
+
+If you're deploying on a LAN without a public hostname (e.g.
+`https://agentops.internal`), edit `Caddyfile` and replace the site block:
+
+```caddy
+https://agentops.internal {
+    tls internal
+    reverse_proxy dashboard:3000
+}
+```
+
+Devs need to trust Caddy's local root CA — see
+<https://caddyserver.com/docs/automatic-https#local-https> for the
+platform-specific commands.
+
 ### Optional: continuous backup to S3 with Litestream
 
 The dashboard's whole state is a single SQLite file at

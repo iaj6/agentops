@@ -1,0 +1,64 @@
+# Reference Caddy config for AgentOps production deployment.
+#
+# Used by docker-compose.yml's `caddy` service (profile: production). The
+# dashboard process stays bound to 127.0.0.1 inside its container; Caddy
+# reaches it via the internal docker network using the service name
+# "dashboard:3000" and is the only public entrypoint.
+#
+# Required env vars (set in .env next to docker-compose.yml):
+#   AGENTOPS_HOSTNAME   - the public hostname the dashboard answers on
+#                         (e.g. agentops.acme.internal). Must already
+#                         have DNS pointed at this host.
+#
+# Optional:
+#   LETSENCRYPT_EMAIL   - contact email Caddy sends to the ACME provider.
+#                         Recommended so the CA can warn about expiring
+#                         certs if Caddy stops renewing for some reason.
+#   AGENTOPS_ACME_CA    - override the ACME directory. Defaults to
+#                         Let's Encrypt production. Set to the staging
+#                         endpoint while testing to avoid burning rate
+#                         limits:
+#                         https://acme-staging-v02.api.letsencrypt.org/directory
+#
+# Internal CA mode (no public DNS): replace the site block below with
+#
+#     https://agentops.internal {
+#         tls internal
+#         reverse_proxy dashboard:3000
+#         ...
+#     }
+#
+# Then trust Caddy's internal CA on each developer machine — see
+# https://caddyserver.com/docs/automatic-https#local-https for the
+# platform-specific commands.
+{
+	# Global options. The `email` default is a sentinel that's deliberately
+	# not a real address — set LETSENCRYPT_EMAIL in .env to get expiry-
+	# warning emails from Let's Encrypt. Caddy issues certs either way.
+	email {$LETSENCRYPT_EMAIL:noreply@example.invalid}
+	acme_ca {$AGENTOPS_ACME_CA:https://acme-v02.api.letsencrypt.org/directory}
+}
+
+{$AGENTOPS_HOSTNAME} {
+	encode gzip
+
+	# Security headers. HSTS preload is deliberately omitted — it's a
+	# one-way street that locks the domain into HTTPS for two years.
+	# Enable it once you're confident the deployment is stable.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Caddy receives all traffic, the dashboard answers it on the internal
+	# docker network. The dashboard's proxy.ts handles x-request-id
+	# generation, so we don't add another layer here.
+	reverse_proxy dashboard:3000 {
+		# Forward the original protocol so the dashboard's NextRequest sees
+		# https:// in req.url and sets cookies with Secure properly.
+		header_up X-Forwarded-Proto https
+	}
+}
