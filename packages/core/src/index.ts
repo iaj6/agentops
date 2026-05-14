@@ -70,9 +70,20 @@ export type {
   ToolRestrictionConfig,
   CostCeilingConfig,
   PolicyResult,
+  ToolInvocation,
+  GuardContext,
+  PolicyViolation,
 } from "./policy.js";
 
-export { PolicyType, PolicySeverity, PolicyMode, PolicyEngine, getPolicyMode, runHasMutations } from "./policy.js";
+export {
+  PolicyType,
+  PolicySeverity,
+  PolicyMode,
+  PolicyEngine,
+  getPolicyMode,
+  runHasMutations,
+  evaluatePreToolPolicies,
+} from "./policy.js";
 
 // Scoring
 export type { ScoreDimension, ScoreCard } from "./scoring.js";

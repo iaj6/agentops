@@ -349,3 +349,205 @@ export class PolicyEngine {
     return policies.map((policy) => evaluatePolicy(run, policy));
   }
 }
+
+// ─── Pre-tool guard evaluation ──────────────────────────────────────────────
+//
+// Evaluates Guard policies against a *pending* tool invocation (before the
+// tool actually runs). Used by:
+//   - the local hook (transcript on disk, direct DB)
+//   - the SDK server route /api/sdk/policy/check (HTTP, multi-user)
+// One source of truth so behavior cannot drift between modes.
+
+export interface ToolInvocation {
+  readonly toolName: string;
+  readonly toolInput: Record<string, unknown>;
+}
+
+export interface GuardContext {
+  readonly editedFiles?: ReadonlySet<string>;
+  readonly branch?: string;
+  readonly cumulativeCostUsd?: number;
+}
+
+export interface PolicyViolation {
+  readonly policy: string;
+  readonly message: string;
+  readonly severity: string;
+}
+
+// Truncate user-supplied strings before they appear in violation messages.
+// Violation messages flow to stdout where Claude Code surfaces them in the
+// terminal and CI logs frequently capture the output. Without truncation,
+// full file paths and the bash command that matched a SecretDetection
+// pattern (incl. the secret itself) would leak.
+function summarizePath(p: string): string {
+  // Show last two segments at most; that's enough context for the user to
+  // know what they tripped on without echoing the full filesystem location.
+  const parts = p.split("/").filter(Boolean);
+  if (parts.length <= 2) return p;
+  return ".../" + parts.slice(-2).join("/");
+}
+
+function summarizeCommand(cmd: string): string {
+  return cmd.length > 80 ? cmd.slice(0, 77) + "..." : cmd;
+}
+
+export function evaluatePreToolPolicies(
+  invocation: ToolInvocation,
+  activePolicies: ReadonlyArray<Policy & { enabled: boolean }>,
+  context?: GuardContext,
+): PolicyViolation[] {
+  const violations: PolicyViolation[] = [];
+  const toolName = invocation.toolName;
+  const toolInput = invocation.toolInput;
+
+  // Known policy types for skipping deprecated/unknown types
+  const knownTypes = new Set(Object.values(PolicyType) as string[]);
+
+  for (const policy of activePolicies) {
+    if (!policy.enabled) continue;
+    if (!knownTypes.has(policy.config.type as string)) continue;
+
+    if (
+      policy.config.type === PolicyType.RiskyOpFlag &&
+      toolName === "Bash" &&
+      typeof toolInput["command"] === "string"
+    ) {
+      const cmd = toolInput["command"] as string;
+      const flagged = policy.config.riskyPatterns.filter((pattern) =>
+        cmd.includes(pattern),
+      );
+      if (flagged.length > 0) {
+        violations.push({
+          policy: policy.name,
+          message: `Risky operation detected: ${flagged.join(", ")} in command "${summarizeCommand(cmd)}"`,
+          severity: policy.severity,
+        });
+      }
+    }
+
+    if (
+      policy.config.type === PolicyType.PathRestriction &&
+      (toolName === "Edit" || toolName === "Write") &&
+      typeof toolInput["file_path"] === "string"
+    ) {
+      const filePath = toolInput["file_path"] as string;
+      const blocked = policy.config.blockedPaths.filter((p) =>
+        filePath.startsWith(p),
+      );
+      if (blocked.length > 0) {
+        violations.push({
+          policy: policy.name,
+          message: `Path restriction violated: ${summarizePath(filePath)} matches blocked path(s): ${blocked.join(", ")}`,
+          severity: policy.severity,
+        });
+      }
+    }
+
+    if (
+      policy.config.type === PolicyType.FileLimitCount &&
+      (toolName === "Edit" || toolName === "Write") &&
+      typeof toolInput["file_path"] === "string"
+    ) {
+      const filePath = toolInput["file_path"] as string;
+      const config = policy.config as FileLimitCountConfig;
+      const currentFiles = context?.editedFiles ?? new Set<string>();
+      if (!currentFiles.has(filePath) && currentFiles.size >= config.maxFiles) {
+        violations.push({
+          policy: policy.name,
+          message: `File limit exceeded: editing "${summarizePath(filePath)}" would be file ${currentFiles.size + 1}, limit is ${config.maxFiles}`,
+          severity: policy.severity,
+        });
+      }
+    }
+
+    if (
+      policy.config.type === PolicyType.SecretDetection &&
+      (toolName === "Write" || toolName === "Edit")
+    ) {
+      const content = toolName === "Write"
+        ? (typeof toolInput["content"] === "string" ? toolInput["content"] as string : "")
+        : (typeof toolInput["new_string"] === "string" ? toolInput["new_string"] as string : "");
+
+      if (content) {
+        const config = policy.config as SecretDetectionConfig;
+        const matched: string[] = [];
+        for (const pattern of config.patterns) {
+          const re = new RegExp(pattern);
+          if (re.test(content)) matched.push(pattern);
+        }
+        if (matched.length > 0) {
+          // Surface that a pattern matched, but never echo the matched
+          // content — by definition that substring is the secret we caught.
+          violations.push({
+            policy: policy.name,
+            message: `Secret pattern(s) detected: ${matched.length} match${matched.length === 1 ? "" : "es"}`,
+            severity: policy.severity,
+          });
+        }
+      }
+    }
+
+    if (
+      policy.config.type === PolicyType.BranchProtection &&
+      (toolName === "Write" || toolName === "Edit" || toolName === "Bash")
+    ) {
+      const branch = context?.branch;
+      if (branch) {
+        const config = policy.config as BranchProtectionConfig;
+        if (config.protectedBranches.some((b) => b === branch)) {
+          violations.push({
+            policy: policy.name,
+            message: `Mutation on protected branch "${branch}"`,
+            severity: policy.severity,
+          });
+        }
+      }
+    }
+
+    if (policy.config.type === PolicyType.ToolRestriction) {
+      const config = policy.config as ToolRestrictionConfig;
+      if (config.allowedTools) {
+        if (!config.allowedTools.includes(toolName)) {
+          violations.push({
+            policy: policy.name,
+            message: `Tool "${toolName}" is not in the allowed list`,
+            severity: policy.severity,
+          });
+        }
+      } else if (config.blockedTools) {
+        if (config.blockedTools.includes(toolName)) {
+          violations.push({
+            policy: policy.name,
+            message: `Tool "${toolName}" is blocked by policy`,
+            severity: policy.severity,
+          });
+        }
+      }
+    }
+
+    if (policy.config.type === PolicyType.CostCeiling) {
+      const config = policy.config as CostCeilingConfig;
+      const cost = context?.cumulativeCostUsd ?? 0;
+      // Validate inputs to avoid silent enforcement bypass. A NaN or negative
+      // cost (from a malformed transcript) would otherwise compare false here
+      // and let the action through; a non-positive ceiling is a misconfig
+      // that should fail closed.
+      if (!Number.isFinite(cost) || cost < 0 || !Number.isFinite(config.maxUsd) || config.maxUsd <= 0) {
+        violations.push({
+          policy: policy.name,
+          message: `Cost ceiling check failed: invalid cost ($${String(cost)}) or maxUsd ($${String(config.maxUsd)}). Failing closed.`,
+          severity: policy.severity,
+        });
+      } else if (cost >= config.maxUsd) {
+        violations.push({
+          policy: policy.name,
+          message: `Cost ceiling reached: $${cost.toFixed(2)} spent, limit is $${config.maxUsd.toFixed(2)}`,
+          severity: policy.severity,
+        });
+      }
+    }
+  }
+
+  return violations;
+}
