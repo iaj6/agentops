@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const navItems = [
   { href: "/", label: "Runs", icon: RunsIcon },
@@ -13,8 +14,46 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
+const AUTH_PATHS = new Set(["/login", "/change-password"]);
+
+interface MeResponse {
+  user: { email: string; name: string | null; role: string } | null;
+}
+
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [user, setUser] = useState<MeResponse["user"]>(null);
+  const [signingOut, setSigningOut] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : { user: null }))
+      .then((data: MeResponse) => {
+        if (!cancelled) setUser(data.user);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // best effort
+    }
+    router.push("/login");
+    router.refresh();
+  }
+
+  // Hide the sidebar entirely on auth pages — they are full-bleed.
+  if (AUTH_PATHS.has(pathname)) {
+    return null;
+  }
 
   return (
     <aside className="flex h-screen w-14 md:w-56 flex-col border-r border-border bg-surface transition-all duration-200">
@@ -52,7 +91,27 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="border-t border-border px-3 md:px-4 py-3">
+      <div className="border-t border-border px-3 md:px-4 py-3 space-y-2">
+        {user && (
+          <div className="hidden md:block">
+            <p className="text-xs font-medium text-foreground truncate" title={user.email}>
+              {user.name ?? user.email}
+            </p>
+            <p className="text-xs text-muted">{user.role}</p>
+          </div>
+        )}
+        {user && (
+          <button
+            type="button"
+            onClick={handleSignOut}
+            disabled={signingOut}
+            title="Sign out"
+            className="w-full rounded-md border border-border px-2 py-1 text-xs text-muted hover:text-foreground hover:border-muted transition-colors disabled:opacity-50"
+          >
+            <span className="hidden md:inline">{signingOut ? "Signing out…" : "Sign out"}</span>
+            <span className="md:hidden">⎋</span>
+          </button>
+        )}
         <p className="hidden md:block text-xs text-muted">v0.1.0</p>
       </div>
     </aside>
