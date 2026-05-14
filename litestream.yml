@@ -1,0 +1,34 @@
+# AgentOps backup configuration for Litestream.
+#
+# Litestream watches /data/agentops.db and streams every WAL frame to the
+# configured replica. You get point-in-time recovery: the database can be
+# restored to any moment within the retention window.
+#
+# Pre-reqs:
+#   1. An S3 bucket (or S3-compatible store: MinIO, Wasabi, R2, etc.)
+#   2. AWS credentials that can s3:PutObject and s3:GetObject on that bucket
+#   3. Fill in AGENTOPS_S3_BUCKET + AWS_REGION + AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY in .env
+#
+# Start the backup sidecar:
+#   docker compose --profile backup up -d
+#
+# Verify replication is happening (look for "wal segment written"):
+#   docker compose --profile backup logs -f litestream
+#
+# Restore — see README's "Disaster recovery" section.
+
+dbs:
+  - path: /data/agentops.db
+    replicas:
+      - type: s3
+        bucket: ${AGENTOPS_S3_BUCKET}
+        # Prefix within the bucket. Lets one bucket back up multiple DBs.
+        path: ${AGENTOPS_S3_PREFIX:-agentops}
+        region: ${AWS_REGION:-us-east-1}
+        # Optional endpoint override for S3-compatible stores.
+        # endpoint: ${AGENTOPS_S3_ENDPOINT}
+        # 14 days of point-in-time recovery. Tune for your RPO needs;
+        # the cost of WAL frames at AgentOps scale is sub-cent / day.
+        retention: 336h
+        # Re-verify the replica hourly by reading back checksums.
+        validation-interval: 1h

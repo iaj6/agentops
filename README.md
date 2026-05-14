@@ -97,6 +97,56 @@ docker compose up -d                    # restart picks up the new env
 The variable is referenced from `docker-compose.yml` and is **only** read by
 the dashboard. It does not need to be on developer machines.
 
+### Optional: continuous backup to S3 with Litestream
+
+The dashboard's whole state is a single SQLite file at
+`./agentops-data/agentops.db`. For point-in-time recovery and disaster
+durability, run the Litestream sidecar which streams every WAL frame to an
+S3 bucket (or any S3-compatible store like MinIO, R2, Wasabi):
+
+```bash
+# .env (next to docker-compose.yml)
+AGENTOPS_S3_BUCKET=my-agentops-backups
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+
+docker compose --profile backup up -d
+docker compose --profile backup logs -f litestream  # confirm "wal segment written"
+```
+
+Retention defaults to 14 days. The cost is in cents per month at the volumes
+AgentOps generates. See `litestream.yml` to tune.
+
+### Disaster recovery
+
+If you ever lose `./agentops-data/` (disk failure, fat-fingered `rm`, host
+gone), restore from S3:
+
+```bash
+# 1. Stop the dashboard so nothing tries to use the empty DB.
+docker compose stop dashboard
+
+# 2. Wipe whatever is left of the broken DB.
+rm -f ./agentops-data/agentops.db*
+
+# 3. Restore the latest backup.
+docker run --rm \
+  -v "$(pwd)/agentops-data:/data" \
+  -v "$(pwd)/litestream.yml:/etc/litestream.yml:ro" \
+  --env-file .env \
+  litestream/litestream:0.5.0 \
+  restore -config /etc/litestream.yml /data/agentops.db
+
+# 4. Start everything back up. Existing user accounts, tokens, runs, and
+#    policies are all back. Active hook sessions on developer machines will
+#    fail-open until they fire a new event.
+docker compose --profile backup up -d
+```
+
+For older points in time, add `-timestamp <RFC3339>` to the `restore`
+command. See `litestream restore -h` for options.
+
 ---
 
 ## Quick start: developer machine

@@ -11,9 +11,12 @@
 #   agentops login --server http://<your-dashboard-host>:3000
 #   agentops setup
 #
-# Persistent data lives in ./agentops-data/ on the host. Back up that
-# directory to back up the dashboard. Stop the service before backing up to
-# avoid copying a write-ahead-log in flight.
+# Persistent data lives in ./agentops-data/ on the host. For continuous
+# replicated backup to S3, start the litestream sidecar:
+#   docker compose --profile backup up -d
+# (See litestream.yml + the "Disaster recovery" section in README.md.)
+# Without litestream you can still back up by stopping the dashboard and
+# copying ./agentops-data/, but you lose point-in-time recovery.
 
 services:
   dashboard:
@@ -41,3 +44,33 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  # ─── Backup sidecar (opt-in via --profile backup) ──────────────────────────
+  #
+  # Continuously streams the SQLite WAL to S3 (or any S3-compatible store).
+  # Configure via the AGENTOPS_S3_* and AWS_* variables in .env, then start:
+  #
+  #   docker compose --profile backup up -d
+  #
+  # Disable by simply not starting this profile. See litestream.yml for
+  # config and README's "Disaster recovery" for the restore procedure.
+  litestream:
+    profiles: ["backup"]
+    image: litestream/litestream:0.5.0
+    container_name: agentops-litestream
+    restart: unless-stopped
+    depends_on:
+      - dashboard
+    volumes:
+      # Read-only mount of the SQLite db. Litestream reads the WAL frames
+      # but never writes back to the live database.
+      - ./agentops-data:/data:ro
+      - ./litestream.yml:/etc/litestream.yml:ro
+    environment:
+      AGENTOPS_S3_BUCKET: ${AGENTOPS_S3_BUCKET}
+      AGENTOPS_S3_PREFIX: ${AGENTOPS_S3_PREFIX:-agentops}
+      AGENTOPS_S3_ENDPOINT: ${AGENTOPS_S3_ENDPOINT:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    command: replicate -config /etc/litestream.yml
