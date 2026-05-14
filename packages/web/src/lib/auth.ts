@@ -144,7 +144,9 @@ export async function requireOwnedRun(
   if (!run) return notFound("Run", req);
   if (user.role === "admin") return { user, run };
   if (run.userId === user.id) return { user, run };
-  return forbidden("You do not own this run", req);
+  // 404 (not 403) on non-owner — don't leak which run IDs exist by giving
+  // a different status code for "exists but not yours" vs "doesn't exist."
+  return notFound("Run", req);
 }
 
 export async function requireOwnedSession(
@@ -157,7 +159,8 @@ export async function requireOwnedSession(
   if (!session) return notFound("Session", req);
   if (user.role === "admin") return { user, session };
   if (session.userId === user.id) return { user, session };
-  return forbidden("You do not own this session", req);
+  // 404 not 403 — same enumeration-defense rationale as requireOwnedRun.
+  return notFound("Session", req);
 }
 
 // ─── View scoping for SSR pages ────────────────────────────────────────────

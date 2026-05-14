@@ -14,7 +14,8 @@
     "build": "next build",
     "postbuild": "mkdir -p .next/standalone/packages/web/.next && cp -r .next/static .next/standalone/packages/web/.next/static && (cp -r public .next/standalone/packages/web/public 2>/dev/null || true)",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run"
   },
   "dependencies": {
     "next": "16.1.6",
@@ -31,6 +32,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.0.0"
   }
 }
