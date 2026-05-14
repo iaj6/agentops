@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE_NAME } from "./lib/auth-constants";
 
-// Middleware does NOT validate the session — it only checks whether a
-// credential is present (cookie or bearer header). Actual user lookup
-// happens in route handlers / server components where the DB is reachable.
-// This keeps middleware cheap and runtime-agnostic.
+// Proxy (the Next 16 successor to middleware) does NOT validate the session
+// — it only checks whether a credential is present (cookie or bearer
+// header). Actual user lookup happens in route handlers / server components
+// where the DB is reachable. This keeps the proxy cheap and runtime-agnostic.
 
 const PUBLIC_PATHS = new Set<string>([
   "/login",
@@ -32,7 +32,7 @@ function isApiPath(pathname: string): boolean {
   return pathname.startsWith("/api/");
 }
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   if (isPublic(pathname)) {
