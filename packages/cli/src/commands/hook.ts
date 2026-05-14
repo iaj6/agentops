@@ -3,26 +3,8 @@ import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, chmodSy
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import {
-  createRun,
-  startRun,
-  completeRun,
-  addAction,
-  addArtifact,
   createActionId,
-  createArtifactId,
-  createSession,
-  activateSession,
-  assignRun,
-  completeSessionRun,
-  terminateSession,
-  createEvent,
-  EVENT_TYPES,
-  EventCategory,
-  computeScore,
-  PolicyEngine,
-  PolicyType,
   PolicySeverity,
-  generateSummary,
   evaluatePreToolPolicies,
 } from "@agentops/core";
 import type {
@@ -35,9 +17,9 @@ import type {
   GuardContext,
   PolicyViolation,
 } from "@agentops/core";
-import { getDb, insertRun, updateRun, getRun, insertSession, updateSession, insertEvent, listPolicies, updateRunSummary } from "@agentops/db";
 import { getCurrentRepo, getCurrentBranch, getChangedFiles, getWorkingTreeDiff } from "../git.js";
 import { readSessionUsage, transcriptPath, ZERO_USAGE, detectBackend, type SessionUsage } from "../transcript.js";
+import { createOps, resolveOpsConfig, isSdkMode, SdkError } from "../hook-ops.js";
 
 // ─── Stdin helper ─────────────────────────────────────────────────────────────
 
@@ -66,6 +48,10 @@ export interface HookState {
   finalized: boolean;
   cwd?: string;
   backend?: Backend;
+  // When set, this session was created in SDK mode against this dashboard.
+  // Subsequent hook events re-resolve credentials but lock the server URL
+  // for the duration of the session.
+  serverUrl?: string;
 }
 
 // State files live under ~/.agentops/state/ (not /tmp). /tmp is shared across
@@ -206,65 +192,60 @@ function checkPreToolPolicies(
 }
 
 // ─── Event handlers ──────────────────────────────────────────────────────────
+//
+// Handlers delegate to a HookOps (direct-SQLite or SDK-over-HTTP, decided
+// at session-start). Once a session has a state file with serverUrl set
+// (or unset for direct), subsequent events reuse that mode — credentials
+// are re-resolved from disk each fire (so logging out invalidates active
+// sessions), but the dashboard URL is locked.
+
+function logSdkFailure(op: string, err: unknown): void {
+  if (err instanceof SdkError) {
+    process.stderr.write(`[agentops] ${op} failed: ${err.message}\n`);
+    if (err.status === 401 || err.status === 403) {
+      process.stderr.write(
+        `[agentops] Token may be invalid or revoked. Run: agentops login\n`,
+      );
+    }
+  } else {
+    process.stderr.write(
+      `[agentops] ${op} failed: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
+}
 
 async function handleSessionStart(input: HookInput, dbPath?: string): Promise<void> {
-  const db = getDb(dbPath);
   const cwd = input.cwd ?? process.cwd();
-
-  // Auto-detect repo/branch from cwd
   const repo = getCurrentRepo();
   const branch = getCurrentBranch();
 
-  // Create session
-  let session = createSession(`claude-code-${input.session_id}`, {
-    claudeSessionId: input.session_id,
-    cwd,
-  });
-  session = activateSession(session);
+  const config = resolveOpsConfig(dbPath);
+  const ops = createOps(config);
 
-  // Create and start run
-  let run = createRun(
-    {
-      humanReadable: `Claude Code session in ${cwd}`,
-      structured: {
-        type: "claude-code-hook",
-        description: `Claude Code session in ${cwd}`,
-        parameters: { cwd, claudeSessionId: input.session_id },
-      },
-    },
-    {
-      repo,
-      branch,
-      permissions: [],
-      sandbox: { enabled: false, isolationLevel: "none" },
-    },
-  );
-  run = startRun(run);
-
-  // Assign run to session
-  session = assignRun(session, run.id);
-
-  // Persist to DB
-  insertSession(db, session);
-  insertRun(db, run);
-
-  // Emit run.started event
-  insertEvent(
-    db,
-    createEvent(EventCategory.Run, EVENT_TYPES["run.started"], run.id as string, {
-      goal: run.goal.humanReadable,
-      repo,
-      branch,
+  let runId: string;
+  let sessionId: string;
+  try {
+    const r = await ops.startSessionAndRun({
       claudeSessionId: input.session_id,
-    }),
-  );
+      cwd,
+      repo,
+      branch,
+    });
+    runId = r.runId;
+    sessionId = r.sessionId;
+  } catch (err) {
+    // Fail-open: log and return without writing state. Subsequent hooks
+    // for this session will see no state file and silently allow — we
+    // never want AgentOps to break a developer's Claude Code session.
+    logSdkFailure("session start", err);
+    return;
+  }
 
-  // Write state file for subsequent hook calls
-  const resolvedDbPath = dbPath ?? "";
   writeState(input.session_id, {
-    runId: run.id as string,
-    sessionId: session.id as string,
-    dbPath: resolvedDbPath,
+    runId,
+    sessionId,
+    dbPath: config.dbPath ?? "",
+    ...(isSdkMode(config) ? { serverUrl: config.serverUrl } : {}),
     startTime: new Date().toISOString(),
     agentsSpawned: 0,
     agentsCompleted: 0,
@@ -281,64 +262,43 @@ async function handlePreToolUse(input: HookInput, dbPath?: string): Promise<void
     process.exit(0);
   }
 
-  const db = getDb(state.dbPath || dbPath || undefined);
-
-  // Load active policies
-  const activePolicies = listPolicies(db, { enabled: true });
-
-  // Read transcript usage if any CostCeiling policy is enabled
-  const hasCostPolicy = activePolicies.some(
-    (p) => p.config.type === PolicyType.CostCeiling,
-  );
+  // Transcript reading is always local: the .jsonl lives on this machine.
+  // We compute cumulative cost client-side and pass it to the ops layer;
+  // the server (in SDK mode) trusts our number, the local DB uses it the
+  // same way.
   const cwd = state.cwd ?? input.cwd;
   const backend = state.backend ?? detectBackend();
-  let usage: SessionUsage = ZERO_USAGE;
-  if (hasCostPolicy && cwd) {
-    usage = readSessionUsage(transcriptPath(cwd, input.session_id), backend);
+  const usage: SessionUsage = cwd
+    ? readSessionUsage(transcriptPath(cwd, input.session_id), backend)
+    : ZERO_USAGE;
+
+  const ops = createOps(opsConfigFromState(state, dbPath));
+
+  let decision: { decision: "allow" | "block"; reason?: string; warnings: ReadonlyArray<PolicyViolation> };
+  try {
+    decision = await ops.checkPolicy({
+      runId: state.runId,
+      toolName: input.tool_name ?? "",
+      toolInput: input.tool_input ?? {},
+      cumulativeCostUsd: usage.totalCostUsd,
+    });
+  } catch (err) {
+    // Fail-open: log and allow. Better to skip enforcement on a transient
+    // server hiccup than to brick the developer's Claude Code session.
+    logSdkFailure("policy check", err);
+    process.exit(0);
   }
 
-  // Build guard context from current run
-  const currentRun = getRun(db, state.runId as any);
-  const context: GuardContext = {
-    editedFiles: currentRun
-      ? new Set(currentRun.actions.flatMap((a) => a.fileEdits.map((e) => e.path)))
-      : undefined,
-    branch: currentRun?.environment.branch,
-    cumulativeCostUsd: usage.totalCostUsd,
-  };
-
-  // Check policies
-  const violations = checkPreToolPolicies(input, activePolicies, context);
-
-  // Check for error-severity violations that should block
-  const errorViolations = violations.filter((v) => v.severity === PolicySeverity.Error);
-
-  if (errorViolations.length > 0) {
-    // Emit policy.violated event
-    insertEvent(
-      db,
-      createEvent(EventCategory.Policy, EVENT_TYPES["policy.violated"], state.runId, {
-        toolName: input.tool_name,
-        toolInput: input.tool_input,
-        violations: errorViolations,
-      }),
-    );
-
-    // Output block response and exit 2
-    const reason = errorViolations.map((v) => `[${v.policy}] ${v.message}`).join("; ");
+  if (decision.decision === "block") {
+    const reason = decision.reason ?? "Policy violation";
     process.stdout.write(JSON.stringify({ decision: "block", reason }));
     process.exit(2);
   }
 
-  // Warnings — print to stderr (not stdout) so Claude Code doesn't interpret as block
-  const warnings = violations.filter((v) => v.severity !== PolicySeverity.Error);
-  if (warnings.length > 0) {
-    for (const w of warnings) {
-      process.stderr.write(`[agentops warning] ${w.policy}: ${w.message}\n`);
-    }
+  // Warnings → stderr (not stdout, so Claude Code doesn't interpret as block)
+  for (const w of decision.warnings) {
+    process.stderr.write(`[agentops warning] ${w.policy}: ${w.message}\n`);
   }
-
-  // Allow — exit 0 silently
   process.exit(0);
 }
 
@@ -348,169 +308,84 @@ async function handlePostToolUse(input: HookInput, dbPath?: string): Promise<voi
     process.exit(0);
   }
 
-  const db = getDb(state.dbPath || dbPath || undefined);
-
-  // Get current run
-  const run = getRun(db, state.runId as any);
-  if (!run) {
-    handleStaleState(input.session_id, state);
-    process.exit(0);
-  }
-
-  // Map tool call to action and add to run
   const action = mapToolToAction(input);
-  const updatedRun = addAction(run, action);
+  const ops = createOps(opsConfigFromState(state, dbPath));
 
-  // Persist updated run
-  updateRun(db, updatedRun.id, {
-    actions: updatedRun.actions,
-    updatedAt: updatedRun.updatedAt,
-  });
-
-  // Emit action.taken event
-  const actionPayload: Record<string, unknown> = {
-    toolName: input.tool_name,
-    toolInput: input.tool_input ? Object.keys(input.tool_input) : [],
-  };
-  if (input.tool_use_id) {
-    actionPayload.toolUseId = input.tool_use_id;
+  try {
+    await ops.reportAction(state.runId, action);
+  } catch (err) {
+    logSdkFailure("report action", err);
   }
-  insertEvent(
-    db,
-    createEvent(EventCategory.Action, EVENT_TYPES["action.taken"], state.runId, actionPayload),
-  );
-
   process.exit(0);
+}
+
+// Derive an OpsConfig from a stored state file. If state.serverUrl is set,
+// we're in SDK mode for the rest of this session; otherwise direct-SQLite
+// against the dbPath captured at session-start.
+function opsConfigFromState(state: HookState, dbPath?: string) {
+  const config = resolveOpsConfig(state.dbPath || dbPath);
+  if (state.serverUrl) {
+    return {
+      ...config,
+      serverUrl: state.serverUrl,
+    };
+  }
+  // Explicit direct mode — strip any serverUrl that snuck in from env.
+  return { dbPath: state.dbPath || dbPath || config.dbPath };
 }
 
 // ─── Shared finalization logic ───────────────────────────────────────────────
 
 async function finalizeSession(input: HookInput, state: HookState, dbPath?: string): Promise<void> {
-  const db = getDb(state.dbPath || dbPath || undefined);
+  const ops = createOps(opsConfigFromState(state, dbPath));
 
-  // Get current run
-  let run = getRun(db, state.runId as any);
-  if (!run) {
-    handleStaleState(input.session_id, state);
-    return;
-  }
-
-  // Skip if run is already completed/failed
-  if (run.status === "completed" || run.status === "failed") {
-    cleanupState(input.session_id);
-    return;
-  }
-
-  // Compute git diff (changed files since session start)
+  // Compute wall time + git diff locally — both are on this machine.
   const changedFiles = getChangedFiles();
   const diff = getWorkingTreeDiff();
-
-  // Add diff as artifact
-  if (diff) {
-    run = addArtifact(run, {
-      id: createArtifactId(`artifact_${Date.now()}`),
-      diffs: [diff],
-      logs: [],
-      testOutputs: [],
-      reports: [],
-    });
-  }
-
-  // Compute wall time
   const wallTimeMs = Date.now() - new Date(state.startTime).getTime();
 
-  // Read final cost/token usage from transcript
+  // Read final cost/token usage from the local transcript.
   const cwd = state.cwd ?? input.cwd;
   const backend = state.backend ?? detectBackend();
   const usage: SessionUsage = cwd
     ? readSessionUsage(transcriptPath(cwd, input.session_id), backend)
     : ZERO_USAGE;
 
-  // Update metrics
-  run = {
-    ...run,
-    metrics: {
-      ...run.metrics,
-      wallTimeMs,
-      costUsd: usage.totalCostUsd,
-      tokenUsage: {
-        input: usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
-        output: usage.outputTokens,
-        total:
-          usage.inputTokens +
-          usage.cacheReadTokens +
-          usage.cacheWriteTokens +
-          usage.outputTokens,
-      },
+  const metrics = {
+    tokenUsage: {
+      input: usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
+      output: usage.outputTokens,
+      total:
+        usage.inputTokens +
+        usage.cacheReadTokens +
+        usage.cacheWriteTokens +
+        usage.outputTokens,
     },
+    wallTimeMs,
+    costUsd: usage.totalCostUsd,
+    flakeRate: 0,
   };
 
-  // Evaluate policies before completing the run
-  const activePolicies = listPolicies(db, { enabled: true });
-  const engine = new PolicyEngine();
-  const policyResults = engine.evaluate(run, activePolicies);
-  const policyChecks = policyResults.map(r => ({
-    policyId: r.policy.id,
-    passed: r.passed,
-    message: r.message,
-  }));
-
-  // Complete the run with real policy checks
-  run = completeRun(run, {
-    testResults: [],
-    policyChecks,
-    confidenceScore: 0,
-  });
-
-  // Persist final state
-  updateRun(db, run.id, {
-    status: run.status,
-    actions: run.actions,
-    artifacts: run.artifacts,
-    metrics: run.metrics,
-    evaluations: run.evaluations,
-    decisions: run.decisions,
-    updatedAt: run.updatedAt,
-  });
-
-  // Run scoring and generate summary (reuse activePolicies/policyResults)
-  const score = computeScore(run, activePolicies);
-  const summary = generateSummary(run, run.metrics, policyResults, score, undefined, backend);
-  updateRunSummary(db, run.id, summary);
-
-  // Emit run.completed event
-  insertEvent(
-    db,
-    createEvent(EventCategory.Run, EVENT_TYPES["run.completed"], state.runId, {
-      wallTimeMs,
-      filesChanged: changedFiles.length,
-      actionsCount: run.actions.length,
-    }),
-  );
-
-  // Terminate session
-  let session = (await import("@agentops/db")).getSession(db, state.sessionId as any);
-  if (session) {
-    session = completeSessionRun(session);
-    session = terminateSession(session);
-    updateSession(db, session.id, {
-      status: session.status,
-      currentRunId: session.currentRunId,
-      completedRunIds: session.completedRunIds,
-      terminatedAt: session.terminatedAt,
-      updatedAt: session.updatedAt,
+  try {
+    await ops.finalizeRun({
+      runId: state.runId,
+      sessionId: state.sessionId,
+      metrics,
+      ...(diff ? { diff } : {}),
+      changedFilesCount: changedFiles.length,
     });
-
-    insertEvent(
-      db,
-      createEvent(EventCategory.Session, EVENT_TYPES["session.terminated"], state.sessionId, {
-        wallTimeMs,
-        completedRuns: session.completedRunIds.length,
-      }),
-    );
+  } catch (err) {
+    logSdkFailure("finalize run", err);
+    // Continue to terminateSession + state cleanup; the run may be in a
+    // partial state but we'd rather not leave a permanently-running row.
   }
 
-  // Mark as finalized and clean up state file
+  try {
+    await ops.terminateSession(state.sessionId);
+  } catch (err) {
+    logSdkFailure("terminate session", err);
+  }
+
   writeState(input.session_id, { ...state, finalized: true });
   cleanupState(input.session_id);
 }
@@ -551,36 +426,13 @@ async function handleSessionEnd(input: HookInput, dbPath?: string): Promise<void
 
 // ─── Sub-agent lifecycle handlers ────────────────────────────────────────────
 
-async function handleSubagentStart(input: HookInput, dbPath?: string): Promise<void> {
+async function handleSubagentStart(input: HookInput, _dbPath?: string): Promise<void> {
+  // SubagentStart is not a real Claude Code hook event (agentops setup
+  // never registers it as of Phase 1). This handler stays for backwards
+  // compat with manually-configured hooks but does nothing — there is no
+  // event to record and no signal to update.
   const state = readState(input.session_id);
-  if (!state) {
-    process.exit(0);
-  }
-
-  const db = getDb(state.dbPath || dbPath || undefined);
-
-  // Check run still exists
-  const run = getRun(db, state.runId as any);
-  if (!run) {
-    handleStaleState(input.session_id, state);
-    process.exit(0);
-  }
-
-  // Increment spawned agent count
-  const updatedState = { ...state, agentsSpawned: (state.agentsSpawned ?? 0) + 1 };
-  writeState(input.session_id, updatedState);
-
-  // Emit agent.spawned event
-  insertEvent(
-    db,
-    createEvent(EventCategory.Agent, EVENT_TYPES["agent.spawned"], state.runId, {
-      agentId: input.agent_id,
-      agentType: input.agent_type,
-      sessionId: state.sessionId,
-      claudeSessionId: input.session_id,
-    }),
-  );
-
+  if (!state) process.exit(0);
   process.exit(0);
 }
 
@@ -590,56 +442,51 @@ async function handleSubagentStop(input: HookInput, dbPath?: string): Promise<vo
     process.exit(0);
   }
 
-  const db = getDb(state.dbPath || dbPath || undefined);
-
-  // Check run still exists
-  const runCheck = getRun(db, state.runId as any);
-  if (!runCheck) {
-    handleStaleState(input.session_id, state);
-    process.exit(0);
-  }
-
-  // Increment completed agent count
+  // Update local counter (informational; not used for any gate after
+  // Phase 1's Stop-handler simplification).
   const updatedState = { ...state, agentsCompleted: (state.agentsCompleted ?? 0) + 1 };
   writeState(input.session_id, updatedState);
 
-  // If transcript path is provided, attempt to read and extract tool calls.
-  // agent_transcript_path comes from stdin, which we treat as untrusted —
-  // confine reads to ~/.claude/projects/ (where Claude Code writes them) and
-  // cap the read at MAX_TRANSCRIPT_BYTES to prevent OOM or arbitrary
-  // file disclosure (e.g. spoofed payload pointing at /etc/passwd).
+  // If a transcript path is provided, extract tool_use entries and report
+  // them as actions. agent_transcript_path comes from stdin (untrusted) so
+  // we confine the read to ~/.claude/projects/ and cap the file size.
   const MAX_TRANSCRIPT_BYTES = 16 * 1024 * 1024;
   const extractedActions: Action[] = [];
   if (input.agent_transcript_path) {
     const claudeProjectsRoot = join(homedir(), ".claude", "projects");
     const resolved = resolve(input.agent_transcript_path);
-    if (!resolved.startsWith(claudeProjectsRoot + sep)) {
-      // Silently ignore paths outside the Claude transcript root.
-    } else {
+    if (resolved.startsWith(claudeProjectsRoot + sep)) {
       try {
         if (existsSync(resolved)) {
           const stat = statSync(resolved);
           if (stat.size <= MAX_TRANSCRIPT_BYTES) {
-            const transcriptRaw = readFileSync(resolved, "utf-8");
-            const lines = transcriptRaw.split("\n").filter((line) => line.trim().length > 0);
-            for (const line of lines) {
+            const raw = readFileSync(resolved, "utf-8");
+            for (const line of raw.split("\n")) {
+              if (line.trim().length === 0) continue;
               try {
                 const entry = JSON.parse(line) as Record<string, unknown>;
-                if (entry.type === "tool_use" || entry.tool_name) {
-                  const toolCall: ToolCall = {
-                    name: (entry.tool_name as string) ?? (entry.name as string) ?? "unknown",
-                    input: (entry.tool_input as Record<string, unknown>) ?? (entry.input as Record<string, unknown>) ?? {},
-                    output: typeof entry.output === "string" ? entry.output : JSON.stringify(entry.output ?? "").slice(0, 2000),
-                    timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
-                  };
-                  extractedActions.push({
-                    id: createActionId(`action_subagent_${Date.now()}_${extractedActions.length}`),
-                    toolCalls: [toolCall],
-                    fileEdits: [],
-                    commands: [],
-                    timestamp: toolCall.timestamp,
-                  });
-                }
+                if (entry.type !== "tool_use" && !entry.tool_name) continue;
+                const toolCall: ToolCall = {
+                  name: (entry.tool_name as string) ?? (entry.name as string) ?? "unknown",
+                  input:
+                    (entry.tool_input as Record<string, unknown>) ??
+                    (entry.input as Record<string, unknown>) ??
+                    {},
+                  output:
+                    typeof entry.output === "string"
+                      ? entry.output
+                      : JSON.stringify(entry.output ?? "").slice(0, 2000),
+                  timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
+                };
+                extractedActions.push({
+                  id: createActionId(
+                    `action_subagent_${Date.now()}_${extractedActions.length}`,
+                  ),
+                  toolCalls: [toolCall],
+                  fileEdits: [],
+                  commands: [],
+                  timestamp: toolCall.timestamp,
+                });
               } catch {
                 // Skip unparseable lines
               }
@@ -647,36 +494,22 @@ async function handleSubagentStop(input: HookInput, dbPath?: string): Promise<vo
           }
         }
       } catch {
-        // Don't fail if transcript can't be read
+        // Best-effort
       }
     }
   }
 
-  // Persist extracted actions to the run
   if (extractedActions.length > 0) {
-    let run = getRun(db, state.runId as any);
-    if (run) {
-      for (const action of extractedActions) {
-        run = addAction(run, action);
+    const ops = createOps(opsConfigFromState(state, dbPath));
+    for (const action of extractedActions) {
+      try {
+        await ops.reportAction(state.runId, action);
+      } catch (err) {
+        logSdkFailure("report subagent action", err);
+        break; // stop on first failure to avoid spam
       }
-      updateRun(db, run.id, {
-        actions: run.actions,
-        updatedAt: run.updatedAt,
-      });
     }
   }
-
-  // Emit agent.completed event
-  insertEvent(
-    db,
-    createEvent(EventCategory.Agent, EVENT_TYPES["agent.completed"], state.runId, {
-      agentId: input.agent_id,
-      agentType: input.agent_type,
-      sessionId: state.sessionId,
-      claudeSessionId: input.session_id,
-      extractedActionsCount: extractedActions.length,
-    }),
-  );
 
   process.exit(0);
 }

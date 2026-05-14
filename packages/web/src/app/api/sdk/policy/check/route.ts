@@ -54,18 +54,26 @@ export async function POST(request: NextRequest) {
 
   const ownership = await requireOwnedRun(request, body.runId);
   if (ownership instanceof NextResponse) return ownership;
+  const { run } = ownership;
 
   try {
     const activePolicies = listPolicies(db(), { enabled: true });
 
+    // Default branch + editedFiles from the run we already loaded — the
+    // hook has them on disk too, but we hold the authoritative copy and
+    // don't need to wire it through the request body. Explicit values in
+    // the body override (useful for tests).
     const editedFiles =
       Array.isArray(body.editedFiles)
         ? new Set((body.editedFiles as unknown[]).filter((s): s is string => typeof s === "string"))
-        : undefined;
+        : new Set(run.actions.flatMap((a) => a.fileEdits.map((e) => e.path)));
+
+    const branch =
+      typeof body.branch === "string" ? body.branch : run.environment.branch;
 
     const context: GuardContext = {
-      ...(editedFiles ? { editedFiles } : {}),
-      ...(typeof body.branch === "string" ? { branch: body.branch } : {}),
+      editedFiles,
+      branch,
       ...(typeof body.cumulativeCostUsd === "number"
         ? { cumulativeCostUsd: body.cumulativeCostUsd }
         : {}),
