@@ -24,9 +24,10 @@ import {
   PolicySeverity,
   generateSummary,
 } from "@agentops/core";
-import type { Action, ToolCall, FileEdit, Command as CmdType, Policy, FileLimitCountConfig, SecretDetectionConfig, BranchProtectionConfig } from "@agentops/core";
+import type { Action, ToolCall, FileEdit, Command as CmdType, Policy, FileLimitCountConfig, SecretDetectionConfig, BranchProtectionConfig, ToolRestrictionConfig, CostCeilingConfig } from "@agentops/core";
 import { getDb, insertRun, updateRun, getRun, insertSession, updateSession, insertEvent, listPolicies, updateRunSummary } from "@agentops/db";
 import { getCurrentRepo, getCurrentBranch, getChangedFiles, getWorkingTreeDiff } from "../git.js";
+import { readSessionUsage, transcriptPath, ZERO_USAGE, type SessionUsage } from "../transcript.js";
 
 // ─── Stdin helper ─────────────────────────────────────────────────────────────
 
@@ -53,6 +54,7 @@ export interface HookState {
   agentsSpawned: number;
   agentsCompleted: number;
   finalized: boolean;
+  cwd?: string;
 }
 
 export function stateFilePath(claudeSessionId: string): string {
@@ -164,6 +166,7 @@ interface PolicyViolation {
 interface GuardContext {
   editedFiles?: ReadonlySet<string>;
   branch?: string;
+  cumulativeCostUsd?: number;
 }
 
 function checkPreToolPolicies(
@@ -281,6 +284,39 @@ function checkPreToolPolicies(
         }
       }
     }
+
+    if (policy.config.type === PolicyType.ToolRestriction) {
+      const config = policy.config as ToolRestrictionConfig;
+      if (config.allowedTools) {
+        if (!config.allowedTools.includes(toolName)) {
+          violations.push({
+            policy: policy.name,
+            message: `Tool "${toolName}" is not in the allowed list`,
+            severity: policy.severity,
+          });
+        }
+      } else if (config.blockedTools) {
+        if (config.blockedTools.includes(toolName)) {
+          violations.push({
+            policy: policy.name,
+            message: `Tool "${toolName}" is blocked by policy`,
+            severity: policy.severity,
+          });
+        }
+      }
+    }
+
+    if (policy.config.type === PolicyType.CostCeiling) {
+      const config = policy.config as CostCeilingConfig;
+      const cost = context?.cumulativeCostUsd ?? 0;
+      if (cost >= config.maxUsd) {
+        violations.push({
+          policy: policy.name,
+          message: `Cost ceiling reached: $${cost.toFixed(2)} spent, limit is $${config.maxUsd.toFixed(2)}`,
+          severity: policy.severity,
+        });
+      }
+    }
   }
 
   return violations;
@@ -350,6 +386,7 @@ async function handleSessionStart(input: HookInput, dbPath?: string): Promise<vo
     agentsSpawned: 0,
     agentsCompleted: 0,
     finalized: false,
+    cwd,
   });
 }
 
@@ -365,6 +402,16 @@ async function handlePreToolUse(input: HookInput, dbPath?: string): Promise<void
   // Load active policies
   const activePolicies = listPolicies(db, { enabled: true });
 
+  // Read transcript usage if any CostCeiling policy is enabled
+  const hasCostPolicy = activePolicies.some(
+    (p) => p.config.type === PolicyType.CostCeiling,
+  );
+  const cwd = state.cwd ?? input.cwd;
+  let usage: SessionUsage = ZERO_USAGE;
+  if (hasCostPolicy && cwd) {
+    usage = readSessionUsage(transcriptPath(cwd, input.session_id));
+  }
+
   // Build guard context from current run
   const currentRun = getRun(db, state.runId as any);
   const context: GuardContext = {
@@ -372,6 +419,7 @@ async function handlePreToolUse(input: HookInput, dbPath?: string): Promise<void
       ? new Set(currentRun.actions.flatMap((a) => a.fileEdits.map((e) => e.path)))
       : undefined,
     branch: currentRun?.environment.branch,
+    cumulativeCostUsd: usage.totalCostUsd,
   };
 
   // Check policies
@@ -486,19 +534,45 @@ async function finalizeSession(input: HookInput, state: HookState, dbPath?: stri
   // Compute wall time
   const wallTimeMs = Date.now() - new Date(state.startTime).getTime();
 
+  // Read final cost/token usage from transcript
+  const cwd = state.cwd ?? input.cwd;
+  const usage: SessionUsage = cwd
+    ? readSessionUsage(transcriptPath(cwd, input.session_id))
+    : ZERO_USAGE;
+
   // Update metrics
   run = {
     ...run,
     metrics: {
       ...run.metrics,
       wallTimeMs,
+      costUsd: usage.totalCostUsd,
+      tokenUsage: {
+        input: usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
+        output: usage.outputTokens,
+        total:
+          usage.inputTokens +
+          usage.cacheReadTokens +
+          usage.cacheWriteTokens +
+          usage.outputTokens,
+      },
     },
   };
 
-  // Complete the run
+  // Evaluate policies before completing the run
+  const activePolicies = listPolicies(db, { enabled: true });
+  const engine = new PolicyEngine();
+  const policyResults = engine.evaluate(run, activePolicies);
+  const policyChecks = policyResults.map(r => ({
+    policyId: r.policy.id,
+    passed: r.passed,
+    message: r.message,
+  }));
+
+  // Complete the run with real policy checks
   run = completeRun(run, {
     testResults: [],
-    policyChecks: [],
+    policyChecks,
     confidenceScore: 0,
   });
 
@@ -513,11 +587,8 @@ async function finalizeSession(input: HookInput, state: HookState, dbPath?: stri
     updatedAt: run.updatedAt,
   });
 
-  // Run scoring and generate summary
-  const activePolicies = listPolicies(db, { enabled: true });
+  // Run scoring and generate summary (reuse activePolicies/policyResults)
   const score = computeScore(run, activePolicies);
-  const engine = new PolicyEngine();
-  const policyResults = engine.evaluate(run, activePolicies);
   const summary = generateSummary(run, run.metrics, policyResults, score);
   updateRunSummary(db, run.id, summary);
 

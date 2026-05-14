@@ -9,6 +9,8 @@ export enum PolicyType {
   RiskyOpFlag = "riskyOpFlag",
   SecretDetection = "secretDetection",
   BranchProtection = "branchProtection",
+  ToolRestriction = "toolRestriction",
+  CostCeiling = "costCeiling",
 }
 
 // ─── Policy mode (guard = real-time blocking, check = post-hoc evaluation) ──
@@ -25,6 +27,8 @@ export function getPolicyMode(type: PolicyType): PolicyMode {
     case PolicyType.RiskyOpFlag:
     case PolicyType.SecretDetection:
     case PolicyType.BranchProtection:
+    case PolicyType.ToolRestriction:
+    case PolicyType.CostCeiling:
       return PolicyMode.Guard;
     case PolicyType.TestEnforcement:
       return PolicyMode.Check;
@@ -51,7 +55,9 @@ export type PolicyConfig =
   | TestEnforcementConfig
   | RiskyOpFlagConfig
   | SecretDetectionConfig
-  | BranchProtectionConfig;
+  | BranchProtectionConfig
+  | ToolRestrictionConfig
+  | CostCeilingConfig;
 
 export interface PathRestrictionConfig {
   readonly type: PolicyType.PathRestriction;
@@ -82,6 +88,17 @@ export interface SecretDetectionConfig {
 export interface BranchProtectionConfig {
   readonly type: PolicyType.BranchProtection;
   readonly protectedBranches: ReadonlyArray<string>;
+}
+
+export interface ToolRestrictionConfig {
+  readonly type: PolicyType.ToolRestriction;
+  readonly blockedTools?: ReadonlyArray<string>;
+  readonly allowedTools?: ReadonlyArray<string>;
+}
+
+export interface CostCeilingConfig {
+  readonly type: PolicyType.CostCeiling;
+  readonly maxUsd: number;
 }
 
 // ─── Policy result ───────────────────────────────────────────────────────────
@@ -253,6 +270,51 @@ function evaluateBranchProtection(run: Run, policy: Policy, config: BranchProtec
   };
 }
 
+function evaluateToolRestriction(run: Run, policy: Policy, config: ToolRestrictionConfig): PolicyResult {
+  const toolNames = run.actions.flatMap((a) => a.toolCalls.map((tc) => tc.name));
+  const violations: string[] = [];
+
+  if (config.allowedTools) {
+    const allowed = new Set(config.allowedTools);
+    for (const name of toolNames) {
+      if (!allowed.has(name)) {
+        violations.push(name);
+      }
+    }
+  } else if (config.blockedTools) {
+    const blocked = new Set(config.blockedTools);
+    for (const name of toolNames) {
+      if (blocked.has(name)) {
+        violations.push(name);
+      }
+    }
+  }
+
+  const unique = [...new Set(violations)];
+  return {
+    passed: unique.length === 0,
+    policy,
+    message:
+      unique.length === 0
+        ? "No restricted tools were used"
+        : `Restricted tools used: ${unique.join(", ")}`,
+    details: { violations: unique },
+  };
+}
+
+function evaluateCostCeiling(run: Run, policy: Policy, config: CostCeilingConfig): PolicyResult {
+  const cost = run.metrics.costUsd;
+  return {
+    passed: cost <= config.maxUsd,
+    policy,
+    message:
+      cost <= config.maxUsd
+        ? `Cost $${cost.toFixed(2)} is within ceiling of $${config.maxUsd.toFixed(2)}`
+        : `Cost $${cost.toFixed(2)} exceeds ceiling of $${config.maxUsd.toFixed(2)}`,
+    details: { costUsd: cost, maxUsd: config.maxUsd },
+  };
+}
+
 function evaluatePolicy(run: Run, policy: Policy): PolicyResult {
   const config = policy.config;
   switch (config.type) {
@@ -268,6 +330,10 @@ function evaluatePolicy(run: Run, policy: Policy): PolicyResult {
       return evaluateSecretDetection(run, policy, config);
     case PolicyType.BranchProtection:
       return evaluateBranchProtection(run, policy, config);
+    case PolicyType.ToolRestriction:
+      return evaluateToolRestriction(run, policy, config);
+    case PolicyType.CostCeiling:
+      return evaluateCostCeiling(run, policy, config);
     default:
       return {
         passed: true,

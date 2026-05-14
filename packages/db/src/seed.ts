@@ -926,6 +926,26 @@ function buildPolicies(): Policy[] {
       },
       severity: PolicySeverity.Warning,
     },
+    {
+      id: createPolicyId("pol_tool_restriction"),
+      name: "Block risky tools",
+      type: PolicyType.ToolRestriction,
+      config: {
+        type: PolicyType.ToolRestriction,
+        blockedTools: ["WebFetch", "WebSearch"],
+      },
+      severity: PolicySeverity.Warning,
+    },
+    {
+      id: createPolicyId("pol_cost_ceiling"),
+      name: "Session cost ceiling ($25)",
+      type: PolicyType.CostCeiling,
+      config: {
+        type: PolicyType.CostCeiling,
+        maxUsd: 25,
+      },
+      severity: PolicySeverity.Error,
+    },
   ];
 }
 

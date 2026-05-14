@@ -9,6 +9,7 @@ const POLICY_TYPES = [
   { value: "fileLimitCount", label: "File Limit Count", description: "Limit number of files changed", mode: "guard" as const },
   { value: "testEnforcement", label: "Test Enforcement", description: "Require passing tests", mode: "check" as const },
   { value: "riskyOpFlag", label: "Risky Op Flag", description: "Flag dangerous operations", mode: "guard" as const },
+  { value: "costCeiling", label: "Cost Ceiling", description: "Block tool calls once session cost reaches limit", mode: "guard" as const },
 ] as const;
 
 const SEVERITIES = [
@@ -31,6 +32,7 @@ export function CreatePolicyForm({ onClose }: { onClose: () => void }) {
   const [requirePassing, setRequirePassing] = useState(true);
   const [minCoverage, setMinCoverage] = useState(80);
   const [riskyPatterns, setRiskyPatterns] = useState("");
+  const [maxUsd, setMaxUsd] = useState(25);
 
   function buildConfig() {
     switch (type) {
@@ -48,6 +50,8 @@ export function CreatePolicyForm({ onClose }: { onClose: () => void }) {
           type: "riskyOpFlag",
           riskyPatterns: riskyPatterns.split(",").map((s) => s.trim()).filter(Boolean),
         };
+      case "costCeiling":
+        return { type: "costCeiling", maxUsd };
       default:
         return null;
     }
@@ -268,6 +272,28 @@ export function CreatePolicyForm({ onClose }: { onClose: () => void }) {
                     placeholder="rm -rf, git push --force, DROP TABLE"
                     className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted/50 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                   />
+                </div>
+              )}
+
+              {type === "costCeiling" && (
+                <div>
+                  <label className="block text-xs text-muted mb-1">
+                    Maximum session cost (USD)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted">$</span>
+                    <input
+                      type="number"
+                      value={maxUsd}
+                      onChange={(e) => setMaxUsd(Number(e.target.value))}
+                      min={0}
+                      step={0.5}
+                      className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                    />
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted">
+                    Reads token usage from the Claude Code transcript and blocks the next tool call once cumulative cost reaches this amount.
+                  </p>
                 </div>
               )}
             </div>

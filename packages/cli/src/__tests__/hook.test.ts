@@ -629,9 +629,9 @@ describe("Pre-tool-use policy checking", () => {
   it("skips deprecated/unknown policy types gracefully", () => {
     const deprecatedPolicy: Policy & { enabled: boolean } = {
       id: createPolicyId("pol_deprecated"),
-      name: "Old cost policy",
-      type: "costCeiling" as PolicyType,
-      config: { type: "costCeiling" as any, maxCostUsd: 10 } as any,
+      name: "Made-up policy",
+      type: "madeUpType" as PolicyType,
+      config: { type: "madeUpType" as any, foo: 10 } as any,
       severity: PolicySeverity.Error,
       enabled: true,
     };
@@ -645,6 +645,70 @@ describe("Pre-tool-use policy checking", () => {
     const violations = _checkPreToolPolicies(input, [deprecatedPolicy]);
     expect(violations).toHaveLength(0);
   });
+
+  // ─── CostCeiling guard tests ─────────────────────────────────────────────
+
+  const costPolicy: Policy & { enabled: boolean } = {
+    id: createPolicyId("pol_cost"),
+    name: "Cost ceiling $5",
+    type: PolicyType.CostCeiling,
+    config: {
+      type: PolicyType.CostCeiling,
+      maxUsd: 5,
+    },
+    severity: PolicySeverity.Error,
+    enabled: true,
+  };
+
+  it("allows tool call when cumulative cost is below ceiling", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [costPolicy], { cumulativeCostUsd: 2.5 });
+    expect(violations).toHaveLength(0);
+  });
+
+  it("blocks tool call when cumulative cost equals ceiling", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [costPolicy], { cumulativeCostUsd: 5 });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.message).toContain("Cost ceiling reached");
+    expect(violations[0]!.severity).toBe("error");
+  });
+
+  it("blocks tool call when cumulative cost exceeds ceiling", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Edit",
+      tool_input: { file_path: "/src/a.ts" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [costPolicy], { cumulativeCostUsd: 8.27 });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.message).toContain("$8.27");
+    expect(violations[0]!.message).toContain("$5.00");
+  });
+
+  it("treats missing cumulativeCostUsd as zero (does not block)", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [costPolicy]);
+    expect(violations).toHaveLength(0);
+  });
+
+  // ─── End CostCeiling tests ──────────────────────────────────────────────
 
   it("processes valid policies alongside deprecated ones", () => {
     const deprecatedPolicy: Policy & { enabled: boolean } = {

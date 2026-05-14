@@ -91,6 +91,9 @@ function EditPolicyForm({
   const [riskyPatterns, setRiskyPatterns] = useState(
     policyType === "riskyOpFlag" ? (config.riskyPatterns as string[]).join(", ") : "",
   );
+  const [maxUsd, setMaxUsd] = useState(
+    policyType === "costCeiling" ? (config.maxUsd as number) : 25,
+  );
 
   function buildConfig() {
     switch (policyType) {
@@ -108,6 +111,8 @@ function EditPolicyForm({
           type: "riskyOpFlag",
           riskyPatterns: riskyPatterns.split(",").map((s) => s.trim()).filter(Boolean),
         };
+      case "costCeiling":
+        return { type: "costCeiling", maxUsd };
       default:
         return null;
     }
@@ -297,6 +302,25 @@ function EditPolicyForm({
                   placeholder="rm -rf, git push --force, DROP TABLE"
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted/50 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                 />
+              </div>
+            )}
+
+            {policyType === "costCeiling" && (
+              <div>
+                <label className="block text-xs text-muted mb-1">
+                  Maximum session cost (USD)
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted">$</span>
+                  <input
+                    type="number"
+                    value={maxUsd}
+                    onChange={(e) => setMaxUsd(Number(e.target.value))}
+                    min={0}
+                    step={0.5}
+                    className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </div>
               </div>
             )}
           </div>

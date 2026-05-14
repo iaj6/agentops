@@ -419,6 +419,107 @@ describe("PolicyEngine", () => {
     });
   });
 
+  describe("ToolRestriction policy", () => {
+    it("passes when tool is not in blocklist", () => {
+      const policy: Policy = {
+        id: createPolicyId("policy_tool_block"),
+        name: "Block risky tools",
+        type: PolicyType.ToolRestriction,
+        config: {
+          type: PolicyType.ToolRestriction,
+          blockedTools: ["WebFetch", "WebSearch"],
+        },
+        severity: PolicySeverity.Warning,
+      };
+      const run = makeRun({
+        actions: [{
+          id: createActionId("action_tool1"),
+          toolCalls: [{ name: "Read", input: {}, output: "", timestamp: "2025-01-01T00:00:00.000Z" }],
+          fileEdits: [],
+          commands: [],
+          timestamp: "2025-01-01T00:00:00.000Z",
+        }],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(true);
+      expect(results[0]!.message).toContain("No restricted tools");
+    });
+
+    it("fails when tool is in blocklist", () => {
+      const policy: Policy = {
+        id: createPolicyId("policy_tool_block"),
+        name: "Block risky tools",
+        type: PolicyType.ToolRestriction,
+        config: {
+          type: PolicyType.ToolRestriction,
+          blockedTools: ["WebFetch", "WebSearch"],
+        },
+        severity: PolicySeverity.Warning,
+      };
+      const run = makeRun({
+        actions: [{
+          id: createActionId("action_tool2"),
+          toolCalls: [{ name: "WebFetch", input: {}, output: "", timestamp: "2025-01-01T00:00:00.000Z" }],
+          fileEdits: [],
+          commands: [],
+          timestamp: "2025-01-01T00:00:00.000Z",
+        }],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(false);
+      expect(results[0]!.message).toContain("WebFetch");
+    });
+
+    it("passes when tool is in allowlist", () => {
+      const policy: Policy = {
+        id: createPolicyId("policy_tool_allow"),
+        name: "Allow only safe tools",
+        type: PolicyType.ToolRestriction,
+        config: {
+          type: PolicyType.ToolRestriction,
+          allowedTools: ["Read", "Glob", "Grep", "Edit"],
+        },
+        severity: PolicySeverity.Error,
+      };
+      const run = makeRun({
+        actions: [{
+          id: createActionId("action_tool3"),
+          toolCalls: [{ name: "Read", input: {}, output: "", timestamp: "2025-01-01T00:00:00.000Z" }],
+          fileEdits: [],
+          commands: [],
+          timestamp: "2025-01-01T00:00:00.000Z",
+        }],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(true);
+    });
+
+    it("fails when tool is not in allowlist", () => {
+      const policy: Policy = {
+        id: createPolicyId("policy_tool_allow"),
+        name: "Allow only safe tools",
+        type: PolicyType.ToolRestriction,
+        config: {
+          type: PolicyType.ToolRestriction,
+          allowedTools: ["Read", "Glob", "Grep", "Edit"],
+        },
+        severity: PolicySeverity.Error,
+      };
+      const run = makeRun({
+        actions: [{
+          id: createActionId("action_tool4"),
+          toolCalls: [{ name: "Bash", input: {}, output: "", timestamp: "2025-01-01T00:00:00.000Z" }],
+          fileEdits: [],
+          commands: [],
+          timestamp: "2025-01-01T00:00:00.000Z",
+        }],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(false);
+      expect(results[0]!.message).toContain("Bash");
+    });
+  });
+
   describe("getPolicyMode", () => {
     it("returns Guard for PathRestriction", () => {
       expect(getPolicyMode(PolicyType.PathRestriction)).toBe(PolicyMode.Guard);
@@ -440,8 +541,68 @@ describe("PolicyEngine", () => {
       expect(getPolicyMode(PolicyType.BranchProtection)).toBe(PolicyMode.Guard);
     });
 
+    it("returns Guard for ToolRestriction", () => {
+      expect(getPolicyMode(PolicyType.ToolRestriction)).toBe(PolicyMode.Guard);
+    });
+
     it("returns Check for TestEnforcement", () => {
       expect(getPolicyMode(PolicyType.TestEnforcement)).toBe(PolicyMode.Check);
+    });
+
+    it("returns Guard for CostCeiling", () => {
+      expect(getPolicyMode(PolicyType.CostCeiling)).toBe(PolicyMode.Guard);
+    });
+  });
+
+  describe("CostCeiling policy", () => {
+    const policy: Policy = {
+      id: createPolicyId("p_cost"),
+      name: "Cost ceiling $5",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 5 },
+      severity: PolicySeverity.Error,
+    };
+
+    it("passes when cost is below ceiling", () => {
+      const run = makeRun({
+        metrics: {
+          tokenUsage: { input: 0, output: 0, total: 0 },
+          wallTimeMs: 1,
+          costUsd: 2.5,
+          flakeRate: 0,
+        },
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(true);
+      expect(results[0]!.message).toContain("within ceiling");
+    });
+
+    it("passes when cost equals ceiling", () => {
+      const run = makeRun({
+        metrics: {
+          tokenUsage: { input: 0, output: 0, total: 0 },
+          wallTimeMs: 1,
+          costUsd: 5,
+          flakeRate: 0,
+        },
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(true);
+    });
+
+    it("fails when cost exceeds ceiling", () => {
+      const run = makeRun({
+        metrics: {
+          tokenUsage: { input: 0, output: 0, total: 0 },
+          wallTimeMs: 1,
+          costUsd: 7.42,
+          flakeRate: 0,
+        },
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(false);
+      expect(results[0]!.message).toContain("$7.42");
+      expect(results[0]!.message).toContain("exceeds");
     });
   });
 
@@ -450,8 +611,8 @@ describe("PolicyEngine", () => {
       const unknownPolicy: Policy = {
         id: createPolicyId("p_unknown"),
         name: "Legacy policy",
-        type: "costCeiling" as PolicyType,
-        config: { type: "costCeiling" as any, maxCostUsd: 10 } as any,
+        type: "requiredApproval" as PolicyType,
+        config: { type: "requiredApproval" as any, approvers: ["admin"] } as any,
         severity: PolicySeverity.Warning,
       };
 
@@ -460,7 +621,7 @@ describe("PolicyEngine", () => {
       expect(results).toHaveLength(1);
       expect(results[0]!.passed).toBe(true);
       expect(results[0]!.message).toContain("Skipped");
-      expect(results[0]!.message).toContain("costCeiling");
+      expect(results[0]!.message).toContain("requiredApproval");
     });
   });
 });

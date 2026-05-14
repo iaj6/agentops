@@ -67,6 +67,8 @@ export type {
   RiskyOpFlagConfig,
   SecretDetectionConfig,
   BranchProtectionConfig,
+  ToolRestrictionConfig,
+  CostCeilingConfig,
   PolicyResult,
 } from "./policy.js";
 
@@ -171,3 +173,7 @@ export { buildAgentTimeline } from "./agent-tree.js";
 // Summary (Sprint 9)
 export type { SessionSummary } from "./summary.js";
 export { generateSummary } from "./summary.js";
+
+// Pricing
+export type { ModelPricing, TokenUsageBlock } from "./pricing.js";
+export { ANTHROPIC_PRICING, resolvePricing, computeCost } from "./pricing.js";
