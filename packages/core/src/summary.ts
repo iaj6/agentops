@@ -3,6 +3,7 @@ import { RunStatus } from "./types.js";
 import type { PolicyResult } from "./policy.js";
 import type { ScoreCard } from "./scoring.js";
 import type { AgentTimeline } from "./agent-tree.js";
+import type { Backend } from "./pricing.js";
 
 // ─── SessionSummary type ────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ export interface SessionSummary {
     readonly totalUsd: number;
     readonly inputTokens: number;
     readonly outputTokens: number;
+    readonly backend?: Backend;
   } | null;
   readonly actions: {
     readonly total: number;
@@ -165,12 +167,14 @@ function countActionsByType(run: Run): SessionSummary["actions"] {
 
 function extractCost(
   metrics?: Metrics,
+  backend?: Backend,
 ): SessionSummary["cost"] {
   if (!metrics || metrics.costUsd === 0) return null;
   return {
     totalUsd: metrics.costUsd,
     inputTokens: metrics.tokenUsage.input,
     outputTokens: metrics.tokenUsage.output,
+    ...(backend ? { backend } : {}),
   };
 }
 
@@ -247,11 +251,12 @@ export function generateSummary(
   policyResults?: ReadonlyArray<PolicyResult>,
   score?: ScoreCard,
   agentTimeline?: AgentTimeline,
+  backend?: Backend,
 ): SessionSummary {
   const effectiveMetrics = metrics ?? run.metrics;
   const filesChanged = categorizeFiles(run);
   const commandsRun = extractCommands(run);
-  const cost = extractCost(effectiveMetrics);
+  const cost = extractCost(effectiveMetrics, backend);
   const testStatus = getTestStatus(run);
 
   const agents = agentTimeline

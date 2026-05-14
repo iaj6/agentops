@@ -175,5 +175,11 @@ export type { SessionSummary } from "./summary.js";
 export { generateSummary } from "./summary.js";
 
 // Pricing
-export type { ModelPricing, TokenUsageBlock } from "./pricing.js";
-export { ANTHROPIC_PRICING, resolvePricing, computeCost } from "./pricing.js";
+export type { ModelPricing, TokenUsageBlock, Backend } from "./pricing.js";
+export {
+  ANTHROPIC_PRICING,
+  BEDROCK_PRICING,
+  resolvePricing,
+  computeCost,
+  normalizeModelId,
+} from "./pricing.js";

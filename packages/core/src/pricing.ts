@@ -1,12 +1,20 @@
-// ─── Model pricing (Anthropic direct API rates, USD per million tokens) ─────
+// ─── Model pricing (USD per million tokens) ─────────────────────────────────
 //
 // Cache pricing rules used industry-wide for Anthropic models:
 //   cache_creation_input_tokens are billed at 1.25x the base input rate
 //   cache_read_input_tokens are billed at 0.10x the base input rate
 //
-// Phase 1 ships Anthropic-direct rates only. Bedrock rates differ slightly
-// (~3% lower for most models) — handled in Phase 2 with a backend-aware
-// price table.
+// Two backends are supported:
+//   - "anthropic" (default): Anthropic-direct API rates
+//   - "bedrock":             AWS Bedrock rates for Anthropic models
+//
+// As of 2026-05, Bedrock rates for Anthropic models match the direct API in
+// most US regions. We keep a separate BEDROCK_PRICING table anyway so future
+// divergence (or region-specific overrides) can land in one place. If you
+// notice billing skew, refresh BEDROCK_PRICING against AWS's current
+// published rates and bump the "verified" date below.
+
+export type Backend = "anthropic" | "bedrock";
 
 export interface ModelPricing {
   readonly inputPerMTok: number;
@@ -48,6 +56,17 @@ export const ANTHROPIC_PRICING: Record<string, ModelPricing> = {
   },
 };
 
+// Verified parity with Anthropic-direct rates for us-east-1 / us-west-2 on
+// 2026-05-13. If you ship into a non-US region or AWS adjusts published
+// rates, override these entries.
+export const BEDROCK_PRICING: Record<string, ModelPricing> = {
+  "claude-opus-4-7": ANTHROPIC_PRICING["claude-opus-4-7"]!,
+  "claude-opus-4-6": ANTHROPIC_PRICING["claude-opus-4-6"]!,
+  "claude-sonnet-4-6": ANTHROPIC_PRICING["claude-sonnet-4-6"]!,
+  "claude-sonnet-4-5": ANTHROPIC_PRICING["claude-sonnet-4-5"]!,
+  "claude-haiku-4-5": ANTHROPIC_PRICING["claude-haiku-4-5"]!,
+};
+
 export interface TokenUsageBlock {
   readonly input_tokens?: number;
   readonly output_tokens?: number;
@@ -55,16 +74,38 @@ export interface TokenUsageBlock {
   readonly cache_read_input_tokens?: number;
 }
 
-export function resolvePricing(model: string): ModelPricing | null {
-  if (ANTHROPIC_PRICING[model]) return ANTHROPIC_PRICING[model]!;
-  for (const key of Object.keys(ANTHROPIC_PRICING)) {
-    if (model.startsWith(key)) return ANTHROPIC_PRICING[key]!;
+// Bedrock identifiers look like:
+//   "anthropic.claude-opus-4-7-20251022-v1:0"            (regional)
+//   "us.anthropic.claude-opus-4-7-20251022-v1:0"         (cross-region profile)
+// We normalize to the bare model key by stripping the publisher prefix,
+// any cross-region prefix, and the version/date suffix.
+export function normalizeModelId(model: string): string {
+  let key = model;
+  if (key.startsWith("us.anthropic.") || key.startsWith("eu.anthropic.") || key.startsWith("apac.anthropic.")) {
+    key = key.slice(key.indexOf("anthropic.") + "anthropic.".length);
+  } else if (key.startsWith("anthropic.")) {
+    key = key.slice("anthropic.".length);
+  }
+  key = key.replace(/-v\d+:\d+$/, "");
+  return key;
+}
+
+export function resolvePricing(model: string, backend: Backend = "anthropic"): ModelPricing | null {
+  const table = backend === "bedrock" ? BEDROCK_PRICING : ANTHROPIC_PRICING;
+  const normalized = normalizeModelId(model);
+  if (table[normalized]) return table[normalized]!;
+  for (const key of Object.keys(table)) {
+    if (normalized.startsWith(key)) return table[key]!;
   }
   return null;
 }
 
-export function computeCost(model: string, usage: TokenUsageBlock): number {
-  const pricing = resolvePricing(model);
+export function computeCost(
+  model: string,
+  usage: TokenUsageBlock,
+  backend: Backend = "anthropic",
+): number {
+  const pricing = resolvePricing(model, backend);
   if (!pricing) return 0;
 
   const input = usage.input_tokens ?? 0;

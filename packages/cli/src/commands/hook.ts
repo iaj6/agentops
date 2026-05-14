@@ -24,10 +24,10 @@ import {
   PolicySeverity,
   generateSummary,
 } from "@agentops/core";
-import type { Action, ToolCall, FileEdit, Command as CmdType, Policy, FileLimitCountConfig, SecretDetectionConfig, BranchProtectionConfig, ToolRestrictionConfig, CostCeilingConfig } from "@agentops/core";
+import type { Action, ToolCall, FileEdit, Command as CmdType, Policy, FileLimitCountConfig, SecretDetectionConfig, BranchProtectionConfig, ToolRestrictionConfig, CostCeilingConfig, Backend } from "@agentops/core";
 import { getDb, insertRun, updateRun, getRun, insertSession, updateSession, insertEvent, listPolicies, updateRunSummary } from "@agentops/db";
 import { getCurrentRepo, getCurrentBranch, getChangedFiles, getWorkingTreeDiff } from "../git.js";
-import { readSessionUsage, transcriptPath, ZERO_USAGE, type SessionUsage } from "../transcript.js";
+import { readSessionUsage, transcriptPath, ZERO_USAGE, detectBackend, type SessionUsage } from "../transcript.js";
 
 // ─── Stdin helper ─────────────────────────────────────────────────────────────
 
@@ -55,6 +55,7 @@ export interface HookState {
   agentsCompleted: number;
   finalized: boolean;
   cwd?: string;
+  backend?: Backend;
 }
 
 export function stateFilePath(claudeSessionId: string): string {
@@ -387,6 +388,7 @@ async function handleSessionStart(input: HookInput, dbPath?: string): Promise<vo
     agentsCompleted: 0,
     finalized: false,
     cwd,
+    backend: detectBackend(),
   });
 }
 
@@ -407,9 +409,10 @@ async function handlePreToolUse(input: HookInput, dbPath?: string): Promise<void
     (p) => p.config.type === PolicyType.CostCeiling,
   );
   const cwd = state.cwd ?? input.cwd;
+  const backend = state.backend ?? detectBackend();
   let usage: SessionUsage = ZERO_USAGE;
   if (hasCostPolicy && cwd) {
-    usage = readSessionUsage(transcriptPath(cwd, input.session_id));
+    usage = readSessionUsage(transcriptPath(cwd, input.session_id), backend);
   }
 
   // Build guard context from current run
@@ -536,8 +539,9 @@ async function finalizeSession(input: HookInput, state: HookState, dbPath?: stri
 
   // Read final cost/token usage from transcript
   const cwd = state.cwd ?? input.cwd;
+  const backend = state.backend ?? detectBackend();
   const usage: SessionUsage = cwd
-    ? readSessionUsage(transcriptPath(cwd, input.session_id))
+    ? readSessionUsage(transcriptPath(cwd, input.session_id), backend)
     : ZERO_USAGE;
 
   // Update metrics
@@ -589,7 +593,7 @@ async function finalizeSession(input: HookInput, state: HookState, dbPath?: stri
 
   // Run scoring and generate summary (reuse activePolicies/policyResults)
   const score = computeScore(run, activePolicies);
-  const summary = generateSummary(run, run.metrics, policyResults, score);
+  const summary = generateSummary(run, run.metrics, policyResults, score, undefined, backend);
   updateRunSummary(db, run.id, summary);
 
   // Emit run.completed event

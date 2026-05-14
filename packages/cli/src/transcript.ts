@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { computeCost, type TokenUsageBlock } from "@agentops/core";
+import { computeCost, type Backend, type TokenUsageBlock } from "@agentops/core";
 
 export interface SessionUsage {
   readonly totalCostUsd: number;
@@ -21,6 +21,17 @@ export const ZERO_USAGE: SessionUsage = {
   byModel: {},
 };
 
+// Reads CLAUDE_CODE_USE_BEDROCK / CLAUDE_CODE_USE_VERTEX style env vars.
+// Anthropic's Claude Code uses CLAUDE_CODE_USE_BEDROCK=1 to route through
+// AWS Bedrock; absence (or any non-truthy value) means direct Anthropic API.
+export function detectBackend(env: NodeJS.ProcessEnv = process.env): Backend {
+  const value = env["CLAUDE_CODE_USE_BEDROCK"];
+  if (value && value !== "0" && value.toLowerCase() !== "false") {
+    return "bedrock";
+  }
+  return "anthropic";
+}
+
 export function transcriptPath(cwd: string, sessionId: string): string {
   const encoded = cwd.replace(/\//g, "-");
   return join(homedir(), ".claude", "projects", encoded, `${sessionId}.jsonl`);
@@ -36,7 +47,10 @@ interface TranscriptLine {
   readonly usage?: TokenUsageBlock;
 }
 
-export function readSessionUsage(path: string): SessionUsage {
+export function readSessionUsage(
+  path: string,
+  backend: Backend = "anthropic",
+): SessionUsage {
   if (!existsSync(path)) return ZERO_USAGE;
 
   let raw: string;
@@ -67,7 +81,7 @@ export function readSessionUsage(path: string): SessionUsage {
     const usage = entry.message?.usage ?? entry.usage;
     if (!model || !usage) continue;
 
-    const cost = computeCost(model, usage);
+    const cost = computeCost(model, usage, backend);
     totalCostUsd += cost;
     inputTokens += usage.input_tokens ?? 0;
     outputTokens += usage.output_tokens ?? 0;

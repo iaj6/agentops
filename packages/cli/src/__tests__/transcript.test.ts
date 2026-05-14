@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import {
   transcriptPath,
   readSessionUsage,
+  detectBackend,
   ZERO_USAGE,
 } from "../transcript.js";
 
@@ -120,6 +121,24 @@ describe("readSessionUsage", () => {
     expect(readSessionUsage(path)).toEqual(ZERO_USAGE);
   });
 
+  it("computes Bedrock cost when backend is passed", () => {
+    const path = join(tmpDir, "bedrock-session.jsonl");
+    const lines = [
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          model: "us.anthropic.claude-opus-4-7-v1:0",
+          usage: { input_tokens: 1_000_000, output_tokens: 0 },
+        },
+      }),
+    ];
+    writeFileSync(path, lines.join("\n"), "utf-8");
+
+    const usage = readSessionUsage(path, "bedrock");
+    expect(usage.totalCostUsd).toBeCloseTo(15, 4);
+    expect(usage.byModel["us.anthropic.claude-opus-4-7-v1:0"]).toBeCloseTo(15, 4);
+  });
+
   it("aggregates costs per model across mixed-model sessions", () => {
     const path = join(tmpDir, "mixed.jsonl");
     const lines = [
@@ -144,5 +163,31 @@ describe("readSessionUsage", () => {
     expect(usage.byModel["claude-opus-4-7"]).toBeCloseTo(15, 4);
     expect(usage.byModel["claude-haiku-4-5"]).toBeCloseTo(1, 4);
     expect(usage.totalCostUsd).toBeCloseTo(16, 4);
+  });
+});
+
+describe("detectBackend", () => {
+  it("returns anthropic when env var is absent", () => {
+    expect(detectBackend({})).toBe("anthropic");
+  });
+
+  it("returns bedrock when CLAUDE_CODE_USE_BEDROCK=1", () => {
+    expect(detectBackend({ CLAUDE_CODE_USE_BEDROCK: "1" })).toBe("bedrock");
+  });
+
+  it("returns bedrock when CLAUDE_CODE_USE_BEDROCK=true", () => {
+    expect(detectBackend({ CLAUDE_CODE_USE_BEDROCK: "true" })).toBe("bedrock");
+  });
+
+  it("returns anthropic when CLAUDE_CODE_USE_BEDROCK=0", () => {
+    expect(detectBackend({ CLAUDE_CODE_USE_BEDROCK: "0" })).toBe("anthropic");
+  });
+
+  it("returns anthropic when CLAUDE_CODE_USE_BEDROCK=false", () => {
+    expect(detectBackend({ CLAUDE_CODE_USE_BEDROCK: "false" })).toBe("anthropic");
+  });
+
+  it("returns anthropic when env var is empty string", () => {
+    expect(detectBackend({ CLAUDE_CODE_USE_BEDROCK: "" })).toBe("anthropic");
   });
 });
