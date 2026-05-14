@@ -20,6 +20,7 @@ import type {
 import { getCurrentRepo, getCurrentBranch, getChangedFiles, getWorkingTreeDiff } from "../git.js";
 import { readSessionUsage, transcriptPath, ZERO_USAGE, detectBackend, type SessionUsage } from "../transcript.js";
 import { createOps, resolveOpsConfig, isSdkMode, SdkError } from "../hook-ops.js";
+import { log } from "../log.js";
 
 // ─── Stdin helper ─────────────────────────────────────────────────────────────
 
@@ -200,16 +201,19 @@ function checkPreToolPolicies(
 // sessions), but the dashboard URL is locked.
 
 function logSdkFailure(op: string, err: unknown): void {
-  if (err instanceof SdkError) {
-    process.stderr.write(`[agentops] ${op} failed: ${err.message}\n`);
-    if (err.status === 401 || err.status === 403) {
-      process.stderr.write(
-        `[agentops] Token may be invalid or revoked. Run: agentops login\n`,
-      );
-    }
-  } else {
+  const detail = err instanceof Error ? err.message : String(err);
+  // Structured trail goes to the log file.
+  log.error({
+    msg: "sdk_call_failed",
+    op,
+    err: detail,
+    ...(err instanceof SdkError ? { status: err.status } : {}),
+  });
+  // Human-readable hint goes to stderr (Claude Code surfaces this).
+  process.stderr.write(`[agentops] ${op} failed: ${detail}\n`);
+  if (err instanceof SdkError && (err.status === 401 || err.status === 403)) {
     process.stderr.write(
-      `[agentops] ${op} failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      `[agentops] Token may be invalid or revoked. Run: agentops login\n`,
     );
   }
 }
@@ -241,6 +245,7 @@ async function handleSessionStart(input: HookInput, dbPath?: string): Promise<vo
     return;
   }
 
+  const mode = isSdkMode(config) ? "sdk" : "local";
   writeState(input.session_id, {
     runId,
     sessionId,
@@ -252,6 +257,17 @@ async function handleSessionStart(input: HookInput, dbPath?: string): Promise<vo
     finalized: false,
     cwd,
     backend: detectBackend(),
+  });
+
+  log.info({
+    msg: "session_started",
+    sessionId,
+    runId,
+    mode,
+    cwd,
+    repo,
+    branch,
+    claudeSessionId: input.session_id,
   });
 }
 
@@ -291,6 +307,14 @@ async function handlePreToolUse(input: HookInput, dbPath?: string): Promise<void
 
   if (decision.decision === "block") {
     const reason = decision.reason ?? "Policy violation";
+    log.warn({
+      msg: "policy_blocked",
+      sessionId: state.sessionId,
+      runId: state.runId,
+      toolName: input.tool_name ?? "",
+      reason,
+      claudeSessionId: input.session_id,
+    });
     process.stdout.write(JSON.stringify({ decision: "block", reason }));
     process.exit(2);
   }
@@ -366,6 +390,7 @@ async function finalizeSession(input: HookInput, state: HookState, dbPath?: stri
     flakeRate: 0,
   };
 
+  let finalizeOk = true;
   try {
     await ops.finalizeRun({
       runId: state.runId,
@@ -375,16 +400,30 @@ async function finalizeSession(input: HookInput, state: HookState, dbPath?: stri
       changedFilesCount: changedFiles.length,
     });
   } catch (err) {
+    finalizeOk = false;
     logSdkFailure("finalize run", err);
     // Continue to terminateSession + state cleanup; the run may be in a
     // partial state but we'd rather not leave a permanently-running row.
   }
 
+  let terminateOk = true;
   try {
     await ops.terminateSession(state.sessionId);
   } catch (err) {
+    terminateOk = false;
     logSdkFailure("terminate session", err);
   }
+
+  log.info({
+    msg: "session_ended",
+    sessionId: state.sessionId,
+    runId: state.runId,
+    finalizeOk,
+    terminateOk,
+    costUsd: metrics.costUsd,
+    wallTimeMs: metrics.wallTimeMs,
+    filesChanged: changedFiles.length,
+  });
 
   writeState(input.session_id, { ...state, finalized: true });
   cleanupState(input.session_id);
