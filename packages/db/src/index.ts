@@ -44,6 +44,7 @@ export {
   getDeviceCodeByUserCode,
   getDeviceCodeByDeviceCode,
   approveDeviceCode,
+  consumeApprovedDeviceCode,
   denyDeviceCode,
   deleteExpiredDeviceCodes,
 } from "./auth.js";

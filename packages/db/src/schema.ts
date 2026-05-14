@@ -174,6 +174,10 @@ export const deviceCodes = sqliteTable("device_codes", {
   status: text("status").notNull().default("pending"),
   userId: text("user_id").references(() => users.id),
   tokenId: text("token_id").references(() => apiTokens.id),
+  // Set when an approver approves the code. Cleared (consumed) when the
+  // CLI's first successful /api/auth/device/token poll retrieves it.
+  // Lives only between approval and first poll — typically seconds.
+  pendingRawToken: text("pending_raw_token"),
   createdAt: text("created_at").notNull(),
   expiresAt: text("expires_at").notNull(),
   approvedAt: text("approved_at"),

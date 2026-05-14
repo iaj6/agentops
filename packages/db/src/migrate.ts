@@ -203,6 +203,7 @@ export function migrate(sqlite: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'pending',
       user_id TEXT REFERENCES users(id),
       token_id TEXT REFERENCES api_tokens(id),
+      pending_raw_token TEXT,
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       approved_at TEXT
@@ -212,4 +213,12 @@ export function migrate(sqlite: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_device_codes_status ON device_codes(status);
     CREATE INDEX IF NOT EXISTS idx_device_codes_expires_at ON device_codes(expires_at);
   `);
+
+  // Add pending_raw_token column to existing device_codes tables (safe to
+  // run multiple times). Forward-additive migration for any pre-2.3 DBs.
+  try {
+    sqlite.exec(`ALTER TABLE device_codes ADD COLUMN pending_raw_token TEXT`);
+  } catch {
+    // Column already exists - ignore
+  }
 }

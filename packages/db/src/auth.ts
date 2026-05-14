@@ -322,7 +322,7 @@ export function deleteExpiredAuthSessions(db: AgentOpsDb): number {
 export interface DeviceCode {
   readonly deviceCode: string;
   readonly userCode: string;
-  readonly status: "pending" | "approved" | "denied" | "expired";
+  readonly status: "pending" | "approved" | "denied" | "expired" | "consumed";
   readonly userId: string | null;
   readonly tokenId: string | null;
   readonly createdAt: string;
@@ -422,7 +422,7 @@ export function getDeviceCodeByDeviceCode(
 
 export function approveDeviceCode(
   db: AgentOpsDb,
-  args: { userCode: string; userId: string; tokenId: string },
+  args: { userCode: string; userId: string; tokenId: string; rawToken?: string },
 ): boolean {
   const result = db
     .update(deviceCodes)
@@ -430,6 +430,7 @@ export function approveDeviceCode(
       status: "approved",
       userId: args.userId,
       tokenId: args.tokenId,
+      pendingRawToken: args.rawToken ?? null,
       approvedAt: new Date().toISOString(),
     })
     .where(
@@ -441,6 +442,44 @@ export function approveDeviceCode(
     )
     .run();
   return result.changes > 0;
+}
+
+/**
+ * Atomically retrieve the pending raw token for an approved device code and
+ * clear it from the row. Returns null if the code does not exist, is not
+ * approved, has already been consumed, or has expired.
+ */
+export function consumeApprovedDeviceCode(
+  db: AgentOpsDb,
+  deviceCode: string,
+): { rawToken: string; userId: string } | null {
+  const rows = db.all<{
+    pending_raw_token: string | null;
+    user_id: string | null;
+    status: string;
+    expires_at: string;
+  }>(
+    sql`SELECT pending_raw_token, user_id, status, expires_at
+        FROM device_codes WHERE device_code = ${deviceCode} LIMIT 1`,
+  );
+  const row = rows[0];
+  if (!row) return null;
+  if (new Date(row.expires_at).getTime() < Date.now()) return null;
+  if (row.status !== "approved" || !row.pending_raw_token || !row.user_id) {
+    return null;
+  }
+  const update = db
+    .update(deviceCodes)
+    .set({ status: "consumed", pendingRawToken: null })
+    .where(
+      and(
+        eq(deviceCodes.deviceCode, deviceCode),
+        eq(deviceCodes.status, "approved"),
+      ),
+    )
+    .run();
+  if (update.changes === 0) return null;
+  return { rawToken: row.pending_raw_token, userId: row.user_id };
 }
 
 export function denyDeviceCode(db: AgentOpsDb, userCode: string): boolean {

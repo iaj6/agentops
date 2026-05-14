@@ -25,6 +25,7 @@ import {
   getDeviceCodeByUserCode,
   getDeviceCodeByDeviceCode,
   approveDeviceCode,
+  consumeApprovedDeviceCode,
   denyDeviceCode,
 } from "../auth.js";
 
@@ -273,5 +274,34 @@ describe("device authorization codes", () => {
 
   it("unknown user_code returns null on lookup", () => {
     expect(getDeviceCodeByUserCode(db, "XXXX-XXXX")).toBeNull();
+  });
+
+  it("consumeApprovedDeviceCode returns token once and only once", () => {
+    const c = createDeviceCode(db);
+    const { token } = issueApiToken(db, { userId, name: "device" });
+    approveDeviceCode(db, {
+      userCode: c.userCode,
+      userId,
+      tokenId: token.id,
+      rawToken: "ao_FAKE",
+    });
+
+    const first = consumeApprovedDeviceCode(db, c.deviceCode);
+    expect(first).toEqual({ rawToken: "ao_FAKE", userId });
+
+    // Second call returns null — the token is single-use.
+    expect(consumeApprovedDeviceCode(db, c.deviceCode)).toBeNull();
+
+    // Status moved to "consumed" so the device cannot be reused.
+    expect(getDeviceCodeByDeviceCode(db, c.deviceCode)?.status).toBe("consumed");
+  });
+
+  it("consumeApprovedDeviceCode returns null when not approved", () => {
+    const c = createDeviceCode(db);
+    expect(consumeApprovedDeviceCode(db, c.deviceCode)).toBeNull();
+  });
+
+  it("consumeApprovedDeviceCode returns null on unknown device code", () => {
+    expect(consumeApprovedDeviceCode(db, "dc_nope")).toBeNull();
   });
 });
