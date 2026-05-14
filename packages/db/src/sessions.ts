@@ -6,6 +6,7 @@ import { sessions } from "./schema.js";
 
 interface ListSessionsFilters {
   status?: string;
+  userId?: string;
   limit?: number;
   offset?: number;
 }
@@ -23,6 +24,7 @@ export function insertSession(db: AgentOpsDb, session: Session): void {
       startedAt: session.startedAt,
       lastHeartbeatAt: session.lastHeartbeatAt,
       terminatedAt: session.terminatedAt,
+      userId: session.userId ?? null,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
     })
@@ -42,6 +44,7 @@ function rowToSession(row: typeof sessions.$inferSelect): Session {
     startedAt: row.startedAt,
     lastHeartbeatAt: row.lastHeartbeatAt,
     terminatedAt: row.terminatedAt,
+    userId: row.userId ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -57,6 +60,9 @@ export function listSessions(db: AgentOpsDb, filters?: ListSessionsFilters): Ses
   const conditions = [];
   if (filters?.status) {
     conditions.push(eq(sessions.status, filters.status));
+  }
+  if (filters?.userId) {
+    conditions.push(eq(sessions.userId, filters.userId));
   }
 
   let query = db

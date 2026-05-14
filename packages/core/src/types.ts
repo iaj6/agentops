@@ -246,6 +246,9 @@ export interface Run {
   readonly evaluations: ReadonlyArray<Evaluation>;
   readonly decisions: ReadonlyArray<Decision>;
   readonly github?: GitHubInfo;
+  // userId is null for runs created before the auth migration (Phase 3)
+  // or for runs created in local-only mode (no AGENTOPS_SERVER_URL).
+  readonly userId?: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -303,6 +306,9 @@ export interface Session {
   readonly startedAt: string;
   readonly lastHeartbeatAt: string;
   readonly terminatedAt: string | null;
+  // userId is null for sessions created before the auth migration (Phase 3)
+  // or for sessions created in local-only mode (no AGENTOPS_SERVER_URL).
+  readonly userId?: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

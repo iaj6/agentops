@@ -221,4 +221,28 @@ export function migrate(sqlite: Database.Database): void {
   } catch {
     // Column already exists - ignore
   }
+
+  // Add user_id column to runs/sessions for Phase 3 SDK scoping. Existing
+  // rows get NULL — they remain visible but unattributed (admin can still
+  // see them; member views filter them out).
+  try {
+    sqlite.exec(`ALTER TABLE runs ADD COLUMN user_id TEXT`);
+  } catch {
+    // Column already exists - ignore
+  }
+  try {
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_runs_user_id ON runs(user_id)`);
+  } catch {
+    // Index already exists - ignore
+  }
+  try {
+    sqlite.exec(`ALTER TABLE sessions ADD COLUMN user_id TEXT`);
+  } catch {
+    // Column already exists - ignore
+  }
+  try {
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`);
+  } catch {
+    // Index already exists - ignore
+  }
 }

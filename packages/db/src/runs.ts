@@ -8,6 +8,7 @@ interface ListRunsFilters {
   status?: string;
   repo?: string;
   branch?: string;
+  userId?: string;
   limit?: number;
   offset?: number;
 }
@@ -17,6 +18,7 @@ export interface SearchRunsFilters {
   status?: string[];
   repo?: string[];
   branch?: string[];
+  userId?: string;
   from?: string;
   to?: string;
   minCost?: number;
@@ -44,6 +46,7 @@ export function insertRun(db: AgentOpsDb, run: Run): void {
       decisions: run.decisions as unknown as Record<string, unknown>,
       github: (run.github as unknown as Record<string, unknown>) ?? null,
       summary: null,
+      userId: run.userId ?? null,
       createdAt: run.createdAt,
       updatedAt: run.updatedAt,
     })
@@ -65,6 +68,7 @@ function rowToRun(row: typeof runs.$inferSelect): Run {
     evaluations: row.evaluations as unknown as Run["evaluations"],
     decisions: row.decisions as unknown as Run["decisions"],
     ...(github ? { github } : {}),
+    userId: row.userId ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -86,6 +90,9 @@ export function listRuns(db: AgentOpsDb, filters?: ListRunsFilters): Run[] {
   }
   if (filters?.branch) {
     conditions.push(eq(runs.branch, filters.branch));
+  }
+  if (filters?.userId) {
+    conditions.push(eq(runs.userId, filters.userId));
   }
 
   let query = db
@@ -192,6 +199,10 @@ function buildSearchConditions(filters: SearchRunsFilters) {
 
   if (filters.to) {
     conditions.push(lte(runs.createdAt, filters.to));
+  }
+
+  if (filters.userId) {
+    conditions.push(eq(runs.userId, filters.userId));
   }
 
   return conditions;
@@ -317,6 +328,9 @@ export function listRunsWithSummaries(
   }
   if (filters?.branch) {
     conditions.push(eq(runs.branch, filters.branch));
+  }
+  if (filters?.userId) {
+    conditions.push(eq(runs.userId, filters.userId));
   }
 
   let query = db

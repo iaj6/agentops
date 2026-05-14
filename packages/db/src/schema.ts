@@ -17,6 +17,9 @@ export const runs = sqliteTable("runs", {
   decisions: text("decisions", { mode: "json" }).notNull(),
   github: text("github", { mode: "json" }),
   summary: text("summary", { mode: "json" }),
+  // userId set when the run came in via authenticated SDK call. NULL for
+  // pre-auth runs and for direct-SQLite (local dev) runs.
+  userId: text("user_id"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -99,6 +102,8 @@ export const sessions = sqliteTable("sessions", {
   startedAt: text("started_at").notNull(),
   lastHeartbeatAt: text("last_heartbeat_at").notNull(),
   terminatedAt: text("terminated_at"),
+  // userId set when the session was created by an authenticated SDK call.
+  userId: text("user_id"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
