@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { listPolicies, getPolicyStats } from "@agentops/db";
 import { db } from "@/lib/db";
+import { getRequestUser } from "@/lib/auth";
 import { PoliciesList } from "./PoliciesList";
 
 export const metadata: Metadata = {
@@ -10,9 +11,11 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default function PoliciesPage() {
+export default async function PoliciesPage() {
   const database = db();
   const policies = listPolicies(database);
+  const user = await getRequestUser();
+  const isAdmin = user?.role === "admin";
 
   const policiesWithStats = policies.map((policy) => {
     const stats = getPolicyStats(database, policy.id);
@@ -27,7 +30,10 @@ export default function PoliciesPage() {
           {policies.length} polic{policies.length !== 1 ? "ies" : "y"} configured
         </p>
       </div>
-      <PoliciesList policies={JSON.parse(JSON.stringify(policiesWithStats))} />
+      <PoliciesList
+        policies={JSON.parse(JSON.stringify(policiesWithStats))}
+        isAdmin={isAdmin}
+      />
     </div>
   );
 }

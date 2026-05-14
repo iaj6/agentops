@@ -3,7 +3,7 @@ import { existsSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
-import { getDb, seed } from "@agentops/db";
+import { getDb, seed, loadStarterPolicies } from "@agentops/db";
 
 const DEFAULT_DB_PATH = resolve(homedir(), ".agentops", "agentops.db");
 
@@ -21,10 +21,14 @@ export function registerInitCommand(program: Command): void {
   program
     .command("init")
     .description("Initialize the AgentOps database")
-    .option("--seed", "Populate database with sample data")
+    .option("--seed", "Populate database with sample data (dev / demo only)")
+    .option(
+      "--seed-policies",
+      "Install the curated starter policy set (safe for production use)",
+    )
     .option("--clean", "Drop and recreate database from scratch")
     .action(
-      async (opts: { seed?: boolean; clean?: boolean }) => {
+      async (opts: { seed?: boolean; seedPolicies?: boolean; clean?: boolean }) => {
         const dbPath = (program.opts()["dbPath"] as string | undefined) ?? DEFAULT_DB_PATH;
         const json = program.opts()["json"] as boolean | undefined;
 
@@ -67,6 +71,25 @@ export function registerInitCommand(program: Command): void {
             console.log(`  Policy results: ${counts.policyResults}`);
             console.log(`  Sessions:       ${counts.sessions}`);
             console.log(`  Events:         ${counts.events}`);
+          }
+        } else if (opts.seedPolicies) {
+          const result = loadStarterPolicies(db);
+          if (json) {
+            console.log(
+              JSON.stringify({
+                status: "initialized",
+                path: dbPath,
+                starterPolicies: {
+                  inserted: result.inserted,
+                  skipped: result.skipped,
+                },
+              }),
+            );
+          } else {
+            console.log(`Database initialized at ${dbPath}`);
+            console.log(`Starter policies: ${result.inserted.length} installed, ${result.skipped.length} already present`);
+            for (const name of result.inserted) console.log(`  + ${name}`);
+            for (const name of result.skipped) console.log(`  = ${name} (skipped)`);
           }
         } else {
           if (json) {

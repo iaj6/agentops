@@ -88,12 +88,49 @@ function ConfirmDialog({
   );
 }
 
-export function PoliciesList({ policies }: { policies: PolicyWithMeta[] }) {
+export function PoliciesList({
+  policies,
+  isAdmin = false,
+}: {
+  policies: PolicyWithMeta[];
+  isAdmin?: boolean;
+}) {
   const router = useRouter();
   const [showCreate, setShowCreate] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [loadingStarters, setLoadingStarters] = useState(false);
+
+  async function handleLoadStarters() {
+    setLoadingStarters(true);
+    try {
+      const res = await fetch("/api/policies/load-starters", { method: "POST" });
+      if (res.ok) {
+        const data = (await res.json()) as {
+          inserted: string[];
+          skipped: string[];
+        };
+        const ins = data.inserted.length;
+        const skp = data.skipped.length;
+        if (ins > 0 && skp === 0) {
+          toast(`Installed ${ins} starter polic${ins === 1 ? "y" : "ies"}`, "success");
+        } else if (ins > 0 && skp > 0) {
+          toast(`Installed ${ins}, ${skp} already present`, "success");
+        } else {
+          toast("All starter policies already present", "info");
+        }
+        router.refresh();
+      } else {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(body.error ?? "Failed to load starter policies", "error");
+      }
+    } catch {
+      toast("Failed to load starter policies", "error");
+    } finally {
+      setLoadingStarters(false);
+    }
+  }
 
   async function handleToggle(policyId: string, currentEnabled: boolean) {
     setToggling(policyId);
@@ -158,12 +195,24 @@ export function PoliciesList({ policies }: { policies: PolicyWithMeta[] }) {
           <p className="text-xs text-muted mt-1 mb-4">
             Create your first policy to start governing agent runs.
           </p>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 transition-colors"
-          >
-            Create Policy
-          </button>
+          <div className="flex items-center gap-3">
+            {isAdmin && (
+              <button
+                onClick={handleLoadStarters}
+                disabled={loadingStarters}
+                className="rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground hover:bg-surface-2 transition-colors disabled:opacity-50"
+                title="Install a curated set of 7 sensible defaults (cost ceiling, branch protection, secrets, risky ops, tool restriction, file count)"
+              >
+                {loadingStarters ? "Loading..." : "Load starter policies"}
+              </button>
+            )}
+            <button
+              onClick={() => setShowCreate(true)}
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 transition-colors"
+            >
+              Create Policy
+            </button>
+          </div>
         </div>
         {showCreate && <CreatePolicyForm onClose={() => setShowCreate(false)} />}
       </>

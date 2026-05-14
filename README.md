@@ -290,9 +290,18 @@ agentops setup --uninstall          # remove hooks
 
 # Local-only mode (no dashboard)
 agentops init                       # bootstrap a local SQLite db
-agentops init --seed                # with sample data
+agentops init --seed                # with fake demo data (runs/sessions/events)
+agentops init --seed-policies       # install the curated starter policy set
 agentops serve                      # local dashboard at 127.0.0.1:3000
 ```
+
+The starter policy set is 7 conservative defaults: a $25 session cost ceiling,
+branch protection on `main`/`master`, secret detection (AWS keys, PEM keys,
+generic `api_key`/`token` assignments), risky-op flags for `rm -rf` and force
+push, a tool restriction blocking `WebFetch`/`WebSearch`, and a 50-file
+per-session cap. Loading is idempotent — re-running silently skips any
+already-installed entries. Admins can also load them from the dashboard's
+**Policies → Load starter policies** button when the table is empty.
 
 Every command accepts `--json` for machine-readable output. Most accept
 `--db-path` to point at a specific SQLite file (otherwise `AGENTOPS_DB_PATH`

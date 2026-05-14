@@ -70,3 +70,10 @@ export { insertLock, getLock, listLocks, updateLock, getActiveLocks, getActiveLo
 
 // Seed
 export { seed } from "./seed.js";
+
+// Starter policies (curated minimal policy set for new installs)
+export {
+  STARTER_POLICIES,
+  loadStarterPolicies,
+} from "./starter-policies.js";
+export type { LoadStarterPoliciesResult } from "./starter-policies.js";
