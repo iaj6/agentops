@@ -14,7 +14,7 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
-const AUTH_PATHS = new Set(["/login", "/change-password"]);
+const AUTH_PATHS = new Set(["/login", "/change-password", "/auth/device"]);
 
 interface MeResponse {
   user: { email: string; name: string | null; role: string } | null;
