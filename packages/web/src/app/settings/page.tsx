@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AdminApiStatus } from "./AdminApiStatus";
+import { WebhooksSection } from "./WebhooksSection";
 
 export const metadata: Metadata = {
   title: "Settings",
@@ -30,6 +31,8 @@ export default function SettingsPage() {
         </div>
 
         <AdminApiStatus />
+
+        <WebhooksSection />
 
         <div className="rounded-lg border border-border bg-surface p-6">
           <h2 className="text-sm font-semibold text-foreground mb-1">

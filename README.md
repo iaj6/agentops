@@ -269,6 +269,35 @@ Guard policies block tool calls at the agent runtime layer before the action
 happens. Check policies are evaluated when the run completes and surface on
 the session summary.
 
+### Outbound webhooks
+
+Configure webhook receivers in **Settings → Webhooks** to get an HMAC-signed
+POST every time a policy is violated. The dashboard issues a signing secret
+on create (shown once); use it to verify the `X-AgentOps-Signature` header
+on incoming requests.
+
+Each delivery includes:
+
+```
+POST <your-url>
+Content-Type: application/json
+X-AgentOps-Signature: sha256=<hex>
+X-AgentOps-Event: policy.violated
+X-AgentOps-Delivery-Id: <event-id>
+
+{
+  "id": "evt_...",
+  "type": "policy.violated",
+  "timestamp": "2026-05-14T12:00:00.000Z",
+  "data": { "runId": "...", "policy": "...", "message": "..." }
+}
+```
+
+Receivers should verify the signature by computing
+`sha256=<HMAC-SHA256(secret, raw-body)>` and comparing constant-time. The
+dispatcher retries once on 5xx / 429 (30s gap) and surfaces every attempt
+in the dashboard's per-webhook delivery log.
+
 ---
 
 ## CLI reference

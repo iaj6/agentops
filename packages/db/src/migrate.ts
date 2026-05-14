@@ -214,6 +214,42 @@ export function migrate(sqlite: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_device_codes_expires_at ON device_codes(expires_at);
   `);
 
+  // ─── Webhooks tables ──────────────────────────────────────────────────────
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS webhooks (
+      id TEXT PRIMARY KEY,
+      url TEXT NOT NULL,
+      description TEXT,
+      secret TEXT NOT NULL,
+      events TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      last_delivery_at TEXT,
+      last_delivery_status TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_webhooks_enabled ON webhooks(enabled);
+
+    CREATE TABLE IF NOT EXISTS webhook_deliveries (
+      id TEXT PRIMARY KEY,
+      webhook_id TEXT NOT NULL REFERENCES webhooks(id),
+      event_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      url TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      status TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      response_status INTEGER,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      completed_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook_id ON webhook_deliveries(webhook_id);
+    CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_created_at ON webhook_deliveries(created_at);
+  `);
+
   // Add pending_raw_token column to existing device_codes tables (safe to
   // run multiple times). Forward-additive migration for any pre-2.3 DBs.
   try {

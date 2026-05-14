@@ -16,6 +16,8 @@ export {
   apiTokens,
   authSessions,
   deviceCodes,
+  webhooks,
+  webhookDeliveries,
 } from "./schema.js";
 
 // Auth
@@ -77,3 +79,16 @@ export {
   loadStarterPolicies,
 } from "./starter-policies.js";
 export type { LoadStarterPoliciesResult } from "./starter-policies.js";
+
+// Webhooks
+export {
+  insertWebhook,
+  getWebhook,
+  listWebhooks,
+  listEnabledWebhooksForEvent,
+  updateWebhook,
+  deleteWebhook,
+  insertWebhookDelivery,
+  listWebhookDeliveries,
+} from "./webhooks.js";
+export type { Webhook, WebhookDelivery } from "./webhooks.js";

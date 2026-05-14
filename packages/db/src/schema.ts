@@ -187,3 +187,49 @@ export const deviceCodes = sqliteTable("device_codes", {
   expiresAt: text("expires_at").notNull(),
   approvedAt: text("approved_at"),
 });
+
+// ─── Outbound webhooks ─────────────────────────────────────────────────────
+//
+// Customers register URLs to receive HMAC-signed POSTs when events of
+// interest occur (v1: policy.violated). The secret is stored plaintext —
+// we need it to sign each outgoing request. Filesystem-level encryption
+// on the SQLite file is the layer that protects it at rest. The API only
+// echoes the last 4 characters back to the dashboard.
+
+export const webhooks = sqliteTable("webhooks", {
+  id: text("id").primaryKey(),
+  url: text("url").notNull(),
+  description: text("description"),
+  secret: text("secret").notNull(),
+  // JSON array of event types the webhook subscribes to. v1 only
+  // recognises "policy.violated"; the column is JSON so we can add
+  // more event types without a migration.
+  events: text("events", { mode: "json" }).notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull(),
+  lastDeliveryAt: text("last_delivery_at"),
+  lastDeliveryStatus: text("last_delivery_status"),
+});
+
+// One row per delivery attempt batch (success or terminal failure). Used
+// for the dashboard's "Recent deliveries" view so customers can see why a
+// webhook isn't firing the way they expect.
+
+export const webhookDeliveries = sqliteTable("webhook_deliveries", {
+  id: text("id").primaryKey(),
+  webhookId: text("webhook_id")
+    .notNull()
+    .references(() => webhooks.id),
+  eventId: text("event_id").notNull(),
+  eventType: text("event_type").notNull(),
+  url: text("url").notNull(),
+  payload: text("payload", { mode: "json" }).notNull(),
+  // "success" | "failed"
+  status: text("status").notNull(),
+  // Total attempts including the first try (1 = no retry, 2 = retried once)
+  attempts: integer("attempts").notNull().default(0),
+  responseStatus: integer("response_status"),
+  errorMessage: text("error_message"),
+  createdAt: text("created_at").notNull(),
+  completedAt: text("completed_at").notNull(),
+});

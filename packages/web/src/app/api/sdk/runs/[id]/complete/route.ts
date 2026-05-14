@@ -13,6 +13,7 @@ import { updateRun, insertEvent, listPolicies, updateRunSummary } from "@agentop
 import { db } from "@/lib/db";
 import { requireOwnedRun } from "@/lib/auth";
 import { internalError } from "@/lib/log";
+import { dispatchWebhookEvent } from "@/lib/webhook-dispatcher";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +75,10 @@ export async function POST(
     const activePolicies = listPolicies(db(), { enabled: true });
     const score = computeScore(completed, activePolicies);
 
-    // Emit policy violation events for any failing policies
+    // Emit policy violation events for any failing policies. Each
+    // emitted event is also dispatched to any matching webhook
+    // subscriptions — fire-and-forget so the response isn't gated on
+    // receiver responsiveness.
     const engine = new PolicyEngine();
     const policyResults = engine.evaluate(completed, activePolicies);
     for (const result of policyResults) {
@@ -86,6 +90,12 @@ export async function POST(
           { runId: completed.id, policy: result.policy.name, message: result.message },
         );
         insertEvent(db(), violationEvent);
+        void dispatchWebhookEvent(db(), {
+          id: violationEvent.id as string,
+          type: violationEvent.type,
+          payload: violationEvent.payload,
+          timestamp: violationEvent.timestamp,
+        });
       }
     }
 
