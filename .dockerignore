@@ -1,0 +1,16 @@
+node_modules
+**/node_modules
+**/dist
+**/.next
+.git
+.idea
+.vscode
+.playwright-mcp
+agentops-data
+*.db
+*.db-shm
+*.db-wal
+coverage
+.DS_Store
+npm-debug.log
+*.log

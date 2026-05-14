@@ -1,0 +1,43 @@
+# AgentOps self-host
+#
+# Quick start:
+#   docker compose up -d
+#   docker compose exec dashboard agentops user add ian@example.com
+#
+# The first command prints a one-time temp password. The user changes it on
+# first browser login at http://localhost:3000/login.
+#
+# To send CLI hook events to this dashboard from a developer machine:
+#   agentops login --server http://<your-dashboard-host>:3000
+#   agentops setup
+#
+# Persistent data lives in ./agentops-data/ on the host. Back up that
+# directory to back up the dashboard. Stop the service before backing up to
+# avoid copying a write-ahead-log in flight.
+
+services:
+  dashboard:
+    build: .
+    image: agentops:latest
+    container_name: agentops-dashboard
+    restart: unless-stopped
+    ports:
+      # Bind to 127.0.0.1 by default. Change to "0.0.0.0:3000:3000" or just
+      # "3000:3000" if you want the dashboard reachable on the LAN — but do
+      # not expose it to the public internet without a reverse proxy that
+      # terminates TLS, since the API requires Bearer tokens but not TLS.
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./agentops-data:/data
+    environment:
+      AGENTOPS_DB_PATH: /data/agentops.db
+      # Pass through the Anthropic Admin API key if you set it on the host or
+      # in a .env file next to this docker-compose.yml. Leave unset to disable
+      # the Usage tab (which proxies to the Admin API).
+      ANTHROPIC_ADMIN_API_KEY: ${ANTHROPIC_ADMIN_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
