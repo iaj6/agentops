@@ -28,6 +28,7 @@ export { SESSION_COOKIE_NAME };
 // redirect.
 
 export async function getRequestUser(req?: NextRequest): Promise<User | null> {
+  // Prefer bearer header when a NextRequest is supplied (route handlers).
   const authHeader = req
     ? req.headers.get("authorization")
     : null;
@@ -40,15 +41,20 @@ export async function getRequestUser(req?: NextRequest): Promise<User | null> {
     }
   }
 
-  // Fall through to cookie. next/headers.cookies() works in both route
-  // handlers and server components.
-  let cookieStore;
-  try {
-    cookieStore = await cookies();
-  } catch {
-    return null;
+  // Cookie path: read directly from the NextRequest when we have one
+  // (works in route handlers AND tests). Fall back to next/headers
+  // cookies() for server components, which don't receive a request.
+  let sessionId: string | undefined;
+  if (req) {
+    sessionId = req.cookies.get(SESSION_COOKIE_NAME)?.value;
+  } else {
+    try {
+      const cookieStore = await cookies();
+      sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    } catch {
+      return null;
+    }
   }
-  const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   if (!sessionId) return null;
   return getUserBySessionId(db(), sessionId);
 }

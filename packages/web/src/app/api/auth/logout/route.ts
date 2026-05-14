@@ -1,14 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { cookies } from "next/headers";
 import { deleteAuthSession } from "@agentops/db";
 import { db } from "@/lib/db";
 import { SESSION_COOKIE_NAME } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(_req: NextRequest) {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+export async function POST(req: NextRequest) {
+  // Read the cookie off the request directly (works in route handlers and
+  // in tests) rather than via next/headers cookies() which requires a
+  // request scope that isn't established in unit tests.
+  const sessionId = req.cookies.get(SESSION_COOKIE_NAME)?.value;
   if (sessionId) {
     try {
       deleteAuthSession(db(), sessionId);
