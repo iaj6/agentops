@@ -3,6 +3,7 @@ import { failRun, createEvent, EventCategory, EVENT_TYPES } from "@agentops/core
 import { updateRun, insertEvent } from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireOwnedRun } from "@/lib/auth";
+import { internalError } from "@/lib/log";
 
 export const dynamic = "force-dynamic";
 
@@ -48,10 +49,6 @@ export async function POST(
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("API error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 },
-    );
+    return internalError(request, error, "sdk/runs/[id]/fail");
   }
 }

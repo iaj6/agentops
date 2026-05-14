@@ -55,12 +55,28 @@ export async function getRequestUser(req?: NextRequest): Promise<User | null> {
 
 // ─── Helpers for API routes ────────────────────────────────────────────────
 
-export function unauthorized(message = "Unauthorized"): NextResponse {
-  return NextResponse.json({ error: message }, { status: 401 });
+// Pull the proxy-supplied request id off the request (if any) so error
+// responses surface it. Customer pastes the id into chat → operator greps
+// dashboard logs for it → real diagnosis path.
+function ridFromHeaders(req?: NextRequest): string | undefined {
+  if (!req) return undefined;
+  return req.headers.get("x-request-id") ?? undefined;
 }
 
-export function forbidden(message = "Forbidden"): NextResponse {
-  return NextResponse.json({ error: message }, { status: 403 });
+export function unauthorized(message = "Unauthorized", req?: NextRequest): NextResponse {
+  const requestId = ridFromHeaders(req);
+  return NextResponse.json(
+    requestId ? { error: message, requestId } : { error: message },
+    { status: 401 },
+  );
+}
+
+export function forbidden(message = "Forbidden", req?: NextRequest): NextResponse {
+  const requestId = ridFromHeaders(req);
+  return NextResponse.json(
+    requestId ? { error: message, requestId } : { error: message },
+    { status: 403 },
+  );
 }
 
 /**
@@ -73,7 +89,7 @@ export async function requireUser(
   req: NextRequest,
 ): Promise<User | NextResponse> {
   const user = await getRequestUser(req);
-  if (!user) return unauthorized();
+  if (!user) return unauthorized("Unauthorized", req);
   return user;
 }
 
@@ -87,12 +103,12 @@ export async function requireBearerUser(
 ): Promise<User | NextResponse> {
   const authHeader = req.headers.get("authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return unauthorized("Bearer token required");
+    return unauthorized("Bearer token required", req);
   }
   const raw = authHeader.slice("Bearer ".length).trim();
-  if (raw.length === 0) return unauthorized("Bearer token required");
+  if (raw.length === 0) return unauthorized("Bearer token required", req);
   const user = getUserByRawApiToken(db(), raw);
-  if (!user) return unauthorized("Invalid or expired token");
+  if (!user) return unauthorized("Invalid or expired token", req);
   return user;
 }
 
@@ -101,7 +117,7 @@ export async function requireAdmin(
 ): Promise<User | NextResponse> {
   const result = await requireUser(req);
   if (result instanceof NextResponse) return result;
-  if (result.role !== "admin") return forbidden("Admin role required");
+  if (result.role !== "admin") return forbidden("Admin role required", req);
   return result;
 }
 
@@ -110,6 +126,14 @@ export async function requireAdmin(
  * the run. Admin role bypasses the ownership check. Runs with userId=null
  * are pre-auth / local-dev rows; only admins may touch them via the SDK.
  */
+function notFound(name: string, req: NextRequest): NextResponse {
+  const requestId = ridFromHeaders(req);
+  return NextResponse.json(
+    requestId ? { error: `${name} not found`, requestId } : { error: `${name} not found` },
+    { status: 404 },
+  );
+}
+
 export async function requireOwnedRun(
   req: NextRequest,
   runId: string,
@@ -117,10 +141,10 @@ export async function requireOwnedRun(
   const user = await requireBearerUser(req);
   if (user instanceof NextResponse) return user;
   const run = getRun(db(), createRunId(runId));
-  if (!run) return NextResponse.json({ error: "Run not found" }, { status: 404 });
+  if (!run) return notFound("Run", req);
   if (user.role === "admin") return { user, run };
   if (run.userId === user.id) return { user, run };
-  return forbidden("You do not own this run");
+  return forbidden("You do not own this run", req);
 }
 
 export async function requireOwnedSession(
@@ -130,11 +154,10 @@ export async function requireOwnedSession(
   const user = await requireBearerUser(req);
   if (user instanceof NextResponse) return user;
   const session = getSession(db(), createSessionId(sessionId));
-  if (!session)
-    return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  if (!session) return notFound("Session", req);
   if (user.role === "admin") return { user, session };
   if (session.userId === user.id) return { user, session };
-  return forbidden("You do not own this session");
+  return forbidden("You do not own this session", req);
 }
 
 // ─── View scoping for SSR pages ────────────────────────────────────────────

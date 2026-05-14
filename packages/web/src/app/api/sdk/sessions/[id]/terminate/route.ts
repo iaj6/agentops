@@ -9,6 +9,7 @@ import {
 import { updateSession, insertEvent } from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireOwnedSession } from "@/lib/auth";
+import { internalError } from "@/lib/log";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +46,6 @@ export async function POST(
 
     return NextResponse.json({ status: next.status });
   } catch (error) {
-    console.error("API error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return internalError(request, error, "sdk/sessions/[id]/terminate");
   }
 }

@@ -3,6 +3,7 @@ import { createSession, activateSession, createEvent, EventCategory, EVENT_TYPES
 import { insertSession, insertEvent } from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireBearerUser } from "@/lib/auth";
+import { internalError } from "@/lib/log";
 
 export const dynamic = "force-dynamic";
 
@@ -49,10 +50,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ sessionId: session.id, status: session.status }, { status: 201 });
   } catch (error) {
-    console.error("API error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 },
-    );
+    return internalError(request, error, "sdk/sessions");
   }
 }
