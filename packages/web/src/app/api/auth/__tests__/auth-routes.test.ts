@@ -35,6 +35,7 @@ import { POST as changePasswordRoute } from "@/app/api/auth/change-password/rout
 import { POST as deviceInitRoute } from "@/app/api/auth/device/route";
 import { POST as deviceTokenRoute } from "@/app/api/auth/device/token/route";
 import { POST as deviceApproveRoute } from "@/app/api/auth/device/approve/route";
+import { POST as inviteUserRoute } from "@/app/api/users/route";
 
 let db: AgentOpsDb;
 
@@ -508,5 +509,104 @@ describe("POST /api/auth/device/approve", () => {
       }),
     );
     expect(res.status).toBe(409);
+  });
+});
+
+// ─── POST /api/users (invite) — B7 ────────────────────────────────────────
+
+describe("POST /api/users (invite)", () => {
+  function seedAdmin(): { sessionId: string } {
+    const u = insertUser(db, {
+      email: "admin@acme.com",
+      name: "Admin",
+      password: "first-password",
+      role: "admin",
+      mustChangePassword: false,
+    });
+    const session = createAuthSession(db, u.id);
+    return { sessionId: session.id };
+  }
+
+  function seedMember(): { sessionId: string } {
+    insertUser(db, {
+      email: "admin@acme.com",
+      name: "Admin",
+      password: "x",
+      role: "admin",
+      mustChangePassword: false,
+    });
+    const u = insertUser(db, {
+      email: "member@acme.com",
+      name: "Member",
+      password: "x",
+      role: "member",
+      mustChangePassword: false,
+    });
+    const session = createAuthSession(db, u.id);
+    return { sessionId: session.id };
+  }
+
+  it("admin creates a user and gets back a one-time temp password", async () => {
+    const { sessionId } = seedAdmin();
+    const req = cookieRequest("http://localhost/api/users", {
+      cookie: sessionId,
+      body: { email: "new@acme.com", name: "New User", role: "member" },
+    });
+    const res = await inviteUserRoute(req);
+    expect(res.status).toBe(201);
+    const body = (await jsonOf(res)) as {
+      user: { email: string; role: string };
+      tempPassword: string;
+    };
+    expect(body.user.email).toBe("new@acme.com");
+    expect(body.user.role).toBe("member");
+    expect(body.tempPassword).toMatch(/^[A-Za-z0-9]{16}$/);
+    // New user can sign in with that temp password.
+    const u = getUserWithPasswordByEmail(db, "new@acme.com");
+    expect(u).not.toBeNull();
+    expect(verifyPassword(body.tempPassword, u!.passwordHash)).toBe(true);
+  });
+
+  it("non-admin gets 403", async () => {
+    const { sessionId } = seedMember();
+    const req = cookieRequest("http://localhost/api/users", {
+      cookie: sessionId,
+      body: { email: "new@acme.com" },
+    });
+    const res = await inviteUserRoute(req);
+    expect(res.status).toBe(403);
+  });
+
+  it("409 on duplicate email", async () => {
+    const { sessionId } = seedAdmin();
+    const req1 = cookieRequest("http://localhost/api/users", {
+      cookie: sessionId,
+      body: { email: "dup@acme.com" },
+    });
+    await inviteUserRoute(req1);
+    const req2 = cookieRequest("http://localhost/api/users", {
+      cookie: sessionId,
+      body: { email: "dup@acme.com" },
+    });
+    const res = await inviteUserRoute(req2);
+    expect(res.status).toBe(409);
+  });
+
+  it("400 on malformed email", async () => {
+    const { sessionId } = seedAdmin();
+    const req = cookieRequest("http://localhost/api/users", {
+      cookie: sessionId,
+      body: { email: "not-an-email" },
+    });
+    const res = await inviteUserRoute(req);
+    expect(res.status).toBe(400);
+  });
+
+  it("unauthenticated returns 401", async () => {
+    const req = anonRequest("http://localhost/api/users", {
+      body: { email: "x@y.com" },
+    });
+    const res = await inviteUserRoute(req);
+    expect(res.status).toBe(401);
   });
 });

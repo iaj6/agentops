@@ -1,13 +1,23 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { getRequestUser } from "@/lib/auth";
 import { AdminApiStatus } from "./AdminApiStatus";
 import { WebhooksSection } from "./WebhooksSection";
+import { UsersSection } from "./UsersSection";
+import { ApiTokensSection } from "./ApiTokensSection";
 
 export const metadata: Metadata = {
   title: "Settings",
   description: "Configure your AgentOps instance",
 };
 
-export default function SettingsPage() {
+export const dynamic = "force-dynamic";
+
+export default async function SettingsPage() {
+  const user = await getRequestUser();
+  if (!user) redirect("/login?next=/settings");
+  const role = user.role === "admin" ? "admin" : "member";
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -18,6 +28,14 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-6">
+        <UsersSection meRole={role} />
+
+        <ApiTokensSection meRole={role} />
+
+        <WebhooksSection />
+
+        <AdminApiStatus />
+
         <div className="rounded-lg border border-border bg-surface p-6">
           <h2 className="text-sm font-semibold text-foreground mb-1">
             Database
@@ -29,10 +47,6 @@ export default function SettingsPage() {
             {process.env.AGENTOPS_DB_PATH ?? "~/.agentops/agentops.db"}
           </div>
         </div>
-
-        <AdminApiStatus />
-
-        <WebhooksSection />
 
         <div className="rounded-lg border border-border bg-surface p-6">
           <h2 className="text-sm font-semibold text-foreground mb-1">

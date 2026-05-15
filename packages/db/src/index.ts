@@ -37,6 +37,8 @@ export {
   issueApiToken,
   getUserByRawApiToken,
   listApiTokensForUser,
+  listAllApiTokens,
+  getApiTokenById,
   revokeApiToken,
   createAuthSession,
   getUserBySessionId,

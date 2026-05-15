@@ -260,6 +260,53 @@ export function revokeApiToken(db: AgentOpsDb, tokenId: string): void {
   db.delete(apiTokens).where(eq(apiTokens.id, tokenId)).run();
 }
 
+export function listAllApiTokens(db: AgentOpsDb): ApiToken[] {
+  const rows = db.all<{
+    id: string;
+    user_id: string;
+    name: string;
+    created_at: string;
+    last_used_at: string | null;
+    expires_at: string | null;
+  }>(
+    sql`SELECT id, user_id, name, created_at, last_used_at, expires_at
+        FROM api_tokens
+        ORDER BY created_at DESC`,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    name: r.name,
+    createdAt: r.created_at,
+    lastUsedAt: r.last_used_at,
+    expiresAt: r.expires_at,
+  }));
+}
+
+export function getApiTokenById(db: AgentOpsDb, tokenId: string): ApiToken | null {
+  const rows = db.all<{
+    id: string;
+    user_id: string;
+    name: string;
+    created_at: string;
+    last_used_at: string | null;
+    expires_at: string | null;
+  }>(
+    sql`SELECT id, user_id, name, created_at, last_used_at, expires_at
+        FROM api_tokens WHERE id = ${tokenId} LIMIT 1`,
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    id: r.id,
+    userId: r.user_id,
+    name: r.name,
+    createdAt: r.created_at,
+    lastUsedAt: r.last_used_at,
+    expiresAt: r.expires_at,
+  };
+}
+
 // ─── Browser sessions (cookie) ─────────────────────────────────────────────
 
 export interface AuthSession {
