@@ -250,7 +250,15 @@ async function runDoctor(): Promise<DoctorResult> {
         level: "ok",
         msg: `Dashboard ${creds.server} reachable (${r.ms}ms), token valid for ${r.user.email} (${r.user.role})`,
       });
-    } else if (r.status === 401 || r.status === 403) {
+    } else if (
+      r.status === 401 ||
+      r.status === 403 ||
+      // /api/auth/me returns 200 with {user: null} when the token is
+      // missing/invalid (it doesn't 401). Treat that as auth failure
+      // rather than a generic "Dashboard returned HTTP 200" error,
+      // which is misleading since 200 is a successful response.
+      (r.status === 200 && !r.user)
+    ) {
       checks.push({
         section: "auth",
         level: "fail",
