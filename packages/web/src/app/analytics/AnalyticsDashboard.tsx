@@ -6,10 +6,12 @@ import { SuccessChart } from "@/components/SuccessChart";
 
 interface Props {
   successData: { date: string; completed: number; failed: number }[];
-  topRepos: { repo: string; count: number }[];
+  topRepos: { repo: string; count: number; cost: number }[];
   totalRuns: number;
   totalCompleted: number;
   totalFailed: number;
+  totalCostAllTime: number;
+  totalCost30d: number;
 }
 
 function formatDuration(ms: number): string {
@@ -19,6 +21,13 @@ function formatDuration(ms: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainSec = seconds % 60;
   return `${minutes}m ${remainSec}s`;
+}
+
+function formatCost(usd: number): string {
+  if (usd === 0) return "$0";
+  if (usd < 0.01) return "<$0.01";
+  if (usd < 1000) return `$${usd.toFixed(2)}`;
+  return `$${usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
 function formatShortDate(iso: string): string {
@@ -41,12 +50,19 @@ interface DurationEntry {
   avgMs: number;
 }
 
+interface CostPerDayEntry {
+  date: string;
+  count: number;
+}
+
 export function AnalyticsDashboard({
   successData,
   topRepos,
   totalRuns,
   totalCompleted,
   totalFailed,
+  totalCostAllTime,
+  totalCost30d,
 }: Props) {
   const successRate =
     totalCompleted + totalFailed > 0
@@ -56,6 +72,7 @@ export function AnalyticsDashboard({
   const [filesChanged, setFilesChanged] = useState<FilesChangedEntry[]>([]);
   const [policyViolations, setPolicyViolations] = useState<PolicyViolationsEntry[]>([]);
   const [durationData, setDurationData] = useState<DurationEntry[]>([]);
+  const [costPerDay, setCostPerDay] = useState<CostPerDayEntry[]>([]);
 
   useEffect(() => {
     fetch("/api/analytics/files-changed")
@@ -72,6 +89,11 @@ export function AnalyticsDashboard({
       .then((r) => r.json())
       .then((data) => setDurationData(data))
       .catch(() => {});
+
+    fetch("/api/analytics/cost-per-day")
+      .then((r) => r.json())
+      .then((data) => setCostPerDay(data))
+      .catch(() => {});
   }, []);
 
   // Compute runs per day from successData
@@ -84,11 +106,18 @@ export function AnalyticsDashboard({
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Analytics</h1>
-        <p className="text-sm text-muted">Aggregate metrics across all runs</p>
+        <p className="text-sm text-muted">
+          Spend, run health, and policy compliance across the fleet
+        </p>
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <MetricCard
+          label="Total Spend"
+          value={formatCost(totalCostAllTime)}
+          sub={totalCost30d > 0 ? `${formatCost(totalCost30d)} last 30d` : "all time"}
+        />
         <MetricCard label="Total Runs" value={String(totalRuns)} />
         <MetricCard
           label="Success Rate"
@@ -107,6 +136,17 @@ export function AnalyticsDashboard({
         <SuccessChart data={successData} />
         <RunsPerDayChart data={runsPerDay} />
       </div>
+
+      {/* Cost Per Day */}
+      <DailyBarChart
+        title="Cost Per Day (30 days)"
+        data={costPerDay}
+        barColor="var(--green)"
+        emptyMessage="No cost data yet — start a Claude Code session with hooks installed."
+        formatValue={(v) =>
+          v === 0 ? "$0" : v < 1 ? `$${v.toFixed(2)}` : `$${Math.round(v)}`
+        }
+      />
 
       {/* Middle row: Top Repos + Files Changed */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -128,6 +168,11 @@ export function AnalyticsDashboard({
                     </span>
                     <span className="text-xs text-muted">
                       {repo.count} runs
+                      {repo.cost > 0 && (
+                        <span className="ml-3 font-mono text-foreground">
+                          · {formatCost(repo.cost)}
+                        </span>
+                      )}
                     </span>
                   </div>
                   <div className="h-1 w-full rounded-full bg-surface-2">
@@ -168,6 +213,7 @@ export function AnalyticsDashboard({
 // ─── Runs Per Day Chart ──────────────────────────────────────────────────────
 
 function RunsPerDayChart({ data }: { data: { date: string; count: number }[] }) {
+  const fmt = (v: number) => String(Math.round(v));
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center rounded-lg border border-border bg-surface py-16">
@@ -230,7 +276,7 @@ function RunsPerDayChart({ data }: { data: { date: string; count: number }[] }) 
               fontSize="9"
               fontFamily="var(--font-mono)"
             >
-              {tick.val}
+              {fmt(tick.val)}
             </text>
           </g>
         ))}
@@ -277,12 +323,15 @@ function DailyBarChart({
   data,
   barColor,
   emptyMessage,
+  formatValue,
 }: {
   title: string;
   data: { date: string; count: number }[];
   barColor: string;
   emptyMessage: string;
+  formatValue?: (v: number) => string;
 }) {
+  const fmt = formatValue ?? ((v: number) => String(Math.round(v)));
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center rounded-lg border border-border bg-surface py-16">
@@ -346,7 +395,7 @@ function DailyBarChart({
               fontSize="9"
               fontFamily="var(--font-mono)"
             >
-              {tick.val}
+              {fmt(tick.val)}
             </text>
           </g>
         ))}

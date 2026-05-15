@@ -5,7 +5,7 @@ import { AnalyticsDashboard } from "./AnalyticsDashboard";
 
 export const metadata: Metadata = {
   title: "Analytics",
-  description: "Aggregate metrics and cost analysis across all agent runs",
+  description: "Aggregate metrics, cost rollups, and policy compliance across all agent runs",
 };
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export default function AnalyticsPage() {
 
   // Build daily success/failure counts
   const dailyCounts = new Map<string, { completed: number; failed: number }>();
-  const repoCounts = new Map<string, { count: number }>();
+  const repoCounts = new Map<string, { count: number; cost: number }>();
 
   for (let i = 0; i < 30; i++) {
     const dd = new Date(thirtyDaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
@@ -27,14 +27,22 @@ export default function AnalyticsPage() {
     dailyCounts.set(key, { completed: 0, failed: 0 });
   }
 
+  // Rolling cost totals: all-time, plus a 30d window for the headline stat.
+  let totalCostAllTime = 0;
+  let totalCost30d = 0;
+
   for (const run of runs) {
     const created = new Date(run.createdAt);
     const repo = run.environment.repo;
-    const repoEntry = repoCounts.get(repo) ?? { count: 0 };
+    const cost = run.metrics.costUsd ?? 0;
+    const repoEntry = repoCounts.get(repo) ?? { count: 0, cost: 0 };
     repoEntry.count++;
+    repoEntry.cost += cost;
     repoCounts.set(repo, repoEntry);
+    totalCostAllTime += cost;
 
     if (created >= thirtyDaysAgo) {
+      totalCost30d += cost;
       const key = created.toISOString().slice(0, 10);
 
       const entry = dailyCounts.get(key) ?? { completed: 0, failed: 0 };
@@ -52,6 +60,7 @@ export default function AnalyticsPage() {
     .map(([repo, stats]) => ({
       repo,
       count: stats.count,
+      cost: stats.cost,
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
@@ -91,6 +100,8 @@ export default function AnalyticsPage() {
       totalRuns={runs.length}
       totalCompleted={totalCompleted}
       totalFailed={totalFailed}
+      totalCostAllTime={totalCostAllTime}
+      totalCost30d={totalCost30d}
     />
   );
 }
