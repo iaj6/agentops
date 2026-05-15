@@ -26,8 +26,8 @@ function CompletedRunsTable({ runIds }: { runIds: readonly string[] }) {
           try {
             const res = await fetch(`/api/runs/${id}`);
             if (res.ok && !cancelled) {
-              const run = await res.json();
-              results.set(id, run);
+              const body = (await res.json()) as { run?: Run };
+              if (body.run) results.set(id, body.run);
             }
           } catch {
             // Skip individual failures
@@ -99,10 +99,10 @@ function CompletedRunsTable({ runIds }: { runIds: readonly string[] }) {
                   )}
                 </td>
                 <td className="py-2 pr-4 max-w-[200px] truncate text-xs text-muted">
-                  {run?.goal.humanReadable ?? "-"}
+                  {run?.goal?.humanReadable ?? "-"}
                 </td>
                 <td className="py-2 text-right font-mono text-xs text-foreground">
-                  {run
+                  {run?.metrics?.wallTimeMs != null
                     ? `${Math.round(run.metrics.wallTimeMs / 1000)}s`
                     : "-"}
                 </td>
