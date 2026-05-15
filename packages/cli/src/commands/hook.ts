@@ -251,8 +251,10 @@ function logSdkFailure(op: string, err: unknown): void {
 
 async function handleSessionStart(input: HookInput, dbPath?: string): Promise<void> {
   const cwd = input.cwd ?? process.cwd();
-  const repo = getCurrentRepo();
-  const branch = getCurrentBranch();
+  // Pass cwd to git lookups — Claude Code's hook subprocess inherits
+  // the launcher's cwd which may not be the user's working repo.
+  const repo = getCurrentRepo(cwd);
+  const branch = getCurrentBranch(cwd);
 
   const config = resolveOpsConfig(dbPath);
   const ops = createOps(config, input.session_id);

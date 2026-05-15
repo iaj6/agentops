@@ -36,6 +36,40 @@ describe("getCurrentRepo", () => {
     });
     expect(getCurrentRepo()).toBe("unknown");
   });
+
+  it("falls back to upstream when origin is missing", () => {
+    // First call (origin) fails, second (upstream) returns a URL.
+    mockExecSync
+      .mockImplementationOnce(() => {
+        throw new Error("No such remote 'origin'");
+      })
+      .mockReturnValueOnce("git@github.com:acme/forked.git\n");
+    expect(getCurrentRepo()).toBe("acme/forked");
+  });
+
+  it("falls back to repo basename when no remotes are configured", () => {
+    // All remote lookups fail, rev-parse --show-toplevel returns a path.
+    mockExecSync
+      .mockImplementationOnce(() => {
+        throw new Error("No such remote 'origin'");
+      })
+      .mockImplementationOnce(() => {
+        throw new Error("No such remote 'upstream'");
+      })
+      .mockImplementationOnce(() => {
+        throw new Error("No such remote 'github'");
+      })
+      .mockReturnValueOnce("/Users/foo/projects/my-cool-repo\n");
+    expect(getCurrentRepo()).toBe("my-cool-repo");
+  });
+
+  it("passes cwd through to git when provided", () => {
+    mockExecSync.mockReturnValue("git@github.com:acme/backend.git\n");
+    getCurrentRepo("/some/working/dir");
+    // First call was `git remote get-url origin` — verify cwd reached execSync.
+    const [, opts] = mockExecSync.mock.calls[0]!;
+    expect((opts as { cwd?: string }).cwd).toBe("/some/working/dir");
+  });
 });
 
 describe("getCurrentBranch", () => {

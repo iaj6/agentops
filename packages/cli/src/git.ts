@@ -12,9 +12,7 @@ function git(args: string, cwd?: string): string {
   }
 }
 
-export function getCurrentRepo(): string {
-  const remote = git("remote get-url origin");
-  if (!remote) return "unknown";
+function parseRemote(remote: string): string {
   // Handle SSH: git@github.com:owner/repo.git
   const sshMatch = remote.match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
   if (sshMatch) return sshMatch[1]!;
@@ -27,8 +25,26 @@ export function getCurrentRepo(): string {
   }
 }
 
-export function getCurrentBranch(): string {
-  return git("rev-parse --abbrev-ref HEAD") || "unknown";
+export function getCurrentRepo(cwd?: string): string {
+  // Try the common remote names in order — many repos use upstream,
+  // some use github, some have neither.
+  for (const name of ["origin", "upstream", "github"]) {
+    const remote = git(`remote get-url ${name}`, cwd);
+    if (remote) return parseRemote(remote);
+  }
+  // Fall back to the basename of the repo root. Better than "unknown"
+  // for local-only repos (the agentops dogfood case) — at least the
+  // dashboard rows are distinguishable.
+  const top = git("rev-parse --show-toplevel", cwd);
+  if (top) {
+    const basename = top.split("/").filter(Boolean).pop();
+    if (basename) return basename;
+  }
+  return "unknown";
+}
+
+export function getCurrentBranch(cwd?: string): string {
+  return git("rev-parse --abbrev-ref HEAD", cwd) || "unknown";
 }
 
 export function getDiff(fromRef?: string, toRef?: string): string {
