@@ -208,3 +208,131 @@ describe("agentops cleanup", () => {
     expect(output).toContain("Would reap 0 stale run(s) and 0 stale session(s)");
   });
 });
+
+// ─── Retention (Phase C3) ───────────────────────────────────────────────────
+
+describe("agentops cleanup --runs-older-than", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function seedRunAt(db: ReturnType<typeof getDb>, id: string, isoTimestamp: string) {
+    const r = startRun(
+      createRun(
+        {
+          humanReadable: "retention test",
+          structured: { type: "test", description: "test", parameters: {} },
+        },
+        {
+          repo: "acme/retention",
+          branch: "main",
+          permissions: [],
+          sandbox: { enabled: false, isolationLevel: "none" },
+        },
+      ),
+    );
+    insertRun(db, {
+      ...r,
+      id: createRunId(id),
+      createdAt: isoTimestamp,
+      updatedAt: isoTimestamp,
+    });
+  }
+
+  it("dry-run reports the count without deleting", async () => {
+    const { dbPath, db } = makeDb(tmpDir);
+    // Two runs: one ~120 days old, one fresh.
+    const oneTwentyDaysAgo = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
+    seedRunAt(db, "run_ancient", oneTwentyDaysAgo);
+    seedRunAt(db, "run_new", new Date().toISOString());
+
+    const output = await runCleanup(["--runs-older-than", "90d"], dbPath);
+    expect(output).toContain("Would delete 1 run(s) older than 90d");
+    expect(output).toContain("Re-run with --apply");
+    // Both runs still present.
+    expect(getRun(db, createRunId("run_ancient"))).not.toBeNull();
+    expect(getRun(db, createRunId("run_new"))).not.toBeNull();
+  });
+
+  it("--apply deletes runs older than the cutoff", async () => {
+    const { dbPath, db } = makeDb(tmpDir);
+    const oneTwentyDaysAgo = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
+    seedRunAt(db, "run_ancient", oneTwentyDaysAgo);
+    seedRunAt(db, "run_new", new Date().toISOString());
+
+    const output = await runCleanup(
+      ["--runs-older-than", "90d", "--apply"],
+      dbPath,
+    );
+    expect(output).toContain("Deleted 1 run(s) older than 90d");
+    expect(output).toContain("Pruned 1 run(s)");
+    expect(getRun(db, createRunId("run_ancient"))).toBeNull();
+    expect(getRun(db, createRunId("run_new"))).not.toBeNull();
+  });
+
+  it("parses week durations (12w)", async () => {
+    const { dbPath, db } = makeDb(tmpDir);
+    const oneHundredDaysAgo = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString();
+    seedRunAt(db, "run_old", oneHundredDaysAgo);
+    seedRunAt(db, "run_fresh", new Date().toISOString());
+
+    // 12w = 84d, so a 100d-old run IS older
+    const output = await runCleanup(
+      ["--runs-older-than", "12w", "--apply"],
+      dbPath,
+    );
+    expect(output).toContain("Deleted 1 run(s)");
+    expect(getRun(db, createRunId("run_old"))).toBeNull();
+  });
+
+  it("rejects an invalid duration", async () => {
+    const { dbPath } = makeDb(tmpDir);
+    let threw = false;
+    try {
+      await runCleanup(["--runs-older-than", "garbage"], dbPath);
+    } catch (err) {
+      threw = true;
+      expect(String(err)).toMatch(/Invalid duration/);
+    }
+    expect(threw).toBe(true);
+  });
+
+  it("can run alongside stale-session cleanup", async () => {
+    const { dbPath, db } = makeDb(tmpDir);
+    const oneTwentyDaysAgo = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
+    seedRunAt(db, "run_ancient", oneTwentyDaysAgo);
+    // Plus a stale active session.
+    const staleSession = makeStaleSession(60 * 60 * 1000); // 60 min stale
+    insertSession(db, staleSession);
+
+    const output = await runCleanup(
+      ["--runs-older-than", "90d", "--stale-sessions", "--apply"],
+      dbPath,
+    );
+    expect(output).toContain("Pruned 1 run(s)");
+    expect(getRun(db, createRunId("run_ancient"))).toBeNull();
+    const sess = getSession(db, createSessionId(staleSession.id as string));
+    expect(sess!.status).toBe("terminated");
+  });
+
+  it("--vacuum runs without throwing", async () => {
+    const { dbPath, db } = makeDb(tmpDir);
+    seedRunAt(
+      db,
+      "run_old",
+      new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
+    );
+    const output = await runCleanup(
+      ["--runs-older-than", "30d", "--apply", "--vacuum"],
+      dbPath,
+    );
+    expect(output).toContain("Pruned 1 run(s)");
+    expect(output).toContain("VACUUM");
+  });
+});

@@ -1,8 +1,8 @@
-import { eq, and, desc, asc, gte, lte, inArray, sql, count } from "drizzle-orm";
+import { eq, and, desc, asc, gte, lte, lt, inArray, sql, count } from "drizzle-orm";
 import type { Run, RunId, Metrics, SessionSummary } from "@agentops/core";
 import { createRunId } from "@agentops/core";
 import type { AgentOpsDb } from "./connection.js";
-import { runs, runMetrics } from "./schema.js";
+import { runs, runMetrics, policyResults, events } from "./schema.js";
 
 interface ListRunsFilters {
   status?: string;
@@ -355,4 +355,89 @@ export function listRunsWithSummaries(
     run: rowToRun(row),
     summary: row.summary ? (row.summary as unknown as SessionSummary) : null,
   }));
+}
+
+// ─── Data retention (Phase C3) ──────────────────────────────────────────────
+
+export interface DeleteOldRunsResult {
+  readonly runs: number;
+  readonly policyResults: number;
+  readonly runMetrics: number;
+  readonly events: number;
+  /** Run IDs that were deleted (useful for audit + dry-run preview). */
+  readonly runIds: ReadonlyArray<string>;
+}
+
+/**
+ * Delete runs created before the given ISO timestamp, plus every row in
+ * tables that hangs off the run (policy_results, run_metrics, events
+ * keyed by sourceId). The FK references aren't ON DELETE CASCADE so we
+ * delete children before the parent.
+ *
+ * Sessions are NOT touched — they reference different lifecycle data
+ * and a customer's retention policy might keep sessions for compliance
+ * even when individual runs are pruned. If they want sessions gone too,
+ * add a separate call.
+ */
+export function deleteOldRuns(
+  db: AgentOpsDb,
+  olderThanISO: string,
+): DeleteOldRunsResult {
+  // 1. Snapshot the IDs first so child deletes can target them precisely.
+  const stale = db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(lt(runs.createdAt, olderThanISO))
+    .all() as Array<{ id: string }>;
+  const ids = stale.map((r) => r.id);
+  if (ids.length === 0) {
+    return { runs: 0, policyResults: 0, runMetrics: 0, events: 0, runIds: [] };
+  }
+
+  // 2. Delete dependent rows. Drizzle's .run() returns a result with a
+  //    `changes` count via better-sqlite3.
+  const prResult = db
+    .delete(policyResults)
+    .where(inArray(policyResults.runId, ids))
+    .run() as { changes?: number };
+  const rmResult = db
+    .delete(runMetrics)
+    .where(inArray(runMetrics.runId, ids))
+    .run() as { changes?: number };
+  // Events aren't FK-bound but their sourceId references the run; drop
+  // them too so the events feed doesn't carry orphaned references.
+  const evResult = db
+    .delete(events)
+    .where(inArray(events.sourceId, ids))
+    .run() as { changes?: number };
+
+  // 3. Now the runs themselves.
+  const runResult = db
+    .delete(runs)
+    .where(inArray(runs.id, ids))
+    .run() as { changes?: number };
+
+  return {
+    runs: runResult.changes ?? ids.length,
+    policyResults: prResult.changes ?? 0,
+    runMetrics: rmResult.changes ?? 0,
+    events: evResult.changes ?? 0,
+    runIds: ids,
+  };
+}
+
+/** Count runs older than the cutoff (used for dry-run preview). */
+export function countRunsOlderThan(db: AgentOpsDb, olderThanISO: string): number {
+  const row = db
+    .select({ total: count() })
+    .from(runs)
+    .where(lt(runs.createdAt, olderThanISO))
+    .get();
+  return Number(row?.total ?? 0);
+}
+
+/** Run SQLite VACUUM to reclaim space after a large delete. */
+export function vacuum(db: AgentOpsDb): void {
+  // Drizzle doesn't ship a typed VACUUM; raw sql works.
+  db.run(sql`VACUUM`);
 }

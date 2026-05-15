@@ -54,7 +54,8 @@ export {
 } from "./auth.js";
 
 // Run repository
-export { insertRun, getRun, listRuns, updateRun, getRunMetrics, searchRuns, countRuns, getDistinctRepos, getDistinctBranches, updateRunSummary, getRunSummary, listRunsWithSummaries } from "./runs.js";
+export { insertRun, getRun, listRuns, updateRun, getRunMetrics, searchRuns, countRuns, getDistinctRepos, getDistinctBranches, updateRunSummary, getRunSummary, listRunsWithSummaries, deleteOldRuns, countRunsOlderThan, vacuum } from "./runs.js";
+export type { DeleteOldRunsResult } from "./runs.js";
 export type { SearchRunsFilters, RunWithSummary } from "./runs.js";
 
 // Policy repository
