@@ -323,7 +323,11 @@ describe("generateSummary", () => {
       expect(summary.headline).toContain("2/3 failing");
     });
 
-    it("shows 'no cost' when cost is zero", () => {
+    it("omits the cost segment from the headline when cost is zero", () => {
+      // Before B2: headline contained "no cost", which read as "the
+      // product doesn't track cost." Now the segment is dropped entirely
+      // when no cost was recorded (and the dedicated Cost card carries
+      // the signal on the run detail page).
       const run = makeRun({
         metrics: {
           tokenUsage: { input: 0, output: 0, total: 0 },
@@ -333,7 +337,21 @@ describe("generateSummary", () => {
         },
       });
       const summary = generateSummary(run);
-      expect(summary.headline).toContain("no cost");
+      expect(summary.headline).not.toContain("no cost");
+      expect(summary.headline).not.toContain("$");
+    });
+
+    it("includes the cost segment when cost > 0", () => {
+      const run = makeRun({
+        metrics: {
+          tokenUsage: { input: 100, output: 50, total: 150 },
+          wallTimeMs: 1000,
+          costUsd: 3.42,
+          flakeRate: 0,
+        },
+      });
+      const summary = generateSummary(run);
+      expect(summary.headline).toContain("$3.42");
     });
 
     it("shows single file correctly", () => {

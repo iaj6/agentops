@@ -213,8 +213,8 @@ function getTestStatus(run: Run): string {
   return `${allTests.length - passing}/${allTests.length} failing`;
 }
 
-function formatCostShort(cost: SessionSummary["cost"]): string {
-  if (!cost) return "no cost";
+function formatCostShort(cost: SessionSummary["cost"]): string | null {
+  if (!cost) return null;
   if (cost.totalUsd < 0.01) return "<$0.01";
   return `$${cost.totalUsd.toFixed(2)}`;
 }
@@ -236,7 +236,13 @@ function generateHeadline(
       : `${filesChanged.total} files`;
   const costStr = formatCostShort(cost);
 
-  const headline = `${goalShort}: ${agentStr}${fileStr}, ${testStatus}, ${costStr}`;
+  // Drop the cost segment when there's no recorded cost — "no cost" was
+  // misleading (read as if the product didn't track cost). With cost
+  // present, the headline keeps it as the rightmost segment so the
+  // dashboard hero stat sits where users expect.
+  const segments = [`${agentStr}${fileStr}`, testStatus];
+  if (costStr) segments.push(costStr);
+  const headline = `${goalShort}: ${segments.join(", ")}`;
   if (headline.length > 100) {
     return headline.slice(0, 97) + "...";
   }

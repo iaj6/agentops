@@ -23,6 +23,22 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${remainSec}s`;
 }
 
+function formatCost(usd: number | undefined): string {
+  if (usd == null) return "—";
+  if (usd === 0) return "$0.00";
+  if (usd < 0.01) return "<$0.01";
+  if (usd < 1) return `$${usd.toFixed(2)}`;
+  if (usd < 1000) return `$${usd.toFixed(2)}`;
+  return `$${usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+function formatTokens(n: number | undefined): string {
+  if (n == null) return "—";
+  if (n < 1000) return n.toString();
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
+
 export function RunDetail({ run: initialRun, initialSummary }: { run: Run; initialSummary: SessionSummary | null }) {
   const { run: liveRun, summary: liveSummary, connected } = useRunDetail(
     initialRun.id as string,
@@ -117,10 +133,16 @@ function OverviewTab({ run }: { run: Run }) {
   const totalFileEdits = run.actions.reduce((sum, a) => sum + a.fileEdits.length, 0);
   const totalToolCalls = run.actions.reduce((sum, a) => sum + a.toolCalls.length, 0);
 
+  const tokens = run.metrics.tokenUsage;
   return (
     <div className="space-y-6">
       {/* Quick metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <MetricCard
+          label="Cost"
+          value={formatCost(run.metrics.costUsd)}
+          sub={tokens ? `${formatTokens(tokens.total)} tokens` : undefined}
+        />
         <MetricCard
           label="Duration"
           value={formatDuration(run.metrics.wallTimeMs)}
@@ -138,6 +160,33 @@ function OverviewTab({ run }: { run: Run }) {
           value={String(run.actions.length)}
         />
       </div>
+
+      {/* Token breakdown */}
+      {tokens && tokens.total > 0 && (
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+            Token Usage
+          </h3>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+            <div>
+              <span className="text-muted">Input: </span>
+              <span className="font-mono text-foreground">{formatTokens(tokens.input)}</span>
+            </div>
+            <div>
+              <span className="text-muted">Output: </span>
+              <span className="font-mono text-foreground">{formatTokens(tokens.output)}</span>
+            </div>
+            <div>
+              <span className="text-muted">Total: </span>
+              <span className="font-mono text-foreground">{formatTokens(tokens.total)}</span>
+            </div>
+            <div>
+              <span className="text-muted">Cost: </span>
+              <span className="font-mono text-foreground">{formatCost(run.metrics.costUsd)}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Goal */}
       <div className="rounded-lg border border-border bg-surface p-4">
@@ -340,7 +389,16 @@ function ActivityTab({ run }: { run: Run }) {
   return (
     <div className="space-y-6">
       {/* Summary metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <MetricCard
+          label="Cost"
+          value={formatCost(run.metrics.costUsd)}
+          sub={run.metrics.tokenUsage ? `${formatTokens(run.metrics.tokenUsage.total)} tokens` : undefined}
+        />
+        <MetricCard
+          label="Duration"
+          value={formatDuration(run.metrics.wallTimeMs)}
+        />
         <MetricCard
           label="Actions"
           value={String(totalActions)}
@@ -357,10 +415,6 @@ function ActivityTab({ run }: { run: Run }) {
           label="Commands"
           value={String(totalCommands)}
           sub={`${successCommands} ok / ${failedCommands} failed`}
-        />
-        <MetricCard
-          label="Duration"
-          value={formatDuration(run.metrics.wallTimeMs)}
         />
       </div>
 
