@@ -16,6 +16,8 @@ import {
   issueApiToken,
   getUserByRawApiToken,
   listApiTokensForUser,
+  listAllApiTokens,
+  getApiTokenById,
   revokeApiToken,
   createAuthSession,
   getUserBySessionId,
@@ -303,5 +305,69 @@ describe("device authorization codes", () => {
 
   it("consumeApprovedDeviceCode returns null on unknown device code", () => {
     expect(consumeApprovedDeviceCode(db, "dc_nope")).toBeNull();
+  });
+});
+
+describe("listAllApiTokens", () => {
+  let db: AgentOpsDb;
+  beforeEach(() => {
+    db = getDb(":memory:");
+  });
+
+  it("returns empty array on empty DB", () => {
+    expect(listAllApiTokens(db)).toEqual([]);
+  });
+
+  it("returns tokens from multiple users", () => {
+    const u1 = insertUser(db, { email: "u1@example.com", password: "p" }).id;
+    const u2 = insertUser(db, { email: "u2@example.com", password: "p" }).id;
+    issueApiToken(db, { userId: u1, name: "u1-token" });
+    issueApiToken(db, { userId: u2, name: "u2-token" });
+
+    const tokens = listAllApiTokens(db);
+    expect(tokens).toHaveLength(2);
+    const userIds = tokens.map((t) => t.userId);
+    expect(userIds).toContain(u1);
+    expect(userIds).toContain(u2);
+  });
+
+  it("orders by created_at DESC (newest first)", async () => {
+    const userId = insertUser(db, { email: "a@example.com", password: "p" }).id;
+    const { token: t1 } = issueApiToken(db, { userId, name: "older" });
+    // small delay to get a different timestamp
+    await new Promise((r) => setTimeout(r, 15));
+    const { token: t2 } = issueApiToken(db, { userId, name: "newer" });
+
+    const tokens = listAllApiTokens(db);
+    expect(tokens[0]!.id).toBe(t2.id);
+    expect(tokens[1]!.id).toBe(t1.id);
+  });
+});
+
+describe("getApiTokenById", () => {
+  let db: AgentOpsDb;
+  let userId: string;
+  beforeEach(() => {
+    db = getDb(":memory:");
+    userId = insertUser(db, { email: "a@example.com", password: "p" }).id;
+  });
+
+  it("returns null when token does not exist", () => {
+    expect(getApiTokenById(db, "no-such-id")).toBeNull();
+  });
+
+  it("returns the matching token row", () => {
+    const { token } = issueApiToken(db, { userId, name: "my-token" });
+    const found = getApiTokenById(db, token.id);
+    expect(found).not.toBeNull();
+    expect(found!.id).toBe(token.id);
+    expect(found!.userId).toBe(userId);
+    expect(found!.name).toBe("my-token");
+  });
+
+  it("returns null after revokeApiToken", () => {
+    const { token } = issueApiToken(db, { userId, name: "revoked-token" });
+    revokeApiToken(db, token.id);
+    expect(getApiTokenById(db, token.id)).toBeNull();
   });
 });

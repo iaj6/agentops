@@ -30,7 +30,7 @@ import {
 // Per-file DB mock. Each test gets a fresh :memory: DB via beforeEach
 // + setTestDb. The hoisted getter sees whatever was last set.
 
-const { getTestDb, setTestDb } = vi.hoisted(() => {
+const { getTestDb, setTestDb, dispatchWebhookEvent } = vi.hoisted(() => {
   let _db: AgentOpsDb | null = null;
   return {
     getTestDb: () => {
@@ -40,11 +40,16 @@ const { getTestDb, setTestDb } = vi.hoisted(() => {
     setTestDb: (db: AgentOpsDb) => {
       _db = db;
     },
+    dispatchWebhookEvent: vi.fn().mockResolvedValue(undefined),
   };
 });
 
 vi.mock("@/lib/db", () => ({
   db: () => getTestDb(),
+}));
+
+vi.mock("@/lib/webhook-dispatcher", () => ({
+  dispatchWebhookEvent,
 }));
 
 // Route imports must come AFTER vi.mock so they pick up the mocked db.
@@ -70,6 +75,7 @@ beforeEach(() => {
   alice = createUser(db, { email: "alice@example.com" });
   bob = createUser(db, { email: "bob@example.com" });
   admin = createUser(db, { email: "admin@example.com", role: "admin" });
+  dispatchWebhookEvent.mockClear();
 });
 
 // Helpers: pre-seed a run/session owned by a specific user, ready for
@@ -549,6 +555,13 @@ describe("POST /api/sdk/policy/check", () => {
     );
     expect(violation).toBeDefined();
     expect((violation!.payload as { toolName: string }).toolName).toBe("Bash");
+
+    // dispatchWebhookEvent must be called exactly once with the violation event.
+    expect(dispatchWebhookEvent).toHaveBeenCalledTimes(1);
+    expect(dispatchWebhookEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: "policy.violated" }),
+    );
   });
 
   it("does NOT emit policy.violated on allow", async () => {

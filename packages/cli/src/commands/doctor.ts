@@ -89,7 +89,7 @@ interface HookInstallStatus {
   readonly serverUrl?: string;
 }
 
-function readHookInstall(settingsPath: string): HookInstallStatus {
+export function readHookInstall(settingsPath: string): HookInstallStatus {
   if (!existsSync(settingsPath)) {
     return { path: settingsPath, installed: false, mode: null };
   }
