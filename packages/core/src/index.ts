@@ -108,6 +108,8 @@ export {
   failRun,
   blockRun,
   cancelRun,
+  isStaleRun,
+  RUN_STALE_THRESHOLD_MS,
 } from "./run.js";
 
 // Job builder (WS1)
@@ -139,6 +141,8 @@ export {
   updateHeartbeat,
   updateResourceUsage,
   terminateSession,
+  isStaleSession,
+  STALE_THRESHOLD_MS,
 } from "./session.js";
 
 // Event system (WS3)

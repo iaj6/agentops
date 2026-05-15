@@ -67,6 +67,34 @@ export function completeRun(run: Run, evaluation: Evaluation): Run {
   };
 }
 
+// ─── Staleness ───────────────────────────────────────────────────────────────
+//
+// Runs don't carry a heartbeat, but they do carry `updatedAt` which is
+// touched on every action recorded by the hook. A run that's been "running"
+// without any updates for a long time is almost certainly a crashed/
+// force-quit session — the hook never got to call finalizeRun.
+//
+// Threshold matches sessions (30 minutes by default) so the dashboard's
+// staleness story is consistent.
+
+/** Default staleness threshold in milliseconds. 30 minutes. */
+export const RUN_STALE_THRESHOLD_MS = 30 * 60 * 1000;
+
+/**
+ * Whether a run is "stale" — still in `running` status but hasn't been
+ * updated in a long time. Completed / failed / blocked runs are never stale.
+ */
+export function isStaleRun(
+  run: Run,
+  thresholdMs: number = RUN_STALE_THRESHOLD_MS,
+  now: number = Date.now(),
+): boolean {
+  if (run.status !== RunStatus.Running) return false;
+  const last = new Date(run.updatedAt).getTime();
+  if (Number.isNaN(last)) return false;
+  return now - last > thresholdMs;
+}
+
 export function failRun(run: Run, reason: string): Run {
   return {
     ...run,

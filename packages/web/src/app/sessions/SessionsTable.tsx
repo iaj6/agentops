@@ -3,8 +3,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import type { Session } from "@agentops/core";
-import { SessionStatus } from "@agentops/core";
+import { SessionStatus, isStaleSession } from "@agentops/core";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
+import { StaleBadge } from "@/components/StaleBadge";
 import { UserChip, type UserSummary } from "@/components/UserChip";
 import { useSessions } from "@/hooks/useSessions";
 import Link from "next/link";
@@ -254,7 +255,10 @@ export function SessionsTable({
                     </Link>
                   </td>
                   <td className="px-4 py-3">
-                    <SessionStatusBadge status={session.status} />
+                    <span className="inline-flex items-center gap-1.5">
+                      <SessionStatusBadge status={session.status} />
+                      {isStaleSession(session) && <StaleBadge compact />}
+                    </span>
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-muted">
                     {session.agentId as string}

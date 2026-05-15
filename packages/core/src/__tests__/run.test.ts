@@ -8,6 +8,8 @@ import {
   failRun,
   blockRun,
   cancelRun,
+  isStaleRun,
+  RUN_STALE_THRESHOLD_MS,
 } from "../run.js";
 import { RunStatus, DecisionType, createActionId, createArtifactId } from "../types.js";
 import type { Action, Artifact, Evaluation, Run } from "../types.js";
@@ -174,5 +176,35 @@ describe("cancelRun", () => {
     const cancelled = cancelRun(run);
 
     expect(cancelled.status).toBe(RunStatus.Cancelled);
+  });
+});
+
+describe("isStaleRun", () => {
+  it("returns false for a fresh running run", () => {
+    const run = startRun(createRun(testGoal, testEnv));
+    expect(isStaleRun(run)).toBe(false);
+  });
+
+  it("returns true when updatedAt is older than the threshold", () => {
+    const run = startRun(createRun(testGoal, testEnv));
+    const stale: Run = {
+      ...run,
+      updatedAt: new Date(Date.now() - RUN_STALE_THRESHOLD_MS - 60_000).toISOString(),
+    };
+    expect(isStaleRun(stale)).toBe(true);
+  });
+
+  it("never marks a completed run as stale", () => {
+    const evaluation: Evaluation = {
+      testResults: [],
+      policyChecks: [],
+      confidenceScore: 1,
+    };
+    const completed = completeRun(startRun(createRun(testGoal, testEnv)), evaluation);
+    const old: Run = {
+      ...completed,
+      updatedAt: new Date(Date.now() - RUN_STALE_THRESHOLD_MS - 60_000).toISOString(),
+    };
+    expect(isStaleRun(old)).toBe(false);
   });
 });

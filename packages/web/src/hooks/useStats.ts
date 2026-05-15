@@ -3,10 +3,16 @@
 import { useState, useEffect, useCallback } from "react";
 
 interface StatsData {
-  runs: { total: number; running: number; successRate: number; avgDuration: number };
+  runs: {
+    total: number;
+    running: number;
+    stale: number;
+    successRate: number;
+    avgDuration: number;
+  };
   summary: { runsToday: number; runsThisWeek: number; topRepos: { repo: string; count: number }[] };
   cost: { total: number; today: number; week: number };
-  sessions: { active: number; terminated: number };
+  sessions: { active: number; terminated: number; stale: number };
   events: { last24h: number; lastHour: number };
 }
 

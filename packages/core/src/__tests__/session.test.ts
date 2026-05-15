@@ -7,6 +7,8 @@ import {
   updateHeartbeat,
   updateResourceUsage,
   terminateSession,
+  isStaleSession,
+  STALE_THRESHOLD_MS,
 } from "../session.js";
 import { SessionStatus, createRunId } from "../types.js";
 import type { Session, ResourceUsage } from "../types.js";
@@ -135,5 +137,39 @@ describe("terminateSession", () => {
 
     expect(terminated.status).toBe(SessionStatus.Terminated);
     expect(terminated.terminatedAt).toBeTruthy();
+  });
+});
+
+describe("isStaleSession", () => {
+  it("returns false for a fresh active session", () => {
+    const session = activateSession(createSession("agent_1"));
+    expect(isStaleSession(session)).toBe(false);
+  });
+
+  it("returns true when lastHeartbeatAt is older than the threshold", () => {
+    const old = new Date(Date.now() - STALE_THRESHOLD_MS - 60_000).toISOString();
+    const session: Session = {
+      ...activateSession(createSession("agent_1")),
+      lastHeartbeatAt: old,
+    };
+    expect(isStaleSession(session)).toBe(true);
+  });
+
+  it("never marks a terminated session as stale", () => {
+    const old = new Date(Date.now() - STALE_THRESHOLD_MS - 60_000).toISOString();
+    const session: Session = {
+      ...terminateSession(activateSession(createSession("agent_1"))),
+      lastHeartbeatAt: old,
+    };
+    expect(isStaleSession(session)).toBe(false);
+  });
+
+  it("respects a custom threshold", () => {
+    const session: Session = {
+      ...activateSession(createSession("agent_1")),
+      lastHeartbeatAt: new Date(Date.now() - 5_000).toISOString(),
+    };
+    expect(isStaleSession(session, 1_000)).toBe(true);
+    expect(isStaleSession(session, 10_000)).toBe(false);
   });
 });

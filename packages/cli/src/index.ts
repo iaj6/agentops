@@ -21,6 +21,7 @@ import { registerHookCommand } from "./commands/hook.js";
 import { registerUserCommands } from "./commands/user.js";
 import { registerLoginCommands } from "./commands/login.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
+import { registerCleanupCommand } from "./commands/cleanup.js";
 
 const program = new Command();
 
@@ -50,5 +51,6 @@ registerHookCommand(program);
 registerUserCommands(program);
 registerLoginCommands(program);
 registerDoctorCommand(program);
+registerCleanupCommand(program);
 
 program.parse();

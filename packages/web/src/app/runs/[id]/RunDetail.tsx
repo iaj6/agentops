@@ -10,6 +10,8 @@ import { ActionTimeline } from "@/components/ActionTimeline";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { SummaryTab } from "@/components/SummaryTab";
 import { UserChip, type UserSummary } from "@/components/UserChip";
+import { StaleBadge } from "@/components/StaleBadge";
+import { isStaleRun } from "@agentops/core";
 import { useRunDetail } from "@/hooks/useRunDetail";
 import Link from "next/link";
 
@@ -86,6 +88,7 @@ export function RunDetail({
             {(displayRun.id as string).slice(0, 12)}
           </h1>
           <StatusBadge status={displayRun.status} />
+          {isStaleRun(displayRun) && <StaleBadge />}
           {owner !== undefined && <UserChip user={owner} />}
         </div>
         <p className="mt-1 text-sm text-foreground">{displayRun.goal.humanReadable}</p>

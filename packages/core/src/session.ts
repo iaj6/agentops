@@ -94,3 +94,37 @@ export function terminateSession(session: Session): Session {
     updatedAt: timestamp,
   };
 }
+
+// ─── Staleness ───────────────────────────────────────────────────────────────
+//
+// "Stale" = a session/run is still in a live status (active or running) but
+// the hook hasn't checked in for a long time. Almost always means the
+// underlying Claude Code session crashed, was force-quit, or pre-dates the
+// SessionEnd hook being installed. These records inflate "Running Now"
+// counts misleadingly until someone reaps them.
+//
+// The threshold is intentionally generous (30 minutes) — a real long-running
+// agent should be heartbeating much more often than that, and we want to
+// avoid false positives on the dashboard.
+
+/** Default staleness threshold in milliseconds. 30 minutes. */
+export const STALE_THRESHOLD_MS = 30 * 60 * 1000;
+
+/**
+ * Whether a session is "stale" — still active but hasn't heartbeat in a long
+ * time. Terminated sessions are never stale (they finished cleanly).
+ *
+ * @param now reference timestamp in ms (defaults to Date.now()). Pass-through
+ *   makes the function deterministic for tests and consistent across a batch
+ *   of staleness checks evaluated in one loop.
+ */
+export function isStaleSession(
+  session: Session,
+  thresholdMs: number = STALE_THRESHOLD_MS,
+  now: number = Date.now(),
+): boolean {
+  if (session.status !== SessionStatus.Active) return false;
+  const last = new Date(session.lastHeartbeatAt).getTime();
+  if (Number.isNaN(last)) return false;
+  return now - last > thresholdMs;
+}

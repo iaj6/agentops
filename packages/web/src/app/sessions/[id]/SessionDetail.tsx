@@ -3,7 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Session, Run } from "@agentops/core";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
+import { StaleBadge } from "@/components/StaleBadge";
 import { UserChip, type UserSummary } from "@/components/UserChip";
+import { isStaleSession } from "@agentops/core";
 import { toast } from "@/hooks/useToast";
 import Link from "next/link";
 
@@ -259,6 +261,7 @@ export function SessionDetail({
             {(session.id as string).slice(0, 16)}
           </h1>
           <SessionStatusBadge status={session.status} />
+          {isStaleSession(session) && <StaleBadge />}
           {owner !== undefined && <UserChip user={owner} />}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">

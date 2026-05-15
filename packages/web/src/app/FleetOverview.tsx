@@ -48,6 +48,7 @@ export function FleetOverview({ children }: { children: ReactNode }) {
         <MetricCard
           label="Running Now"
           value={String(stats.runs.running)}
+          sub={stats.runs.stale > 0 ? `${stats.runs.stale} stale` : undefined}
         />
         <MetricCard
           label="Success Rate"

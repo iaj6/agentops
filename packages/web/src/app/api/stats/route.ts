@@ -4,6 +4,7 @@ import {
   listSessions,
   countEvents,
 } from "@agentops/db";
+import { isStaleRun, isStaleSession } from "@agentops/core";
 import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,14 @@ export async function GET() {
     const runsWithSummaries = listRunsWithSummaries(d, { limit: 1000 });
     const runs = runsWithSummaries.map((r) => r.run);
     const totalRuns = runs.length;
-    const runningRuns = runs.filter((r) => r.status === "running").length;
+    // Split "running" into active + stale. The stale bucket exists because
+    // crashed sessions leave the run in "running" forever — counting them
+    // toward "Running Now" misleads the operator. Stale is defined by the
+    // core helper (~30 minutes without an update).
+    const nowMs = Date.now();
+    const runningAll = runs.filter((r) => r.status === "running");
+    const staleRunningRuns = runningAll.filter((r) => isStaleRun(r, undefined, nowMs)).length;
+    const runningRuns = runningAll.length - staleRunningRuns;
     const completedRuns = runs.filter((r) => r.status === "completed").length;
     const failedRuns = runs.filter((r) => r.status === "failed").length;
     const successRate =
@@ -59,7 +67,9 @@ export async function GET() {
 
     // Sessions
     const allSessions = listSessions(d, { limit: 10000 });
-    const sessActive = allSessions.filter((s) => s.status === "active").length;
+    const activeAll = allSessions.filter((s) => s.status === "active");
+    const sessStale = activeAll.filter((s) => isStaleSession(s, undefined, nowMs)).length;
+    const sessActive = activeAll.length - sessStale;
     const sessTerminated = allSessions.filter((s) => s.status === "terminated").length;
 
     // Events
@@ -72,6 +82,7 @@ export async function GET() {
       runs: {
         total: totalRuns,
         running: runningRuns,
+        stale: staleRunningRuns,
         successRate,
         avgDuration: Math.round(avgDuration),
       },
@@ -88,6 +99,7 @@ export async function GET() {
       sessions: {
         active: sessActive,
         terminated: sessTerminated,
+        stale: sessStale,
       },
       events: {
         last24h: eventsLast24h,
