@@ -1,4 +1,4 @@
-import { getRun, getRunSummary } from "@agentops/db";
+import { getRun, getRunSummary, getUserById } from "@agentops/db";
 import { createRunId } from "@agentops/core";
 import { db } from "@/lib/db";
 import { notFound, redirect } from "next/navigation";
@@ -33,10 +33,19 @@ export default async function RunPage({
 
   const summary = getRunSummary(d, runId);
 
+  // Resolve the run owner once on the server — the header chip wants
+  // the display name, not the raw userId. null userId is intentional
+  // (pre-auth records), so pass that through as null rather than skip.
+  const ownerUser = run.userId ? getUserById(d, run.userId as string) : null;
+  const owner = ownerUser
+    ? { id: ownerUser.id, email: ownerUser.email, name: ownerUser.name }
+    : null;
+
   return (
     <RunDetail
       run={JSON.parse(JSON.stringify(run))}
       initialSummary={summary ? JSON.parse(JSON.stringify(summary)) : null}
+      owner={owner}
     />
   );
 }

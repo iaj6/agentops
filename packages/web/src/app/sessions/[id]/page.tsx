@@ -1,4 +1,4 @@
-import { getSession } from "@agentops/db";
+import { getSession, getUserById } from "@agentops/db";
 import { createSessionId } from "@agentops/core";
 import { db } from "@/lib/db";
 import { notFound, redirect } from "next/navigation";
@@ -27,5 +27,17 @@ export default async function SessionPage({
     notFound();
   }
 
-  return <SessionDetail session={JSON.parse(JSON.stringify(session))} />;
+  const ownerUser = session.userId
+    ? getUserById(db(), session.userId as string)
+    : null;
+  const owner = ownerUser
+    ? { id: ownerUser.id, email: ownerUser.email, name: ownerUser.name }
+    : null;
+
+  return (
+    <SessionDetail
+      session={JSON.parse(JSON.stringify(session))}
+      owner={owner}
+    />
+  );
 }

@@ -9,6 +9,7 @@ import { DiffViewer } from "@/components/DiffViewer";
 import { ActionTimeline } from "@/components/ActionTimeline";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { SummaryTab } from "@/components/SummaryTab";
+import { UserChip, type UserSummary } from "@/components/UserChip";
 import { useRunDetail } from "@/hooks/useRunDetail";
 import Link from "next/link";
 
@@ -39,7 +40,15 @@ function formatTokens(n: number | undefined): string {
   return `${(n / 1_000_000).toFixed(2)}M`;
 }
 
-export function RunDetail({ run: initialRun, initialSummary }: { run: Run; initialSummary: SessionSummary | null }) {
+export function RunDetail({
+  run: initialRun,
+  initialSummary,
+  owner,
+}: {
+  run: Run;
+  initialSummary: SessionSummary | null;
+  owner?: UserSummary | null;
+}) {
   const { run: liveRun, summary: liveSummary, connected } = useRunDetail(
     initialRun.id as string,
     initialRun,
@@ -77,6 +86,7 @@ export function RunDetail({ run: initialRun, initialSummary }: { run: Run; initi
             {(displayRun.id as string).slice(0, 12)}
           </h1>
           <StatusBadge status={displayRun.status} />
+          {owner !== undefined && <UserChip user={owner} />}
         </div>
         <p className="mt-1 text-sm text-foreground">{displayRun.goal.humanReadable}</p>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
