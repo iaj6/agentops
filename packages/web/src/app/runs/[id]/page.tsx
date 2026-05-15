@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { getRun, getRunSummary, getUserById } from "@agentops/db";
 import { createRunId } from "@agentops/core";
 import { db } from "@/lib/db";
@@ -6,6 +7,15 @@ import { getRequestUser } from "@/lib/auth";
 import { RunDetail } from "./RunDetail";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  return { title: `Run ${id.slice(0, 12)}` };
+}
 
 export default async function RunPage({
   params,

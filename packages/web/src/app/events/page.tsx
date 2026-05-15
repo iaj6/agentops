@@ -1,8 +1,13 @@
+import type { Metadata } from "next";
 import { listEvents } from "@agentops/db";
 import { db } from "@/lib/db";
 import { EventLog } from "./EventLog";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Events",
+};
 
 export default async function EventsPage() {
   const initialEvents = listEvents(db(), { limit: 100 });

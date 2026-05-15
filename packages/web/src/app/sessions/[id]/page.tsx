@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { getSession, getUserById } from "@agentops/db";
 import { createSessionId } from "@agentops/core";
 import { db } from "@/lib/db";
@@ -6,6 +7,15 @@ import { getRequestUser } from "@/lib/auth";
 import { SessionDetail } from "./SessionDetail";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  return { title: `Session ${id.slice(0, 12)}` };
+}
 
 export default async function SessionPage({
   params,

@@ -11,6 +11,7 @@ import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { SummaryTab } from "@/components/SummaryTab";
 import { UserChip, type UserSummary } from "@/components/UserChip";
 import { StaleBadge } from "@/components/StaleBadge";
+import { CopyButton } from "@/components/CopyButton";
 import { isStaleRun } from "@agentops/core";
 import { useRunDetail } from "@/hooks/useRunDetail";
 import Link from "next/link";
@@ -87,6 +88,7 @@ export function RunDetail({
           <h1 className="font-mono text-lg font-semibold text-foreground">
             {(displayRun.id as string).slice(0, 12)}
           </h1>
+          <CopyButton value={displayRun.id as string} label="Copy ID" />
           <StatusBadge status={displayRun.status} />
           {isStaleRun(displayRun) && <StaleBadge />}
           {owner !== undefined && <UserChip user={owner} />}

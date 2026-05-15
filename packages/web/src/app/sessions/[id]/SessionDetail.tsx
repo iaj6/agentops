@@ -5,6 +5,7 @@ import type { Session, Run } from "@agentops/core";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import { StaleBadge } from "@/components/StaleBadge";
 import { UserChip, type UserSummary } from "@/components/UserChip";
+import { CopyButton } from "@/components/CopyButton";
 import { isStaleSession } from "@agentops/core";
 import { toast } from "@/hooks/useToast";
 import Link from "next/link";
@@ -260,6 +261,7 @@ export function SessionDetail({
           <h1 className="font-mono text-lg font-semibold text-foreground">
             {(session.id as string).slice(0, 16)}
           </h1>
+          <CopyButton value={session.id as string} label="Copy ID" />
           <SessionStatusBadge status={session.status} />
           {isStaleSession(session) && <StaleBadge />}
           {owner !== undefined && <UserChip user={owner} />}

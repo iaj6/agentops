@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { listSessions, listUsers } from "@agentops/db";
@@ -6,6 +7,10 @@ import { getRequestUser, resolveViewScope } from "@/lib/auth";
 import { SessionsTable } from "./SessionsTable";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Sessions",
+};
 
 export default async function SessionsPage({
   searchParams,

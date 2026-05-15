@@ -56,10 +56,17 @@ export function EventLog({ initialEvents }: { initialEvents: AgentEvent[] }) {
       .catch(() => {});
   }, []);
 
+  // Send the time-range cutoff to the server so "X shown / Y total"
+  // reflects the actual filtered population, not just the 100 events the
+  // client happened to load.
+  const sinceISO =
+    timeRange > 0 ? new Date(Date.now() - timeRange).toISOString() : undefined;
+
   const { events, loading, connected, total } = useEvents({
     category: category || undefined,
     type: typeFilter || undefined,
     userId: userId || undefined,
+    since: sinceISO,
   });
 
   const displayEvents = events.length > 0 ? events : initialEvents;

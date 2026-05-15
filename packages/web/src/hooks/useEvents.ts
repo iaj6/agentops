@@ -8,6 +8,8 @@ interface UseEventsOptions {
   category?: string;
   type?: string;
   userId?: string;
+  /** Cutoff ISO timestamp; events older than this are excluded server-side. */
+  since?: string;
 }
 
 interface UseEventsReturn {
@@ -18,7 +20,7 @@ interface UseEventsReturn {
 }
 
 export function useEvents(options: UseEventsOptions = {}): UseEventsReturn {
-  const { category, type, userId } = options;
+  const { category, type, userId, since } = options;
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -32,6 +34,7 @@ export function useEvents(options: UseEventsOptions = {}): UseEventsReturn {
         if (category) params.set("category", category);
         if (type) params.set("type", type);
         if (userId) params.set("userId", userId);
+        if (since) params.set("since", since);
         params.set("limit", "100");
 
         const res = await fetch(`/api/events/list?${params.toString()}`);
@@ -48,7 +51,7 @@ export function useEvents(options: UseEventsOptions = {}): UseEventsReturn {
     return () => {
       cancelled = true;
     };
-  }, [category, type, userId]);
+  }, [category, type, userId, since]);
 
   const onEvent = useCallback(
     (event: SSEEvent) => {
