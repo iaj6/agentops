@@ -7,6 +7,7 @@ import {
 } from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -144,5 +145,10 @@ export async function DELETE(
     return NextResponse.json({ error: "Webhook not found" }, { status: 404 });
   }
   deleteWebhook(db(), id);
+  recordAudit(req, user.id, AUDIT_ACTIONS.WEBHOOK_DELETED, {
+    targetType: "webhook",
+    targetId: id,
+    metadata: { url: existing.url },
+  });
   return NextResponse.json({ ok: true });
 }

@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { insertWebhook, listWebhooks, type Webhook } from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +104,12 @@ export async function POST(req: NextRequest) {
     secret,
     events,
     enabled: true,
+  });
+
+  recordAudit(req, user.id, AUDIT_ACTIONS.WEBHOOK_CREATED, {
+    targetType: "webhook",
+    targetId: id,
+    metadata: { url: body.url, events },
   });
 
   return NextResponse.json(

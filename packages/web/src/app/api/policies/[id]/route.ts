@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPolicy, updatePolicy, deletePolicy, getPolicyStats } from "@agentops/db";
 import { createPolicyId } from "@agentops/core";
 import { db } from "@/lib/db";
+import { getRequestUser } from "@/lib/auth";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +55,25 @@ export async function PATCH(
 
     updatePolicy(database, policyId, updates);
 
+    const me = await getRequestUser(request);
+    // A PATCH that toggles `enabled` is the dashboard's
+    // toggle-switch click; emit a distinct action so the audit page
+    // surfaces it cleanly. Other PATCHes are general edits.
+    const isOnlyToggle =
+      Object.keys(updates).length === 1 && "enabled" in updates;
+    recordAudit(
+      request,
+      me?.id ?? null,
+      isOnlyToggle ? AUDIT_ACTIONS.POLICY_TOGGLED : AUDIT_ACTIONS.POLICY_UPDATED,
+      {
+        targetType: "policy",
+        targetId: policyId as string,
+        metadata: isOnlyToggle
+          ? { enabled: updates.enabled, name: existing.name }
+          : { fields: Object.keys(updates), name: existing.name },
+      },
+    );
+
     const updated = getPolicy(database, policyId);
     return NextResponse.json(updated);
   } catch (error) {
@@ -90,6 +111,13 @@ export async function PUT(
 
     updatePolicy(database, policyId, { name, config, severity, enabled });
 
+    const me = await getRequestUser(request);
+    recordAudit(request, me?.id ?? null, AUDIT_ACTIONS.POLICY_UPDATED, {
+      targetType: "policy",
+      targetId: policyId as string,
+      metadata: { name, severity, fullReplace: true },
+    });
+
     const updated = getPolicy(database, policyId);
     return NextResponse.json(updated);
   } catch (error) {
@@ -102,7 +130,7 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -116,6 +144,12 @@ export async function DELETE(
     }
 
     deletePolicy(database, policyId);
+    const me = await getRequestUser(request);
+    recordAudit(request, me?.id ?? null, AUDIT_ACTIONS.POLICY_DELETED, {
+      targetType: "policy",
+      targetId: policyId as string,
+      metadata: { name: existing.name, type: existing.type },
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("API error:", error);

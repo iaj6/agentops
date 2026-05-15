@@ -4,6 +4,7 @@ import { getWebhook } from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { dispatchWebhookEvent } from "@/lib/webhook-dispatcher";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,12 @@ export async function POST(
   // resulting status — test pings are user-driven, the user wants a
   // synchronous "did it work" answer.
   await dispatchWebhookEvent(db(), testEvent);
+
+  recordAudit(req, user.id, AUDIT_ACTIONS.WEBHOOK_TEST_SENT, {
+    targetType: "webhook",
+    targetId: id,
+    metadata: { url: webhook.url, eventId: testEvent.id },
+  });
 
   return NextResponse.json({ ok: true, eventId: testEvent.id });
 }

@@ -6,6 +6,7 @@ import {
 } from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -61,5 +62,9 @@ export async function POST(req: NextRequest) {
   }
 
   setUserPassword(db(), user.id, body.newPassword);
+  recordAudit(req, user.id, AUDIT_ACTIONS.PASSWORD_CHANGED, {
+    targetType: "user",
+    targetId: user.id,
+  });
   return NextResponse.json({ status: "ok" });
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getApiTokenById, revokeApiToken } from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -27,5 +28,10 @@ export async function DELETE(
   }
 
   revokeApiToken(d, id);
+  recordAudit(request, me.id, AUDIT_ACTIONS.TOKEN_REVOKED, {
+    targetType: "token",
+    targetId: id,
+    metadata: { tokenName: token.name, ownerId: token.userId },
+  });
   return NextResponse.json({ ok: true });
 }

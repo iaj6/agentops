@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { getUserByEmail, insertUser, listUsers } from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +81,12 @@ export async function POST(request: NextRequest) {
     password: tempPassword,
     role: requestedRole,
     mustChangePassword: true,
+  });
+
+  recordAudit(request, me.id, AUDIT_ACTIONS.USER_ADDED, {
+    targetType: "user",
+    targetId: created.id,
+    metadata: { email: created.email, role: created.role, invitedByEmail: me.email },
   });
 
   return NextResponse.json(

@@ -233,3 +233,24 @@ export const webhookDeliveries = sqliteTable("webhook_deliveries", {
   createdAt: text("created_at").notNull(),
   completedAt: text("completed_at").notNull(),
 });
+
+// ─── Audit log table ────────────────────────────────────────────────────────
+//
+// One row per sensitive operation. userId is nullable because some
+// actions are taken pre-auth (user.login from anonymous → resolves to
+// the user on success) or by the system (cron-style cleanup jobs).
+// `action` is a dotted string ("user.login", "policy.created", etc.).
+// `targetType` + `targetId` reference the affected resource. `metadata`
+// is a freeform JSON column for action-specific extra context (the new
+// role on a permission change, the policy diff on an update, etc.).
+
+export const auditLog = sqliteTable("audit_log", {
+  id: text("id").primaryKey(),
+  timestamp: text("timestamp").notNull(),
+  userId: text("user_id"),
+  action: text("action").notNull(),
+  targetType: text("target_type"),
+  targetId: text("target_id"),
+  ip: text("ip"),
+  metadata: text("metadata", { mode: "json" }),
+});

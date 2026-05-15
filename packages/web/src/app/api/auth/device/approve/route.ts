@@ -7,6 +7,7 @@ import {
 } from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,10 @@ export async function POST(req: NextRequest) {
   const action = body.action === "deny" ? "deny" : "approve";
   if (action === "deny") {
     denyDeviceCode(db(), userCode);
+    recordAudit(req, user.id, AUDIT_ACTIONS.DEVICE_DENIED, {
+      targetType: "device_code",
+      targetId: userCode,
+    });
     return NextResponse.json({ status: "denied" });
   }
 
@@ -80,6 +85,17 @@ export async function POST(req: NextRequest) {
       { status: 409 },
     );
   }
+
+  recordAudit(req, user.id, AUDIT_ACTIONS.DEVICE_APPROVED, {
+    targetType: "device_code",
+    targetId: userCode,
+    metadata: { tokenId: token.id, tokenName },
+  });
+  recordAudit(req, user.id, AUDIT_ACTIONS.TOKEN_ISSUED, {
+    targetType: "token",
+    targetId: token.id,
+    metadata: { name: tokenName, source: "device_flow" },
+  });
 
   return NextResponse.json({ status: "approved", tokenName });
 }

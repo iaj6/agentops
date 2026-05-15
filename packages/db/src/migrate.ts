@@ -250,6 +250,25 @@ export function migrate(sqlite: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_created_at ON webhook_deliveries(created_at);
   `);
 
+  // ─── Audit log table (Phase C) ───────────────────────────────────────────
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id TEXT PRIMARY KEY,
+      timestamp TEXT NOT NULL,
+      user_id TEXT,
+      action TEXT NOT NULL,
+      target_type TEXT,
+      target_id TEXT,
+      ip TEXT,
+      metadata TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_user_id ON audit_log(user_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+  `);
+
   // Add pending_raw_token column to existing device_codes tables (safe to
   // run multiple times). Forward-additive migration for any pre-2.3 DBs.
   try {

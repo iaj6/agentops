@@ -60,6 +60,14 @@ export type { SearchRunsFilters, RunWithSummary } from "./runs.js";
 // Policy repository
 export { insertPolicy, insertPolicyResult, listPolicies, getPolicyResults, getPolicy, updatePolicy, deletePolicy, getPolicyStats, getPolicyResultsForPolicy } from "./policies.js";
 
+// Audit log (Phase C)
+export {
+  insertAuditLog,
+  listAuditLogs,
+  countAuditLogs,
+} from "./audit.js";
+export type { AuditLogEntry, InsertAuditLogArgs, ListAuditLogsFilters } from "./audit.js";
+
 // Job repository (WS1)
 export { insertJob, getJob, listJobs, updateJob, countJobsByRepo, countJobsActive, getQueuedJobs } from "./jobs.js";
 

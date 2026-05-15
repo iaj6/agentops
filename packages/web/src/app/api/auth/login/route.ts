@@ -6,6 +6,7 @@ import {
 } from "@agentops/db";
 import { db } from "@/lib/db";
 import { SESSION_COOKIE_NAME } from "@/lib/auth";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,10 @@ export async function POST(req: NextRequest) {
   }
 
   const session = createAuthSession(db(), found.user.id);
+  recordAudit(req, found.user.id, AUDIT_ACTIONS.USER_LOGIN, {
+    targetType: "user",
+    targetId: found.user.id,
+  });
   const res = NextResponse.json({
     user: {
       id: found.user.id,

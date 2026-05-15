@@ -5,6 +5,7 @@ import { AdminApiStatus } from "./AdminApiStatus";
 import { WebhooksSection } from "./WebhooksSection";
 import { UsersSection } from "./UsersSection";
 import { ApiTokensSection } from "./ApiTokensSection";
+import { AuditSection } from "./AuditSection";
 
 export const metadata: Metadata = {
   title: "Settings",
@@ -31,6 +32,8 @@ export default async function SettingsPage() {
         <UsersSection meRole={role} />
 
         <ApiTokensSection meRole={role} />
+
+        {role === "admin" && <AuditSection />}
 
         <WebhooksSection />
 

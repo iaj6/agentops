@@ -3,6 +3,8 @@ import { listPolicies, insertPolicy, getPolicyStats } from "@agentops/db";
 import { createPolicyId, PolicyType, PolicySeverity } from "@agentops/core";
 import { db } from "@/lib/db";
 import { randomUUID } from "node:crypto";
+import { getRequestUser } from "@/lib/auth";
+import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +72,13 @@ export async function POST(request: NextRequest) {
       severity: severity as PolicySeverity,
       enabled: true,
       createdAt: new Date().toISOString(),
+    });
+
+    const me = await getRequestUser(request);
+    recordAudit(request, me?.id ?? null, AUDIT_ACTIONS.POLICY_CREATED, {
+      targetType: "policy",
+      targetId: id as string,
+      metadata: { name, type, severity },
     });
 
     return NextResponse.json({ id, name, type, config, severity, enabled: true }, { status: 201 });
