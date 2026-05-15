@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { listRuns } from "@agentops/db";
+import { listRuns, listUsers } from "@agentops/db";
 import { db } from "@/lib/db";
 import { AnalyticsDashboard } from "./AnalyticsDashboard";
 
@@ -17,9 +17,18 @@ export default function AnalyticsPage() {
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
+  // Resolve userId → display name once; pre-auth records aggregate
+  // under "system".
+  const users = listUsers(d);
+  const userById = new Map<string, { email: string; name: string | null }>();
+  for (const u of users) {
+    userById.set(u.id, { email: u.email, name: u.name });
+  }
+
   // Build daily success/failure counts
   const dailyCounts = new Map<string, { completed: number; failed: number }>();
   const repoCounts = new Map<string, { count: number; cost: number }>();
+  const userAgg = new Map<string, { count: number; cost: number; label: string }>();
 
   for (let i = 0; i < 30; i++) {
     const dd = new Date(thirtyDaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
@@ -40,6 +49,19 @@ export default function AnalyticsPage() {
     repoEntry.cost += cost;
     repoCounts.set(repo, repoEntry);
     totalCostAllTime += cost;
+
+    // Per-user aggregation. Pre-auth runs (userId === null) bucket
+    // under a synthetic "system" key so the admin can see how much
+    // activity predates auth being wired up.
+    const userKey = run.userId ? (run.userId as string) : "__system__";
+    if (!userAgg.has(userKey)) {
+      const resolved = run.userId ? userById.get(run.userId as string) : null;
+      const label = resolved?.name ?? resolved?.email ?? "system";
+      userAgg.set(userKey, { count: 0, cost: 0, label });
+    }
+    const userEntry = userAgg.get(userKey)!;
+    userEntry.count++;
+    userEntry.cost += cost;
 
     if (created >= thirtyDaysAgo) {
       totalCost30d += cost;
@@ -62,6 +84,11 @@ export default function AnalyticsPage() {
       count: stats.count,
       cost: stats.cost,
     }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  const topUsers = Array.from(userAgg.values())
+    .map((u) => ({ label: u.label, count: u.count, cost: u.cost }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 
@@ -97,6 +124,7 @@ export default function AnalyticsPage() {
     <AnalyticsDashboard
       successData={successData}
       topRepos={topRepos}
+      topUsers={topUsers}
       totalRuns={runs.length}
       totalCompleted={totalCompleted}
       totalFailed={totalFailed}

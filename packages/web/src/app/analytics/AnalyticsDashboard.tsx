@@ -7,6 +7,7 @@ import { SuccessChart } from "@/components/SuccessChart";
 interface Props {
   successData: { date: string; completed: number; failed: number }[];
   topRepos: { repo: string; count: number; cost: number }[];
+  topUsers: { label: string; count: number; cost: number }[];
   totalRuns: number;
   totalCompleted: number;
   totalFailed: number;
@@ -58,6 +59,7 @@ interface CostPerDayEntry {
 export function AnalyticsDashboard({
   successData,
   topRepos,
+  topUsers,
   totalRuns,
   totalCompleted,
   totalFailed,
@@ -148,8 +150,49 @@ export function AnalyticsDashboard({
         }
       />
 
-      {/* Middle row: Top Repos + Files Changed */}
+      {/* Top Users + Top Repos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Top Users */}
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+            Top Users by Run Count
+          </h3>
+          <div className="space-y-2">
+            {topUsers.length === 0 ? (
+              <p className="text-sm text-muted">No user activity yet.</p>
+            ) : (
+              topUsers.map((user, i) => {
+                const maxCount = topUsers[0]?.count ?? 1;
+                const pct = (user.count / maxCount) * 100;
+                return (
+                  <div key={user.label} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-mono text-foreground">
+                        <span className="text-muted mr-2">#{i + 1}</span>
+                        {user.label}
+                      </span>
+                      <span className="text-xs text-muted">
+                        {user.count} runs
+                        {user.cost > 0 && (
+                          <span className="ml-3 font-mono text-foreground">
+                            · {formatCost(user.cost)}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="h-1 w-full rounded-full bg-surface-2">
+                      <div
+                        className="h-1 rounded-full bg-green"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
         {/* Top Repos */}
         <div className="rounded-lg border border-border bg-surface p-4">
           <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
@@ -186,15 +229,15 @@ export function AnalyticsDashboard({
             })}
           </div>
         </div>
-
-        {/* Files Changed Per Day */}
-        <DailyBarChart
-          title="Files Changed Per Day (30 days)"
-          data={filesChanged}
-          barColor="var(--accent)"
-          emptyMessage="No file edit data available."
-        />
       </div>
+
+      {/* Files Changed Per Day */}
+      <DailyBarChart
+        title="Files Changed Per Day (30 days)"
+        data={filesChanged}
+        barColor="var(--accent)"
+        emptyMessage="No file edit data available."
+      />
 
       {/* Bottom row: Policy Violations + Average Duration */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
