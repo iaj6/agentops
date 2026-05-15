@@ -33,6 +33,7 @@
     "LICENSE"
   ],
   "scripts": {
+    "prebuild": "node scripts/write-build-info.mjs",
     "build": "tsc",
     "test": "vitest run"
   },

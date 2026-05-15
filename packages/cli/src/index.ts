@@ -23,13 +23,21 @@ import { registerLoginCommands } from "./commands/login.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerCleanupCommand } from "./commands/cleanup.js";
 import { registerAdminCommands } from "./commands/admin.js";
+import { VERSION, GIT_SHA, DIRTY, BUILT_AT } from "./build-info.js";
 
 const program = new Command();
+
+// `agentops --version` returns the package version stitched with the
+// git short SHA, a -dirty marker when the build was made from a dirty
+// tree, and the build date. Makes "what version is this?" the first
+// thing every support conversation can answer.
+const versionString =
+  `${VERSION} (${GIT_SHA}${DIRTY ? "-dirty" : ""}, built ${BUILT_AT.slice(0, 10)})`;
 
 program
   .name("agentops")
   .description("AgentOps CLI - manage and observe agent runs")
-  .version("0.1.0")
+  .version(versionString)
   .option("--db-path <path>", "Path to the AgentOps database")
   .option("--json", "Output results as JSON");
 
