@@ -8,7 +8,26 @@ import Link from "next/link";
 
 const TERMINAL_STATUSES = new Set(["terminated"]);
 
-function CompletedRunsTable({ runIds }: { runIds: readonly string[] }) {
+function formatCost(usd: number): string {
+  if (usd === 0) return "$0.00";
+  if (usd < 0.01) return "<$0.01";
+  if (usd < 1000) return `$${usd.toFixed(2)}`;
+  return `$${usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+function formatTokens(n: number): string {
+  if (n < 1000) return n.toString();
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
+
+function CompletedRunsTable({
+  runIds,
+  onAggregate,
+}: {
+  runIds: readonly string[];
+  onAggregate?: (a: { costUsd: number; tokens: number; runsLoaded: number }) => void;
+}) {
   const [runs, setRuns] = useState<Map<string, Run>>(new Map());
   const [loading, setLoading] = useState(true);
 
@@ -37,13 +56,22 @@ function CompletedRunsTable({ runIds }: { runIds: readonly string[] }) {
       if (!cancelled) {
         setRuns(results);
         setLoading(false);
+        if (onAggregate) {
+          let costUsd = 0;
+          let tokens = 0;
+          for (const run of results.values()) {
+            costUsd += run.metrics?.costUsd ?? 0;
+            tokens += run.metrics?.tokenUsage?.total ?? 0;
+          }
+          onAggregate({ costUsd, tokens, runsLoaded: results.size });
+        }
       }
     }
     fetchRuns();
     return () => {
       cancelled = true;
     };
-  }, [runIds]);
+  }, [runIds, onAggregate]);
 
   if (runIds.length === 0) {
     return <p className="text-sm text-muted">No completed runs.</p>;
@@ -65,6 +93,7 @@ function CompletedRunsTable({ runIds }: { runIds: readonly string[] }) {
             <th className="pb-2 pr-4">Run ID</th>
             <th className="pb-2 pr-4">Status</th>
             <th className="pb-2 pr-4">Goal</th>
+            <th className="pb-2 pr-4 text-right">Cost</th>
             <th className="pb-2 text-right">Duration</th>
           </tr>
         </thead>
@@ -101,6 +130,11 @@ function CompletedRunsTable({ runIds }: { runIds: readonly string[] }) {
                 <td className="py-2 pr-4 max-w-[200px] truncate text-xs text-muted">
                   {run?.goal?.humanReadable ?? "-"}
                 </td>
+                <td className="py-2 pr-4 text-right font-mono text-xs text-foreground">
+                  {run?.metrics?.costUsd != null
+                    ? formatCost(run.metrics.costUsd)
+                    : "-"}
+                </td>
                 <td className="py-2 text-right font-mono text-xs text-foreground">
                   {run?.metrics?.wallTimeMs != null
                     ? `${Math.round(run.metrics.wallTimeMs / 1000)}s`
@@ -122,7 +156,21 @@ export function SessionDetail({
 }) {
   const [session, setSession] = useState<Session>(initialSession);
   const [actionLoading, setActionLoading] = useState(false);
+  const [runAggregate, setRunAggregate] = useState<{
+    costUsd: number;
+    tokens: number;
+    runsLoaded: number;
+  } | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Aggregator handler for CompletedRunsTable — stable identity so the
+  // child's useEffect doesn't refetch on every render.
+  const handleAggregate = useCallback(
+    (a: { costUsd: number; tokens: number; runsLoaded: number }) => {
+      setRunAggregate(a);
+    },
+    [],
+  );
 
   // Auto-refresh every 5s for active sessions
   useEffect(() => {
@@ -283,6 +331,50 @@ export function SessionDetail({
           </div>
         </div>
 
+        {/* Resource Usage — aggregated from completed run metrics. The
+            session.resourceUsage shape (memoryMb / cpuPercent / budgets)
+            is unpopulated by hook-driven runs and would render zeros,
+            so we surface the meaningful numbers here instead. */}
+        {session.completedRunIds.length > 0 && (
+          <div className="rounded-lg border border-border bg-surface p-4">
+            <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
+              Resource Usage
+            </h3>
+            {runAggregate ? (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                <div>
+                  <span className="text-muted">Total Cost: </span>
+                  <span className="font-mono text-foreground">
+                    {formatCost(runAggregate.costUsd)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted">Total Tokens: </span>
+                  <span className="font-mono text-foreground">
+                    {formatTokens(runAggregate.tokens)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted">Runs: </span>
+                  <span className="font-mono text-foreground">
+                    {runAggregate.runsLoaded} / {session.completedRunIds.length}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted">Avg / run: </span>
+                  <span className="font-mono text-foreground">
+                    {runAggregate.runsLoaded > 0
+                      ? formatCost(runAggregate.costUsd / runAggregate.runsLoaded)
+                      : "—"}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-muted">Computing…</p>
+            )}
+          </div>
+        )}
+
         {/* Current Run */}
         <div className="rounded-lg border border-border bg-surface p-4">
           <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted">
@@ -307,6 +399,7 @@ export function SessionDetail({
           </h3>
           <CompletedRunsTable
             runIds={session.completedRunIds.map((id) => id as string)}
+            onAggregate={handleAggregate}
           />
         </div>
 
