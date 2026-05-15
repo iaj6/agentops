@@ -19,10 +19,33 @@ function getSourceLink(sourceId: string): { href: string; label: string } | null
   return null;
 }
 
+/**
+ * Extract the set of policy IDs referenced by a policy.violated event
+ * so the EventCard can render direct links to /policies/<id>. The payload
+ * may carry either:
+ *   - `policyId` (string) — single-policy events (run-completion path)
+ *   - `policyIds` (string[]) — pre-tool path emits one event per fire
+ *     with possibly multiple violations
+ * Legacy events that pre-date B4/B8 carry neither; we render no link
+ * for those and the user can still expand the payload to see the name.
+ */
+function getPolicyLinks(payload: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  if (typeof payload.policyId === "string") out.push(payload.policyId);
+  if (Array.isArray(payload.policyIds)) {
+    for (const id of payload.policyIds) {
+      if (typeof id === "string" && !out.includes(id)) out.push(id);
+    }
+  }
+  return out;
+}
+
 export function EventCard({ event }: { event: AgentEvent }) {
   const [expanded, setExpanded] = useState(false);
   const hasPayload = Object.keys(event.payload).length > 0;
   const sourceLink = getSourceLink(event.sourceId);
+  const policyLinks =
+    event.type === "policy.violated" ? getPolicyLinks(event.payload) : [];
 
   return (
     <div
@@ -46,7 +69,7 @@ export function EventCard({ event }: { event: AgentEvent }) {
               </svg>
             )}
           </div>
-          <div className="flex items-center gap-4 text-xs text-muted">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
             <span>
               Source:{" "}
               {sourceLink ? (
@@ -61,6 +84,23 @@ export function EventCard({ event }: { event: AgentEvent }) {
                 event.sourceId
               )}
             </span>
+            {policyLinks.length > 0 && (
+              <span>
+                Polic{policyLinks.length === 1 ? "y" : "ies"}:{" "}
+                {policyLinks.map((id, i) => (
+                  <span key={id}>
+                    {i > 0 && ", "}
+                    <Link
+                      href={`/policies/${id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-accent hover:underline"
+                    >
+                      {id}
+                    </Link>
+                  </span>
+                ))}
+              </span>
+            )}
             <TimeAgo date={event.timestamp} />
           </div>
         </div>

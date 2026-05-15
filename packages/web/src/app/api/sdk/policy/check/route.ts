@@ -101,6 +101,15 @@ export async function POST(request: NextRequest) {
       // event feed and webhook subscribers see the block. Without this,
       // SDK-mode pre-tool blocks would be invisible in the audit trail
       // (only run.complete's final policy check would fire webhooks).
+      // Resolve violation names → IDs once and stash the IDs on the
+      // event payload so the EventCard (and downstream consumers) can
+      // cross-link to /policies/<id> without a name → id lookup.
+      const policyIdByName = new Map<string, string>();
+      for (const p of activePolicies) policyIdByName.set(p.name, p.id as string);
+      const policyIds = errors
+        .map((v) => policyIdByName.get(v.policy))
+        .filter((id): id is string => !!id);
+
       const violationEvent = createEvent(
         EventCategory.Policy,
         EVENT_TYPES["policy.violated"],
@@ -110,6 +119,7 @@ export async function POST(request: NextRequest) {
           toolName: body.toolName,
           toolInput: Object.keys((body.toolInput as Record<string, unknown>) ?? {}),
           violations: errors,
+          policyIds,
         },
       );
       insertEvent(db(), violationEvent);
@@ -124,13 +134,8 @@ export async function POST(request: NextRequest) {
       // detail page's Evaluation History accumulates the live block
       // trail (B4). One row per fired policy — same shape used by the
       // run-completion rollup so the page can group by policyId
-      // without distinguishing source.
-      //
-      // PolicyViolation.policy holds the policy NAME (a string the
-      // hook displays); resolve it back to the FK-valid policy ID
-      // via the activePolicies list we already loaded.
-      const policyIdByName = new Map<string, string>();
-      for (const p of activePolicies) policyIdByName.set(p.name, p.id as string);
+      // without distinguishing source. Reuses policyIdByName from the
+      // event-emission step above.
       const now = new Date().toISOString();
       for (const v of errors) {
         const policyId = policyIdByName.get(v.policy);

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { PolicyType, PolicyMode, getPolicyMode } from "@agentops/core";
 import type { Policy } from "@agentops/core";
 import { toast } from "@/hooks/useToast";
+import { summarizePolicyConfig } from "@/lib/policy-summary";
 import { CreatePolicyForm } from "./CreatePolicyForm";
 
 type PolicyWithMeta = Policy & {
@@ -327,8 +328,11 @@ export function PoliciesList({
                     <span className="text-xs text-muted">No data</span>
                   )}
                 </td>
-                <td className="max-w-xs px-4 py-3 font-mono text-xs text-muted truncate">
-                  {JSON.stringify(policy.config)}
+                <td
+                  className="max-w-xs px-4 py-3 text-xs text-muted truncate"
+                  title={JSON.stringify(policy.config, null, 2)}
+                >
+                  {summarizePolicyConfig(policy.config)}
                 </td>
                 <td className="px-4 py-3">
                   <ToggleSwitch

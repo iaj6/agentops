@@ -118,14 +118,30 @@ function readHookInstall(settingsPath: string): HookInstallStatus {
     if (!found) {
       return { path: settingsPath, installed: false, mode: null };
     }
-    // Mode: prefixed with AGENTOPS_SERVER_URL= → SDK; otherwise local.
-    const m = /AGENTOPS_SERVER_URL=(\S+)\s+agentops hook/.exec(found);
-    if (m && m[1]) {
+    // Mode resolution mirrors hook-ops.resolveOpsConfig():
+    //   1. AGENTOPS_SERVER_URL= prefix in the settings command → SDK
+    //   2. Otherwise consult credentials.json — if it has both a server
+    //      URL and a token, the hook runtime will pick SDK mode
+    //   3. Otherwise local
+    // Previously this only checked the env-var prefix, so a standard
+    // `agentops setup` install (no prefix) reported "local-SQLite" even
+    // when credentials.json was driving the hook into SDK mode.
+    const envPrefix = /AGENTOPS_SERVER_URL=(\S+)\s+agentops hook/.exec(found);
+    if (envPrefix && envPrefix[1]) {
       return {
         path: settingsPath,
         installed: true,
         mode: "sdk",
-        serverUrl: m[1],
+        serverUrl: envPrefix[1],
+      };
+    }
+    const creds = readCredentials();
+    if (creds?.server && creds.token) {
+      return {
+        path: settingsPath,
+        installed: true,
+        mode: "sdk",
+        serverUrl: creds.server,
       };
     }
     return { path: settingsPath, installed: true, mode: "local" };

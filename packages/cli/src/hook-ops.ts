@@ -238,22 +238,26 @@ class DirectOps implements HookOps {
     const warnings = violations.filter((v) => v.severity !== PolicySeverity.Error);
 
     if (errors.length > 0) {
+      // Resolve violation names → policy IDs once; used for both the
+      // event payload (so the EventCard / webhooks can cross-link) and
+      // the policy_result row inserts further down.
+      const policyIdByName = new Map<string, string>();
+      for (const p of activePolicies) policyIdByName.set(p.name, p.id as string);
+      const policyIds = errors
+        .map((v) => policyIdByName.get(v.policy))
+        .filter((id): id is string => !!id);
+
       insertEvent(
         db,
         createEvent(EventCategory.Policy, EVENT_TYPES["policy.violated"], args.runId, {
           toolName: args.toolName,
           toolInput: Object.keys(args.toolInput),
           violations: errors,
+          policyIds,
         }),
       );
 
-      // Also persist a policy_result row per violation so the Policy
-      // detail page's Evaluation History accumulates the live block
-      // trail (B4). Mirrors the SDK route. PolicyViolation.policy is
-      // the policy NAME — resolve to the FK-valid policy ID via the
-      // activePolicies list we already loaded.
-      const policyIdByName = new Map<string, string>();
-      for (const p of activePolicies) policyIdByName.set(p.name, p.id as string);
+      // Persist a policy_result row per violation (B4 live block trail).
       const now = new Date().toISOString();
       for (const v of errors) {
         const policyId = policyIdByName.get(v.policy);

@@ -110,7 +110,12 @@ export async function POST(
           EventCategory.Policy,
           EVENT_TYPES["policy.violated"],
           completed.id as string,
-          { runId: completed.id, policy: result.policy.name, message: result.message },
+          {
+            runId: completed.id,
+            policy: result.policy.name,
+            policyId: result.policy.id,
+            message: result.message,
+          },
         );
         insertEvent(db(), violationEvent);
         void dispatchWebhookEvent(db(), {
