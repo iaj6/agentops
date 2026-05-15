@@ -625,6 +625,186 @@ describe("handleSubagentStop", () => {
   });
 });
 
+// ─── Fail-closed enforcement (AGENTOPS_FAIL_CLOSED=1) ──────────────────────
+
+describe("AGENTOPS_FAIL_CLOSED behaviour", () => {
+  let savedFailClosed: string | undefined;
+
+  beforeEach(() => {
+    savedFailClosed = process.env["AGENTOPS_FAIL_CLOSED"];
+  });
+
+  afterEach(() => {
+    if (savedFailClosed === undefined) delete process.env["AGENTOPS_FAIL_CLOSED"];
+    else process.env["AGENTOPS_FAIL_CLOSED"] = savedFailClosed;
+  });
+
+  it("PreToolUse with no state + fail-closed → exits 2 with block JSON", async () => {
+    process.env["AGENTOPS_FAIL_CLOSED"] = "1";
+    const sid = freshSessionId();
+
+    const result = await runHook(() =>
+      _handlePreToolUse(
+        {
+          session_id: sid,
+          cwd: "/tmp/test-cwd",
+          tool_name: "Bash",
+          tool_input: { command: "ls" },
+        },
+        testDbPath,
+      ),
+    );
+
+    expect(result.exitCode).toBe(2);
+    const decision = JSON.parse(result.stdout);
+    expect(decision.decision).toBe("block");
+    expect(decision.reason).toContain("offline");
+    // Recovery hint must be in the block message so the operator can self-unstick.
+    expect(decision.reason).toContain("AGENTOPS_FAIL_CLOSED");
+  });
+
+  it("PreToolUse with no state + fail-closed unset → still allows (default)", async () => {
+    delete process.env["AGENTOPS_FAIL_CLOSED"];
+    const sid = freshSessionId();
+
+    const result = await runHook(() =>
+      _handlePreToolUse(
+        {
+          session_id: sid,
+          tool_name: "Bash",
+          tool_input: { command: "ls" },
+        },
+        testDbPath,
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
+  it("PreToolUse with no state + fail-closed=true (lowercase) → blocks", async () => {
+    process.env["AGENTOPS_FAIL_CLOSED"] = "true";
+    const sid = freshSessionId();
+
+    const result = await runHook(() =>
+      _handlePreToolUse(
+        {
+          session_id: sid,
+          tool_name: "Bash",
+          tool_input: { command: "ls" },
+        },
+        testDbPath,
+      ),
+    );
+
+    expect(result.exitCode).toBe(2);
+  });
+
+  it("PreToolUse with no state + fail-closed=0 → allows (explicit off)", async () => {
+    process.env["AGENTOPS_FAIL_CLOSED"] = "0";
+    const sid = freshSessionId();
+
+    const result = await runHook(() =>
+      _handlePreToolUse(
+        {
+          session_id: sid,
+          tool_name: "Bash",
+          tool_input: { command: "ls" },
+        },
+        testDbPath,
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("SessionStart SDK 401 + fail-closed → blocks with login hint", async () => {
+    // Simulate the exact scenario observed in real Claude Code: SDK mode
+    // selected from credentials.json, server returns 401, customer set
+    // AGENTOPS_FAIL_CLOSED=1 because they want enforcement or nothing.
+    process.env["AGENTOPS_FAIL_CLOSED"] = "1";
+    const savedUrl = process.env["AGENTOPS_SERVER_URL"];
+    const savedKey = process.env["AGENTOPS_API_KEY"];
+    process.env["AGENTOPS_SERVER_URL"] = "http://localhost:9999";
+    process.env["AGENTOPS_API_KEY"] = "ao_expired_token";
+
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          ({
+            ok: false,
+            status: 401,
+            json: async () => ({ error: "Invalid or expired token" }),
+          }) as Response,
+        ),
+      );
+
+      const sid = freshSessionId();
+      const result = await runHook(() =>
+        _handleSessionStart({ session_id: sid, cwd: "/tmp/test-cwd" }, testDbPath),
+      );
+
+      expect(result.exitCode).toBe(2);
+      const decision = JSON.parse(result.stdout);
+      expect(decision.decision).toBe("block");
+      expect(decision.reason).toContain("session start failed");
+      expect(decision.reason).toContain("agentops login");
+
+      // State file must NOT exist when session-start failed.
+      expect(_readState(sid)).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+      if (savedUrl === undefined) delete process.env["AGENTOPS_SERVER_URL"];
+      else process.env["AGENTOPS_SERVER_URL"] = savedUrl;
+      if (savedKey === undefined) delete process.env["AGENTOPS_API_KEY"];
+      else process.env["AGENTOPS_API_KEY"] = savedKey;
+    }
+  });
+
+  it("SessionStart SDK 401 + fail-closed unset → fail-open with stderr warning", async () => {
+    // Same scenario, default mode: we log loudly but allow.
+    delete process.env["AGENTOPS_FAIL_CLOSED"];
+    const savedUrl = process.env["AGENTOPS_SERVER_URL"];
+    const savedKey = process.env["AGENTOPS_API_KEY"];
+    process.env["AGENTOPS_SERVER_URL"] = "http://localhost:9999";
+    process.env["AGENTOPS_API_KEY"] = "ao_expired_token";
+
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          ({
+            ok: false,
+            status: 401,
+            json: async () => ({ error: "Invalid or expired token" }),
+          }) as Response,
+        ),
+      );
+
+      const sid = freshSessionId();
+      const result = await runHook(() =>
+        _handleSessionStart({ session_id: sid, cwd: "/tmp/test-cwd" }, testDbPath),
+      );
+
+      // No exit() called from the success path of handleSessionStart, so
+      // runHook captures undefined. No stdout (no block decision).
+      expect(result.stdout).toBe("");
+      // stderr must contain the failure + login hint so the operator notices.
+      expect(result.stderr).toContain("session start failed");
+      expect(result.stderr).toContain("agentops login");
+      // No state file written.
+      expect(_readState(sid)).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+      if (savedUrl === undefined) delete process.env["AGENTOPS_SERVER_URL"];
+      else process.env["AGENTOPS_SERVER_URL"] = savedUrl;
+      if (savedKey === undefined) delete process.env["AGENTOPS_API_KEY"];
+      else process.env["AGENTOPS_API_KEY"] = savedKey;
+    }
+  });
+});
+
 // ─── userId scoping in DirectOps mode ──────────────────────────────────────
 
 describe("hook handlers and userId on inserted rows", () => {

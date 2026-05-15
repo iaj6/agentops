@@ -128,6 +128,37 @@ function handleStaleState(sessionId: string, state: HookState): void {
   cleanupState(sessionId);
 }
 
+// ─── Fail-closed enforcement ─────────────────────────────────────────────────
+//
+// Default behavior is fail-open: when the SDK can't reach the dashboard or
+// the token is rejected, the hook logs and allows the tool. This is the
+// dev-friendly default — we never want AgentOps to brick a working session.
+//
+// AGENTOPS_FAIL_CLOSED=1 flips this for production: any inability to verify
+// the call blocks the tool. The block message contains the recovery
+// instruction so a confused operator can unset the flag and keep working.
+
+function isFailClosed(): boolean {
+  const v = process.env["AGENTOPS_FAIL_CLOSED"]?.trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
+function emitOfflineBlock(reason: string): void {
+  const blockReason =
+    `AgentOps enforcement is offline (${reason}). ` +
+    `Run 'agentops login' to restore enforcement, ` +
+    `or unset AGENTOPS_FAIL_CLOSED to allow tools while offline.`;
+  process.stdout.write(JSON.stringify({ decision: "block", reason: blockReason }));
+}
+
+function emitOfflineWarning(context: string): void {
+  process.stderr.write(
+    `[agentops] ⚠ ENFORCEMENT OFFLINE — ${context}. ` +
+      `Set AGENTOPS_FAIL_CLOSED=1 to block tools while offline, ` +
+      `or run 'agentops login' to restore.\n`,
+  );
+}
+
 // ─── Tool-to-action mapping ──────────────────────────────────────────────────
 
 function mapToolToAction(input: HookInput): Action {
@@ -238,10 +269,18 @@ async function handleSessionStart(input: HookInput, dbPath?: string): Promise<vo
     runId = r.runId;
     sessionId = r.sessionId;
   } catch (err) {
-    // Fail-open: log and return without writing state. Subsequent hooks
-    // for this session will see no state file and silently allow — we
-    // never want AgentOps to break a developer's Claude Code session.
     logSdkFailure("session start", err);
+    if (isFailClosed()) {
+      // Fail-closed: surface a block decision so the very first tool call
+      // can't slip through before PreToolUse runs. PreToolUse will also
+      // block on the missing state file, but emitting here makes the
+      // failure visible immediately to the operator.
+      emitOfflineBlock("session start failed — no run was created");
+      process.exit(2);
+    }
+    // Fail-open default: log and return without writing state. Subsequent
+    // hooks for this session will see no state file and silently allow —
+    // we never want AgentOps to break a developer's Claude Code session.
     return;
   }
 
@@ -274,7 +313,20 @@ async function handleSessionStart(input: HookInput, dbPath?: string): Promise<vo
 async function handlePreToolUse(input: HookInput, dbPath?: string): Promise<void> {
   const state = readState(input.session_id);
   if (!state) {
-    // No session state — silently allow
+    if (isFailClosed()) {
+      emitOfflineBlock(
+        "no active session state — session-start did not complete",
+      );
+      process.exit(2);
+    }
+    // No session state, fail-open. Warn loudly when SDK mode was attempted
+    // so the operator knows enforcement isn't running (otherwise the only
+    // hint is the stderr line from session-start, which can scroll away).
+    if (isSdkMode(resolveOpsConfig(dbPath))) {
+      emitOfflineWarning(
+        `no session state for tool ${input.tool_name ?? "?"} (session-start may have failed)`,
+      );
+    }
     process.exit(0);
   }
 
@@ -299,9 +351,14 @@ async function handlePreToolUse(input: HookInput, dbPath?: string): Promise<void
       cumulativeCostUsd: usage.totalCostUsd,
     });
   } catch (err) {
-    // Fail-open: log and allow. Better to skip enforcement on a transient
-    // server hiccup than to brick the developer's Claude Code session.
     logSdkFailure("policy check", err);
+    if (isFailClosed()) {
+      const reason = err instanceof Error ? err.message : String(err);
+      emitOfflineBlock(`policy check failed: ${reason}`);
+      process.exit(2);
+    }
+    // Fail-open default: better to skip enforcement on a transient server
+    // hiccup than to brick the developer's Claude Code session.
     process.exit(0);
   }
 
