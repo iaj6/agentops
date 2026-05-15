@@ -6,3 +6,11 @@ dist/
 .env
 .env.local
 .DS_Store
+
+# Local-only tooling state (not part of the project's source of truth)
+.claude/
+.idea/
+.playwright-mcp/
+
+# Debugging screenshots and scratch artifacts captured during dev
+*.png
