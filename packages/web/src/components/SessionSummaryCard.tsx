@@ -3,6 +3,7 @@
 import type { Run, SessionSummary } from "@agentops/core";
 import { StatusBadge } from "./StatusBadge";
 import { TimeAgo } from "./TimeAgo";
+import { UserChip, type UserSummary } from "./UserChip";
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -37,12 +38,14 @@ const recommendationColors: Record<string, string> = {
 export function SessionSummaryCard({
   run,
   summary,
+  user,
   isHighlighted,
   isSelected,
   onClick,
 }: {
   run: Run;
   summary: SessionSummary;
+  user?: UserSummary | null;
   isHighlighted?: boolean;
   isSelected?: boolean;
   onClick: () => void;
@@ -131,10 +134,11 @@ export function SessionSummaryCard({
         </span>
       </div>
 
-      {/* Repo/branch + timestamp */}
+      {/* Repo/branch + user + timestamp */}
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
         <span className="font-mono">{run.environment.repo}</span>
         <span className="font-mono">{run.environment.branch}</span>
+        {user !== undefined && <UserChip user={user} compact />}
         <span className="ml-auto">
           <TimeAgo date={run.createdAt} />
         </span>
@@ -146,11 +150,13 @@ export function SessionSummaryCard({
 /** Fallback card for runs without summaries */
 export function RunFallbackCard({
   run,
+  user,
   isHighlighted,
   isSelected,
   onClick,
 }: {
   run: Run;
+  user?: UserSummary | null;
   isHighlighted?: boolean;
   isSelected?: boolean;
   onClick: () => void;
@@ -180,6 +186,7 @@ export function RunFallbackCard({
         {run.metrics.costUsd > 0 && (
           <span className="font-mono">{formatCost(run.metrics.costUsd)}</span>
         )}
+        {user !== undefined && <UserChip user={user} compact />}
         <span className="ml-auto">
           <TimeAgo date={run.createdAt} />
         </span>

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import type { Session } from "@agentops/core";
 import { SessionStatus } from "@agentops/core";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
+import { UserChip, type UserSummary } from "@/components/UserChip";
 import { useSessions } from "@/hooks/useSessions";
 import Link from "next/link";
 
@@ -15,9 +16,16 @@ const ALL_STATUSES = Object.values(SessionStatus);
 
 export function SessionsTable({
   sessions: initialSessions,
+  users = [],
 }: {
   sessions: Session[];
+  users?: UserSummary[];
 }) {
+  const userById = useMemo(() => {
+    const m = new Map<string, UserSummary>();
+    for (const u of users) m.set(u.id, u);
+    return m;
+  }, [users]);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -188,6 +196,9 @@ export function SessionsTable({
                 <SortIcon field="agent" />
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted">
+                User
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted">
                 Current Run
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted">
@@ -206,7 +217,7 @@ export function SessionsTable({
             {displaySessions.length === 0 && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   className="px-4 py-12 text-center text-sm text-muted"
                 >
                   No sessions match the current filters.
@@ -247,6 +258,16 @@ export function SessionsTable({
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-muted">
                     {session.agentId as string}
+                  </td>
+                  <td className="px-4 py-3">
+                    <UserChip
+                      user={
+                        session.userId
+                          ? (userById.get(session.userId as string) ?? null)
+                          : null
+                      }
+                      compact
+                    />
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-muted">
                     {session.currentRunId ? (

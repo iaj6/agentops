@@ -10,6 +10,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { FilterPanel, type Filters, emptyFilters } from "@/components/FilterPanel";
 import { CommandPalette } from "@/components/CommandPalette";
 import { SessionSummaryCard, RunFallbackCard } from "@/components/SessionSummaryCard";
+import type { UserSummary } from "@/components/UserChip";
 import { useRuns, type RunWithSummary } from "@/hooks/useRuns";
 
 function formatDuration(ms: number): string {
@@ -26,7 +27,18 @@ type SortDir = "asc" | "desc";
 
 const PAGE_SIZES = [25, 50, 100];
 
-export function RunsTable({ runs: initialRuns }: { runs: RunWithSummary[] }) {
+export function RunsTable({
+  runs: initialRuns,
+  users = [],
+}: {
+  runs: RunWithSummary[];
+  users?: UserSummary[];
+}) {
+  const userById = useMemo(() => {
+    const m = new Map<string, UserSummary>();
+    for (const u of users) m.set(u.id, u);
+    return m;
+  }, [users]);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -320,12 +332,17 @@ export function RunsTable({ runs: initialRuns }: { runs: RunWithSummary[] }) {
           const isHighlighted = recentlyUpdated.has(run.id as string);
           const isSelected = idx === selectedIdx;
 
+          const user = run.userId
+            ? (userById.get(run.userId as string) ?? null)
+            : null;
+
           if (summary) {
             return (
               <SessionSummaryCard
                 key={run.id as string}
                 run={run}
                 summary={summary}
+                user={user}
                 isHighlighted={isHighlighted}
                 isSelected={isSelected}
                 onClick={() => router.push(`/runs/${run.id}`)}
@@ -337,6 +354,7 @@ export function RunsTable({ runs: initialRuns }: { runs: RunWithSummary[] }) {
             <RunFallbackCard
               key={run.id as string}
               run={run}
+              user={user}
               isHighlighted={isHighlighted}
               isSelected={isSelected}
               onClick={() => router.push(`/runs/${run.id}`)}

@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { listSessions } from "@agentops/db";
+import { listSessions, listUsers } from "@agentops/db";
 import { db } from "@/lib/db";
 import { getRequestUser, resolveViewScope } from "@/lib/auth";
 import { SessionsTable } from "./SessionsTable";
@@ -22,6 +22,12 @@ export default async function SessionsPage({
     limit: 50,
     ...(scope.userId ? { userId: scope.userId } : {}),
   });
+
+  const users = listUsers(db()).map((u) => ({
+    id: u.id,
+    email: u.email,
+    name: u.name,
+  }));
 
   const total = sessions.length;
   const active = sessions.filter((s) => s.status === "active").length;
@@ -50,7 +56,10 @@ export default async function SessionsPage({
         </div>
       ) : (
         <Suspense fallback={<div className="py-8 text-center text-sm text-muted">Loading sessions...</div>}>
-          <SessionsTable sessions={JSON.parse(JSON.stringify(sessions))} />
+          <SessionsTable
+            sessions={JSON.parse(JSON.stringify(sessions))}
+            users={users}
+          />
         </Suspense>
       )}
     </div>

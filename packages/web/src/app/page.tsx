@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { listRunsWithSummaries } from "@agentops/db";
+import { listRunsWithSummaries, listUsers } from "@agentops/db";
 import { db } from "@/lib/db";
 import { getRequestUser, resolveViewScope } from "@/lib/auth";
 import { RunsTable } from "./RunsTable";
@@ -23,6 +23,15 @@ export default async function HomePage({
     limit: 50,
     ...(scope.userId ? { userId: scope.userId } : {}),
   });
+
+  // Resolve userId → email/name once per page render. Pass a thin
+  // {id,email,name}[] down so client components can chip-render
+  // each run without an N+1 fetch loop.
+  const users = listUsers(db()).map((u) => ({
+    id: u.id,
+    email: u.email,
+    name: u.name,
+  }));
 
   return (
     <div className="p-6">
@@ -56,7 +65,10 @@ export default async function HomePage({
           </div>
         ) : (
           <Suspense fallback={<div className="py-8 text-center text-sm text-muted">Loading runs...</div>}>
-            <RunsTable runs={JSON.parse(JSON.stringify(runsWithSummaries))} />
+            <RunsTable
+              runs={JSON.parse(JSON.stringify(runsWithSummaries))}
+              users={users}
+            />
           </Suspense>
         )}
       </FleetOverview>
