@@ -56,7 +56,7 @@ export { insertRun, getRun, listRuns, updateRun, getRunMetrics, searchRuns, coun
 export type { SearchRunsFilters, RunWithSummary } from "./runs.js";
 
 // Policy repository
-export { insertPolicy, listPolicies, getPolicyResults, getPolicy, updatePolicy, deletePolicy, getPolicyStats, getPolicyResultsForPolicy } from "./policies.js";
+export { insertPolicy, insertPolicyResult, listPolicies, getPolicyResults, getPolicy, updatePolicy, deletePolicy, getPolicyStats, getPolicyResultsForPolicy } from "./policies.js";
 
 // Job repository (WS1)
 export { insertJob, getJob, listJobs, updateJob, countJobsByRepo, countJobsActive, getQueuedJobs } from "./jobs.js";

@@ -7,7 +7,7 @@ import {
   PolicySeverity,
   type GuardContext,
 } from "@agentops/core";
-import { insertEvent, listPolicies } from "@agentops/db";
+import { insertEvent, insertPolicyResult, listPolicies } from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireOwnedRun } from "@/lib/auth";
 import { internalError } from "@/lib/log";
@@ -119,6 +119,36 @@ export async function POST(request: NextRequest) {
         payload: violationEvent.payload,
         timestamp: violationEvent.timestamp,
       });
+
+      // Also persist a policy_result row per violation so the Policy
+      // detail page's Evaluation History accumulates the live block
+      // trail (B4). One row per fired policy — same shape used by the
+      // run-completion rollup so the page can group by policyId
+      // without distinguishing source.
+      //
+      // PolicyViolation.policy holds the policy NAME (a string the
+      // hook displays); resolve it back to the FK-valid policy ID
+      // via the activePolicies list we already loaded.
+      const policyIdByName = new Map<string, string>();
+      for (const p of activePolicies) policyIdByName.set(p.name, p.id as string);
+      const now = new Date().toISOString();
+      for (const v of errors) {
+        const policyId = policyIdByName.get(v.policy);
+        if (!policyId) continue; // shouldn't happen — engine only fires from active set
+        insertPolicyResult(db(), {
+          id: `pr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          runId: body.runId,
+          policyId,
+          passed: false,
+          message: v.message,
+          details: {
+            source: "pre-tool",
+            toolName: body.toolName,
+            severity: v.severity,
+          },
+          evaluatedAt: now,
+        });
+      }
       return NextResponse.json({
         decision: "block",
         reason: errors.map((v) => `[${v.policy}] ${v.message}`).join("; "),

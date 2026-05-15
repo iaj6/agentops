@@ -28,6 +28,7 @@ import {
   listSessions,
   getRun,
   getSession,
+  getPolicyResults,
   listEvents,
 } from "@agentops/db";
 import {
@@ -309,6 +310,15 @@ describe("handlePreToolUse (DirectOps mode)", () => {
     const decision = JSON.parse(result.stdout);
     expect(decision.decision).toBe("block");
     expect(decision.reason).toContain("No rm -rf");
+
+    // B4: pre-tool block also writes a policy_result row so the
+    // Policy detail page's Evaluation History accumulates the trail.
+    const state = _readState(sid)!;
+    const results = getPolicyResults(getDb(testDbPath), createRunId(state.runId));
+    const blockRow = results.find((r) => r.policyId === "p_risky");
+    expect(blockRow).toBeDefined();
+    expect(blockRow!.passed).toBe(false);
+    expect((blockRow!.details as { source?: string }).source).toBe("pre-tool");
   });
 
   it("warning severity → stderr message, exits 0", async () => {
@@ -554,6 +564,34 @@ describe("handleSessionEnd", () => {
       _handleSessionEnd({ session_id: sid, cwd: "/tmp/test-cwd" }, testDbPath),
     );
     expect(result.exitCode).toBe(0);
+  });
+
+  it("writes a policy_result row per active policy (B4 rollup)", async () => {
+    const sid = freshSessionId();
+    await _handleSessionStart({ session_id: sid, cwd: "/tmp/test-cwd" }, testDbPath);
+
+    insertPolicy(getDb(testDbPath), {
+      id: createPolicyId("p_rollup_local"),
+      name: "Local rollup",
+      type: PolicyType.RiskyOpFlag,
+      config: { type: PolicyType.RiskyOpFlag, riskyPatterns: ["rm -rf"] },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+
+    const state = _readState(sid)!;
+    await runHook(() =>
+      _handleSessionEnd({ session_id: sid, cwd: "/tmp/test-cwd" }, testDbPath),
+    );
+
+    const results = getPolicyResults(
+      getDb(testDbPath),
+      createRunId(state.runId),
+    );
+    const rollup = results.find((r) => r.policyId === "p_rollup_local");
+    expect(rollup).toBeDefined();
+    expect((rollup!.details as { source?: string }).source).toBe("run-complete");
   });
 });
 

@@ -9,7 +9,13 @@ import {
   generateSummary,
 } from "@agentops/core";
 import type { Evaluation } from "@agentops/core";
-import { updateRun, insertEvent, listPolicies, updateRunSummary } from "@agentops/db";
+import {
+  updateRun,
+  insertEvent,
+  insertPolicyResult,
+  listPolicies,
+  updateRunSummary,
+} from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireOwnedRun } from "@/lib/auth";
 import { internalError } from "@/lib/log";
@@ -75,13 +81,30 @@ export async function POST(
     const activePolicies = listPolicies(db(), { enabled: true });
     const score = computeScore(completed, activePolicies);
 
-    // Emit policy violation events for any failing policies. Each
-    // emitted event is also dispatched to any matching webhook
-    // subscriptions — fire-and-forget so the response isn't gated on
-    // receiver responsiveness.
+    // Run final policy evaluation + persist one policy_result row per
+    // active policy as the post-run rollup (B4). The Policy detail
+    // page's Evaluation History reads these rows, so without persisting
+    // them every policy showed "No data" no matter how many runs went
+    // through. Pre-tool blocks write additional rows during the run via
+    // /api/sdk/policy/check; the run-end rollup here gives every
+    // active policy a final pass/fail state.
     const engine = new PolicyEngine();
     const policyResults = engine.evaluate(completed, activePolicies);
+    const evaluatedAt = new Date().toISOString();
     for (const result of policyResults) {
+      insertPolicyResult(db(), {
+        id: `pr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        runId: completed.id as string,
+        policyId: result.policy.id as string,
+        passed: result.passed,
+        message: result.message,
+        details: { ...result.details, source: "run-complete" },
+        evaluatedAt,
+      });
+
+      // Emit policy violation event (+ webhook fanout) for any failing
+      // policies — kept from the prior implementation so audit/webhook
+      // behavior is unchanged.
       if (!result.passed) {
         const violationEvent = createEvent(
           EventCategory.Policy,

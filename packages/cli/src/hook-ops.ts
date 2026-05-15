@@ -46,6 +46,7 @@ import {
   updateSession,
   getSession,
   insertEvent,
+  insertPolicyResult,
   listPolicies,
   updateRunSummary,
 } from "@agentops/db";
@@ -245,6 +246,33 @@ class DirectOps implements HookOps {
           violations: errors,
         }),
       );
+
+      // Also persist a policy_result row per violation so the Policy
+      // detail page's Evaluation History accumulates the live block
+      // trail (B4). Mirrors the SDK route. PolicyViolation.policy is
+      // the policy NAME — resolve to the FK-valid policy ID via the
+      // activePolicies list we already loaded.
+      const policyIdByName = new Map<string, string>();
+      for (const p of activePolicies) policyIdByName.set(p.name, p.id as string);
+      const now = new Date().toISOString();
+      for (const v of errors) {
+        const policyId = policyIdByName.get(v.policy);
+        if (!policyId) continue;
+        insertPolicyResult(db, {
+          id: `pr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          runId: args.runId as string,
+          policyId,
+          passed: false,
+          message: v.message,
+          details: {
+            source: "pre-tool",
+            toolName: args.toolName,
+            severity: v.severity,
+          },
+          evaluatedAt: now,
+        });
+      }
+
       return {
         decision: "block",
         reason: errors.map((v) => `[${v.policy}] ${v.message}`).join("; "),
@@ -299,6 +327,23 @@ class DirectOps implements HookOps {
       passed: r.passed,
       message: r.message,
     }));
+
+    // Persist one policy_result row per active policy as the run-end
+    // rollup (B4). Pre-tool blocks write additional rows during the
+    // run via checkPolicy above. Together they give the Policy detail
+    // page a complete evaluation history.
+    const evaluatedAt = new Date().toISOString();
+    for (const r of policyResults) {
+      insertPolicyResult(db, {
+        id: `pr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        runId: run.id as string,
+        policyId: r.policy.id as string,
+        passed: r.passed,
+        message: r.message,
+        details: { ...r.details, source: "run-complete" },
+        evaluatedAt,
+      });
+    }
 
     run = completeRun(run, {
       testResults: [],

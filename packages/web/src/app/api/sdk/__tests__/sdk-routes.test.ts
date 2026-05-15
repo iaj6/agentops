@@ -4,6 +4,7 @@ import {
   insertSession,
   insertPolicy,
   getRun,
+  getPolicyResults,
   listEvents,
   type AgentOpsDb,
 } from "@agentops/db";
@@ -320,6 +321,45 @@ describe("POST /api/sdk/runs/[id]/complete", () => {
     const res = await completeRunRoute(req, withParams({ id: runId }));
     expect(res.status).toBe(404);
   });
+
+  it("persists a policy_result row per active policy (B4 rollup)", async () => {
+    const { runId } = seedRun(alice);
+    insertPolicy(db, {
+      id: createPolicyId("p_rollup"),
+      name: "No rm",
+      type: PolicyType.RiskyOpFlag,
+      config: { type: PolicyType.RiskyOpFlag, riskyPatterns: ["rm -rf"] },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+    insertPolicy(db, {
+      id: createPolicyId("p_rollup_2"),
+      name: "Limit files",
+      type: PolicyType.FileLimitCount,
+      config: { type: PolicyType.FileLimitCount, maxFiles: 100 },
+      severity: PolicySeverity.Warning,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+
+    const req = authedRequest(`http://localhost/api/sdk/runs/${runId}/complete`, {
+      token: alice.token,
+      body: {},
+    });
+    await completeRunRoute(req, withParams({ id: runId }));
+
+    const results = getPolicyResults(db, runId);
+    const policyIds = new Set(results.map((r) => r.policyId));
+    expect(policyIds.has("p_rollup")).toBe(true);
+    expect(policyIds.has("p_rollup_2")).toBe(true);
+    // Rollup rows carry the "run-complete" source marker so the Policy
+    // page can distinguish them from pre-tool block rows.
+    const rollupSources = results.map(
+      (r) => (r.details as { source?: string }).source,
+    );
+    expect(rollupSources.every((s) => s === "run-complete")).toBe(true);
+  });
 });
 
 // ─── POST /api/sdk/runs/[id]/fail ─────────────────────────────────────────
@@ -525,5 +565,43 @@ describe("POST /api/sdk/policy/check", () => {
       (e) => e.type === "policy.violated" && e.sourceId === runId,
     );
     expect(violation).toBeUndefined();
+  });
+
+  it("writes a policy_result row on block (B4 — feeds Policy detail history)", async () => {
+    const { runId } = seedRun(alice);
+    insertPolicy(db, {
+      id: createPolicyId("p_history"),
+      name: "Block rm",
+      type: PolicyType.RiskyOpFlag,
+      config: { type: PolicyType.RiskyOpFlag, riskyPatterns: ["rm -rf"] },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+
+    const req = authedRequest("http://localhost/api/sdk/policy/check", {
+      token: alice.token,
+      body: { runId, toolName: "Bash", toolInput: { command: "rm -rf /" } },
+    });
+    await policyCheckRoute(req);
+
+    const results = getPolicyResults(db, runId);
+    expect(results.length).toBeGreaterThan(0);
+    const blockRow = results.find((r) => r.policyId === "p_history");
+    expect(blockRow).toBeDefined();
+    expect(blockRow!.passed).toBe(false);
+    expect((blockRow!.details as { source?: string }).source).toBe("pre-tool");
+    expect((blockRow!.details as { toolName?: string }).toolName).toBe("Bash");
+  });
+
+  it("does NOT write a policy_result row on allow", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest("http://localhost/api/sdk/policy/check", {
+      token: alice.token,
+      body: { runId, toolName: "Bash", toolInput: { command: "ls" } },
+    });
+    await policyCheckRoute(req);
+    const results = getPolicyResults(db, runId);
+    expect(results.length).toBe(0);
   });
 });

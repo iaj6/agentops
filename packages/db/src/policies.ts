@@ -82,6 +82,38 @@ export function listPolicies(
   }));
 }
 
+/**
+ * Insert a single policy_result row. Used by:
+ *   - Pre-tool guard fires (one row per fire) — the live block trail.
+ *   - Run completion (one row per active policy) — the post-run rollup.
+ * Both paths share the same shape so the Policy detail page can group
+ * by policyId and accumulate the history without distinguishing source.
+ */
+export function insertPolicyResult(
+  db: AgentOpsDb,
+  result: {
+    id: string;
+    runId: string;
+    policyId: string;
+    passed: boolean;
+    message: string;
+    details: Record<string, unknown>;
+    evaluatedAt: string;
+  },
+): void {
+  db.insert(policyResults)
+    .values({
+      id: result.id,
+      runId: result.runId,
+      policyId: result.policyId,
+      passed: result.passed,
+      message: result.message,
+      details: result.details,
+      evaluatedAt: result.evaluatedAt,
+    })
+    .run();
+}
+
 export function getPolicyResults(
   db: AgentOpsDb,
   runId: RunId,
