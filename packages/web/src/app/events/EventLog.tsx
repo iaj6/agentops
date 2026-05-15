@@ -26,19 +26,40 @@ const TIME_RANGES = [
 
 const MAX_DISPLAY = 200;
 
+interface UserOption {
+  id: string;
+  email: string;
+  name: string | null;
+}
+
 export function EventLog({ initialEvents }: { initialEvents: AgentEvent[] }) {
   const [category, setCategory] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
+  const [userId, setUserId] = useState(""); // "" = all users
   const [timeRange, setTimeRange] = useState(0); // 0 = all
   const [paused, setPaused] = useState(false);
   const [displayLimit, setDisplayLimit] = useState(MAX_DISPLAY);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
+  // Load the user roster once for the filter dropdown. Failing silently
+  // is fine — the dropdown just stays empty, and the All-users default
+  // continues to work.
+  const [users, setUsers] = useState<UserOption[]>([]);
+  useEffect(() => {
+    fetch("/api/users")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { users?: UserOption[] } | null) => {
+        if (data?.users) setUsers(data.users);
+      })
+      .catch(() => {});
+  }, []);
+
   const { events, loading, connected, total } = useEvents({
     category: category || undefined,
     type: typeFilter || undefined,
+    userId: userId || undefined,
   });
 
   const displayEvents = events.length > 0 ? events : initialEvents;
@@ -154,6 +175,21 @@ export function EventLog({ initialEvents }: { initialEvents: AgentEvent[] }) {
           onChange={(e) => setSourceFilter(e.target.value)}
           className="rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
         />
+        {/* User filter — resolves to events whose run/session is owned
+            by the selected user. Server-side filter (not just visible). */}
+        <select
+          value={userId}
+          onChange={(e) => setUserId(e.target.value)}
+          className="rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground focus:border-accent focus:outline-none"
+          aria-label="Filter by user"
+        >
+          <option value="">All users</option>
+          {users.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.name?.trim() || u.email}
+            </option>
+          ))}
+        </select>
 
         {/* Pause/resume button */}
         <button

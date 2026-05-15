@@ -1,4 +1,4 @@
-import { eq, and, desc, gte, lte, count } from "drizzle-orm";
+import { eq, and, desc, gte, lte, count, inArray, sql } from "drizzle-orm";
 import type { AgentEvent, EventId } from "@agentops/core";
 import { createEventId } from "@agentops/core";
 import type { AgentOpsDb } from "./connection.js";
@@ -8,6 +8,13 @@ interface ListEventsFilters {
   category?: string;
   type?: string;
   sourceId?: string;
+  /**
+   * Only include events whose sourceId is in this set. Used to scope a
+   * view to one user's events by resolving their owned run + session
+   * IDs first. Empty array matches nothing (intentional — "this user
+   * has no records, so no events").
+   */
+  sourceIds?: ReadonlyArray<string>;
   since?: string;
   until?: string;
   limit?: number;
@@ -55,6 +62,16 @@ function buildConditions(filters: ListEventsFilters) {
   }
   if (filters.sourceId) {
     conditions.push(eq(events.sourceId, filters.sourceId));
+  }
+  if (filters.sourceIds) {
+    // Empty array → match nothing (the user owns no records). Without
+    // this branch an empty list would compile to `IN ()` which is a
+    // syntax error.
+    if (filters.sourceIds.length === 0) {
+      conditions.push(sql`1 = 0`);
+    } else {
+      conditions.push(inArray(events.sourceId, [...filters.sourceIds]));
+    }
   }
   if (filters.since) {
     conditions.push(gte(events.timestamp, filters.since));
