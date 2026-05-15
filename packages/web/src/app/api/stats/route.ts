@@ -36,6 +36,16 @@ export async function GET() {
     const runsToday = runs.filter((r) => r.createdAt >= todayStart);
     const runsThisWeek = runs.filter((r) => r.createdAt >= weekAgo);
 
+    // Cost rollup (summed from run.metrics.costUsd — already populated by
+    // the hook from the local Claude Code transcript). Today + week totals
+    // mirror the run count windows so the dashboard hero is readable at a
+    // glance.
+    const sumCost = (rs: typeof runs): number =>
+      rs.reduce((s, r) => s + (r.metrics.costUsd || 0), 0);
+    const costTotal = sumCost(runs);
+    const costToday = sumCost(runsToday);
+    const costWeek = sumCost(runsThisWeek);
+
     // Most active repos from summaries
     const repoCounts: Record<string, number> = {};
     for (const r of runsThisWeek) {
@@ -69,6 +79,11 @@ export async function GET() {
         runsToday: runsToday.length,
         runsThisWeek: runsThisWeek.length,
         topRepos,
+      },
+      cost: {
+        total: costTotal,
+        today: costToday,
+        week: costWeek,
       },
       sessions: {
         active: sessActive,

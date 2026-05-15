@@ -5,14 +5,21 @@ import { MetricCard } from "@/components/MetricCard";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { useStats } from "@/hooks/useStats";
 
+function formatCost(usd: number): string {
+  if (usd === 0) return "$0";
+  if (usd < 0.01) return "<$0.01";
+  if (usd < 1000) return `$${usd.toFixed(2)}`;
+  return `$${usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
 export function FleetOverview({ children }: { children: ReactNode }) {
   const { stats, loading } = useStats();
 
   if (loading || !stats) {
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {Array.from({ length: 5 }).map((_, i) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
               className="h-[88px] animate-pulse rounded-lg border border-border bg-surface"
@@ -27,7 +34,16 @@ export function FleetOverview({ children }: { children: ReactNode }) {
   return (
     <div className="space-y-6">
       {/* Row 1: Summary stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <MetricCard
+          label="Total Spend"
+          value={formatCost(stats.cost.total)}
+          sub={
+            stats.cost.week > 0
+              ? `${formatCost(stats.cost.week)} this week`
+              : undefined
+          }
+        />
         <MetricCard label="Total Runs" value={String(stats.runs.total)} />
         <MetricCard
           label="Running Now"

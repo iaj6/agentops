@@ -13,6 +13,13 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${remainSec}s`;
 }
 
+function formatCost(usd: number | undefined): string {
+  if (usd == null) return "—";
+  if (usd < 0.01) return "<$0.01";
+  if (usd < 1000) return `$${usd.toFixed(2)}`;
+  return `$${usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
 const outcomeColors: Record<string, string> = {
   success: "bg-green/15 text-green border-green/30",
   failure: "bg-red/15 text-red border-red/30",
@@ -96,6 +103,14 @@ export function SessionSummaryCard({
 
       {/* Metrics row */}
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+        {summary.cost && (
+          <span>
+            <span className="text-muted/70">Cost</span>{" "}
+            <span className="font-mono text-foreground">
+              {formatCost(summary.cost.totalUsd)}
+            </span>
+          </span>
+        )}
         <span>
           <span className="text-muted/70">Duration</span>{" "}
           <span className="font-mono text-foreground">
@@ -162,6 +177,9 @@ export function RunFallbackCard({
         <span className="font-mono">{run.environment.repo}</span>
         <span className="font-mono">{run.environment.branch}</span>
         <span className="font-mono">{formatDuration(run.metrics.wallTimeMs)}</span>
+        {run.metrics.costUsd > 0 && (
+          <span className="font-mono">{formatCost(run.metrics.costUsd)}</span>
+        )}
         <span className="ml-auto">
           <TimeAgo date={run.createdAt} />
         </span>

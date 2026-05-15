@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from "react";
 interface StatsData {
   runs: { total: number; running: number; successRate: number; avgDuration: number };
   summary: { runsToday: number; runsThisWeek: number; topRepos: { repo: string; count: number }[] };
+  cost: { total: number; today: number; week: number };
   sessions: { active: number; terminated: number };
   events: { last24h: number; lastHour: number };
 }
