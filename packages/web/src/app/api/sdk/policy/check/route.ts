@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  createEvent,
+  EVENT_TYPES,
+  EventCategory,
   evaluatePreToolPolicies,
   PolicySeverity,
   type GuardContext,
 } from "@agentops/core";
-import { listPolicies } from "@agentops/db";
+import { insertEvent, listPolicies } from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireOwnedRun } from "@/lib/auth";
 import { internalError } from "@/lib/log";
+import { dispatchWebhookEvent } from "@/lib/webhook-dispatcher";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +97,28 @@ export async function POST(request: NextRequest) {
     const warnings = violations.filter((v) => v.severity !== PolicySeverity.Error);
 
     if (errors.length > 0) {
+      // Mirror DirectOps: emit a policy.violated event so the dashboard's
+      // event feed and webhook subscribers see the block. Without this,
+      // SDK-mode pre-tool blocks would be invisible in the audit trail
+      // (only run.complete's final policy check would fire webhooks).
+      const violationEvent = createEvent(
+        EventCategory.Policy,
+        EVENT_TYPES["policy.violated"],
+        body.runId,
+        {
+          runId: body.runId,
+          toolName: body.toolName,
+          toolInput: Object.keys((body.toolInput as Record<string, unknown>) ?? {}),
+          violations: errors,
+        },
+      );
+      insertEvent(db(), violationEvent);
+      void dispatchWebhookEvent(db(), {
+        id: violationEvent.id as string,
+        type: violationEvent.type,
+        payload: violationEvent.payload,
+        timestamp: violationEvent.timestamp,
+      });
       return NextResponse.json({
         decision: "block",
         reason: errors.map((v) => `[${v.policy}] ${v.message}`).join("; "),

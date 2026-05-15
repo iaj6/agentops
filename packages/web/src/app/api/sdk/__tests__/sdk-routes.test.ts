@@ -4,6 +4,7 @@ import {
   insertSession,
   insertPolicy,
   getRun,
+  listEvents,
   type AgentOpsDb,
 } from "@agentops/db";
 import {
@@ -477,5 +478,52 @@ describe("POST /api/sdk/policy/check", () => {
     });
     const res = await policyCheckRoute(req);
     expect(res.status).toBe(404);
+  });
+
+  it("emits policy.violated event on block (parity with DirectOps)", async () => {
+    const { runId } = seedRun(alice);
+    insertPolicy(db, {
+      id: createPolicyId("p_audit"),
+      name: "Block rm",
+      type: PolicyType.RiskyOpFlag,
+      config: { type: PolicyType.RiskyOpFlag, riskyPatterns: ["rm -rf"] },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+
+    const req = authedRequest("http://localhost/api/sdk/policy/check", {
+      token: alice.token,
+      body: {
+        runId,
+        toolName: "Bash",
+        toolInput: { command: "rm -rf /tmp/x" },
+      },
+    });
+    const res = await policyCheckRoute(req);
+    expect(res.status).toBe(200);
+
+    const events = listEvents(db, { limit: 20 });
+    const violation = events.find(
+      (e) => e.type === "policy.violated" && e.sourceId === runId,
+    );
+    expect(violation).toBeDefined();
+    expect((violation!.payload as { toolName: string }).toolName).toBe("Bash");
+  });
+
+  it("does NOT emit policy.violated on allow", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest("http://localhost/api/sdk/policy/check", {
+      token: alice.token,
+      body: { runId, toolName: "Bash", toolInput: { command: "ls" } },
+    });
+    const res = await policyCheckRoute(req);
+    expect(res.status).toBe(200);
+
+    const events = listEvents(db, { limit: 20 });
+    const violation = events.find(
+      (e) => e.type === "policy.violated" && e.sourceId === runId,
+    );
+    expect(violation).toBeUndefined();
   });
 });
