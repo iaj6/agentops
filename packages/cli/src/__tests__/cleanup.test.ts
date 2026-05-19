@@ -122,7 +122,7 @@ describe("agentops cleanup", () => {
     const { dbPath } = makeDb(tmpDir);
     const output = await runCleanup([], dbPath);
     expect(output).toContain("Would reap 0 stale run(s) and 0 stale session(s)");
-    expect(output).toContain("Re-run with --apply to actually reap");
+    expect(output).toContain("Re-run with --apply to actually apply");
   });
 
   it("fresh active session is not reaped", async () => {
@@ -334,5 +334,160 @@ describe("agentops cleanup --runs-older-than", () => {
     );
     expect(output).toContain("Pruned 1 run(s)");
     expect(output).toContain("VACUUM");
+  });
+});
+
+describe("agentops cleanup --reassign-null-user", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function seedRunWithUser(
+    db: ReturnType<typeof getDb>,
+    id: string,
+    userId: string | null,
+  ) {
+    const r = startRun(
+      createRun(
+        {
+          humanReadable: "test",
+          structured: { type: "test", description: "test", parameters: {} },
+        },
+        {
+          repo: "acme/test",
+          branch: "main",
+          permissions: [],
+          sandbox: { enabled: false, isolationLevel: "none" },
+        },
+      ),
+    );
+    insertRun(db, {
+      ...r,
+      id: createRunId(id),
+      ...(userId !== null ? { userId } : {}),
+    });
+  }
+
+  it("dry-run previews the count without writing", async () => {
+    const { dbPath, db } = makeDb(tmpDir);
+    const { insertUser } = await import("@agentops/db");
+    const user = insertUser(db, { email: "ian@example.com", name: "Ian", password: "x" });
+    seedRunWithUser(db, "run_null_1", null);
+    seedRunWithUser(db, "run_null_2", null);
+    seedRunWithUser(db, "run_owned", user.id);
+
+    const output = await runCleanup(["--reassign-null-user", user.id], dbPath);
+    expect(output).toContain("Would reassign 2 run(s) with NULL user_id to Ian");
+    // Nothing actually changed.
+    const run = getRun(db, createRunId("run_null_1"));
+    expect(run?.userId ?? null).toBeNull();
+  });
+
+  it("--apply backfills every NULL run to the target user", async () => {
+    const { dbPath, db } = makeDb(tmpDir);
+    const { insertUser } = await import("@agentops/db");
+    const user = insertUser(db, { email: "ian@example.com", name: "Ian", password: "x" });
+    seedRunWithUser(db, "run_null", null);
+    seedRunWithUser(db, "run_owned", user.id);
+
+    await runCleanup(["--reassign-null-user", user.id, "--apply"], dbPath);
+    expect(getRun(db, createRunId("run_null"))?.userId).toBe(user.id);
+    expect(getRun(db, createRunId("run_owned"))?.userId).toBe(user.id);
+  });
+
+  it("rejects a userId that does not exist", async () => {
+    const { dbPath } = makeDb(tmpDir);
+    const originalError = console.error;
+    const originalExit = process.exit;
+    let exitCode: number | null = null;
+    console.error = () => {};
+    process.exit = ((code?: number) => {
+      exitCode = code ?? 0;
+      throw new Error("exit");
+    }) as typeof process.exit;
+    try {
+      await runCleanup(["--reassign-null-user", "no-such-user"], dbPath);
+    } catch {
+      // expected
+    } finally {
+      console.error = originalError;
+      process.exit = originalExit;
+    }
+    expect(exitCode).toBe(1);
+  });
+});
+
+describe("agentops cleanup --remap-repo", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function seedRunWithRepo(
+    db: ReturnType<typeof getDb>,
+    id: string,
+    repo: string,
+  ) {
+    const r = startRun(
+      createRun(
+        {
+          humanReadable: "test",
+          structured: { type: "test", description: "test", parameters: {} },
+        },
+        {
+          repo,
+          branch: "main",
+          permissions: [],
+          sandbox: { enabled: false, isolationLevel: "none" },
+        },
+      ),
+    );
+    insertRun(db, { ...r, id: createRunId(id) });
+  }
+
+  it("dry-run previews the count without writing", async () => {
+    const { dbPath, db } = makeDb(tmpDir);
+    seedRunWithRepo(db, "run_1", "agentops");
+    seedRunWithRepo(db, "run_2", "agentops");
+    seedRunWithRepo(db, "run_3", "iaj6/agentops");
+
+    const output = await runCleanup(["--remap-repo", "agentops=iaj6/agentops"], dbPath);
+    expect(output).toContain('Would remap repo on 2 run(s): "agentops" -> "iaj6/agentops"');
+    expect(getRun(db, createRunId("run_1"))?.environment.repo).toBe("agentops");
+  });
+
+  it("--apply rewrites both the column and the JSON environment.repo", async () => {
+    const { dbPath, db } = makeDb(tmpDir);
+    seedRunWithRepo(db, "run_1", "agentops");
+
+    await runCleanup(["--remap-repo", "agentops=iaj6/agentops", "--apply"], dbPath);
+    const run = getRun(db, createRunId("run_1"));
+    // rowToRun pulls the repo string out of the JSON column, so this
+    // also verifies the JSON edit landed (not just the denormalized
+    // column).
+    expect(run?.environment.repo).toBe("iaj6/agentops");
+  });
+
+  it("rejects a remap value without an '=' separator", async () => {
+    const { dbPath } = makeDb(tmpDir);
+    let threw = false;
+    try {
+      await runCleanup(["--remap-repo", "agentops"], dbPath);
+    } catch (err) {
+      threw = true;
+      expect(String(err)).toMatch(/Invalid --remap-repo/);
+    }
+    expect(threw).toBe(true);
   });
 });

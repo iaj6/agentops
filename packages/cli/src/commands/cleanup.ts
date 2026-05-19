@@ -9,6 +9,11 @@ import {
   countRunsOlderThan,
   deleteOldRuns,
   vacuum,
+  countRunsWithoutUser,
+  reassignRunsWithoutUser,
+  countRunsByRepo,
+  remapRunRepo,
+  getUserById,
 } from "@agentops/db";
 import {
   isStaleRun,
@@ -37,6 +42,19 @@ interface CleanupOpts {
   runsOlderThan?: string;
   vacuum?: boolean;
   apply?: boolean;
+  reassignNullUser?: string;
+  remapRepo?: string;
+}
+
+/** Parse a `from=to` string into a tuple, rejecting empty parts. */
+function parseRemap(input: string): { from: string; to: string } {
+  const idx = input.indexOf("=");
+  if (idx <= 0 || idx === input.length - 1) {
+    throw new Error(
+      `Invalid --remap-repo value "${input}". Expected format: FROM=TO (e.g. agentops=iaj6/agentops).`,
+    );
+  }
+  return { from: input.slice(0, idx).trim(), to: input.slice(idx + 1).trim() };
 }
 
 /**
@@ -73,6 +91,14 @@ export function registerCleanupCommand(program: Command): void {
       "--runs-older-than <duration>",
       "Delete runs older than this (e.g. 90d, 12w). Cascades to policy_results, run_metrics, and matching events.",
     )
+    .option(
+      "--reassign-null-user <user-id>",
+      "Backfill: assign every run with NULL user_id to the given user (pre-auth or local-mode rows).",
+    )
+    .option(
+      "--remap-repo <from=to>",
+      "Backfill: rewrite the repo string on every matching run (e.g. agentops=iaj6/agentops).",
+    )
     .option("--vacuum", "Run SQLite VACUUM after deletion to reclaim space")
     .option("--apply", "Actually reap (default is a dry-run preview)")
     .action(async (opts: CleanupOpts) => {
@@ -80,12 +106,20 @@ export function registerCleanupCommand(program: Command): void {
       const json = program.opts()["json"] as boolean | undefined;
       const apply = !!opts.apply;
 
-      // If no staleness or retention flag is set, do both stale paths —
-      // that's the obvious default when the operator just runs
-      // `agentops cleanup`. Retention is always explicit.
-      const doRuns = !!opts.staleRuns || (!opts.staleSessions && !opts.runsOlderThan);
-      const doSessions = !!opts.staleSessions || (!opts.staleRuns && !opts.runsOlderThan);
+      // If no staleness, retention, or backfill flag is set, do both
+      // stale paths — that's the obvious default when the operator just
+      // runs `agentops cleanup`. Everything else is opt-in.
+      const anyExplicit =
+        !!opts.staleSessions ||
+        !!opts.staleRuns ||
+        !!opts.runsOlderThan ||
+        !!opts.reassignNullUser ||
+        !!opts.remapRepo;
+      const doRuns = !!opts.staleRuns || (!opts.staleSessions && !anyExplicit);
+      const doSessions = !!opts.staleSessions || (!opts.staleRuns && !anyExplicit);
       const doRetention = !!opts.runsOlderThan;
+      const doReassign = !!opts.reassignNullUser;
+      const doRemap = !!opts.remapRepo;
 
       const thresholdMs = opts.thresholdMinutes
         ? Math.max(1, parseInt(opts.thresholdMinutes, 10)) * 60 * 1000
@@ -115,6 +149,32 @@ export function registerCleanupCommand(program: Command): void {
         retentionPreviewCount = countRunsOlderThan(db, retentionCutoffISO);
       }
 
+      // Backfill previews. Validate that --reassign-null-user names a
+      // real user before we even render the preview — applying to a
+      // bogus id would orphan rows and there's no foreign key to catch
+      // it.
+      let reassignTarget: { id: string; label: string } | null = null;
+      let reassignPreviewCount = 0;
+      if (doReassign) {
+        const user = getUserById(db, opts.reassignNullUser!);
+        if (!user) {
+          console.error(
+            `Error: --reassign-null-user "${opts.reassignNullUser}" does not match any user. ` +
+              `List users with: agentops user list`,
+          );
+          process.exit(1);
+        }
+        reassignTarget = { id: user.id, label: user.name ?? user.email };
+        reassignPreviewCount = countRunsWithoutUser(db);
+      }
+
+      let remap: { from: string; to: string } | null = null;
+      let remapPreviewCount = 0;
+      if (doRemap) {
+        remap = parseRemap(opts.remapRepo!);
+        remapPreviewCount = countRunsByRepo(db, remap.from);
+      }
+
       if (json) {
         console.log(
           JSON.stringify({
@@ -137,14 +197,22 @@ export function registerCleanupCommand(program: Command): void {
                   vacuum: !!opts.vacuum,
                 }
               : null,
+            reassignNullUser: reassignTarget
+              ? { userId: reassignTarget.id, userLabel: reassignTarget.label, runs: reassignPreviewCount }
+              : null,
+            remapRepo: remap
+              ? { from: remap.from, to: remap.to, runs: remapPreviewCount }
+              : null,
           }),
         );
       } else {
-        const verb = apply ? "Reaped" : "Would reap";
-        console.log(
-          `${verb} ${staleRuns.length} stale run(s) and ${staleSessions.length} stale session(s) ` +
-            `(threshold: ${Math.round(thresholdMs / 60000)} min).`,
-        );
+        if (doRuns || doSessions) {
+          const verb = apply ? "Reaped" : "Would reap";
+          console.log(
+            `${verb} ${staleRuns.length} stale run(s) and ${staleSessions.length} stale session(s) ` +
+              `(threshold: ${Math.round(thresholdMs / 60000)} min).`,
+          );
+        }
         if (doRetention) {
           const retVerb = apply ? "Deleted" : "Would delete";
           console.log(
@@ -152,8 +220,20 @@ export function registerCleanupCommand(program: Command): void {
               `(before ${retentionCutoffISO}). Cascades to policy_results, run_metrics, and events.`,
           );
         }
+        if (doReassign && reassignTarget) {
+          const reVerb = apply ? "Reassigned" : "Would reassign";
+          console.log(
+            `${reVerb} ${reassignPreviewCount} run(s) with NULL user_id to ${reassignTarget.label} (${reassignTarget.id}).`,
+          );
+        }
+        if (doRemap && remap) {
+          const rmVerb = apply ? "Remapped" : "Would remap";
+          console.log(
+            `${rmVerb} repo on ${remapPreviewCount} run(s): "${remap.from}" -> "${remap.to}".`,
+          );
+        }
         if (!apply) {
-          console.log("Re-run with --apply to actually reap.");
+          console.log("Re-run with --apply to actually apply.");
         }
         for (const r of staleRuns) {
           console.log(
@@ -202,6 +282,17 @@ export function registerCleanupCommand(program: Command): void {
             { reason: "stale", reapedAt: new Date(now).toISOString() },
           ),
         );
+      }
+
+      // Backfills run before retention so a reassigned NULL-user row
+      // can still be caught by the older-than cutoff in the same
+      // invocation if the operator combined the flags. The preview
+      // block already logged the action — no need to re-log here.
+      if (doReassign && reassignTarget) {
+        reassignRunsWithoutUser(db, reassignTarget.id);
+      }
+      if (doRemap && remap) {
+        remapRunRepo(db, remap.from, remap.to);
       }
 
       // Retention: prune old runs + their dependent rows. Done after the

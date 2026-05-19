@@ -441,3 +441,64 @@ export function vacuum(db: AgentOpsDb): void {
   // Drizzle doesn't ship a typed VACUUM; raw sql works.
   db.run(sql`VACUUM`);
 }
+
+// ─── Attribution backfills ──────────────────────────────────────────────────
+//
+// One-shot operations for fixing rows recorded before some attribution
+// signal existed. Repo backfill exists because `getCurrentRepo` falls
+// through three tiers (origin → basename → "unknown") and the same
+// project ends up under multiple names as its git state changes. User
+// backfill exists because local-mode hooks have no auth concept, so
+// pre-auth and local-only runs land with NULL user_id.
+
+/** Count runs with no user_id (pre-auth or local-mode-only). */
+export function countRunsWithoutUser(db: AgentOpsDb): number {
+  const row = db
+    .select({ total: count() })
+    .from(runs)
+    .where(sql`${runs.userId} IS NULL`)
+    .get();
+  return Number(row?.total ?? 0);
+}
+
+/**
+ * Assign userId to every run where user_id IS NULL. Returns the number
+ * of rows changed. The caller is responsible for verifying the userId
+ * actually exists in the users table — this function does not validate.
+ */
+export function reassignRunsWithoutUser(db: AgentOpsDb, userId: string): number {
+  const result = db
+    .update(runs)
+    .set({ userId })
+    .where(sql`${runs.userId} IS NULL`)
+    .run() as { changes?: number };
+  return result.changes ?? 0;
+}
+
+/** Count runs whose repo column matches the given string exactly. */
+export function countRunsByRepo(db: AgentOpsDb, repo: string): number {
+  const row = db
+    .select({ total: count() })
+    .from(runs)
+    .where(eq(runs.repo, repo))
+    .get();
+  return Number(row?.total ?? 0);
+}
+
+/**
+ * Remap repo on every matching run. The repo string is denormalized into
+ * both the `repo` column AND the JSON `environment` field, so the update
+ * touches both. The JSON edit uses SQLite's json_set so we don't need to
+ * round-trip the whole environment object through application code.
+ */
+export function remapRunRepo(db: AgentOpsDb, from: string, to: string): number {
+  const result = db
+    .update(runs)
+    .set({
+      repo: to,
+      environment: sql`json_set(${runs.environment}, '$.repo', ${to})` as unknown as Record<string, unknown>,
+    })
+    .where(eq(runs.repo, from))
+    .run() as { changes?: number };
+  return result.changes ?? 0;
+}

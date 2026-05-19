@@ -17,8 +17,9 @@ export default function AnalyticsPage() {
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  // Resolve userId → display name once; pre-auth records aggregate
-  // under "system".
+  // Resolve userId → display name once; pre-auth and local-mode runs
+  // (no auth context to attribute) aggregate under "unattributed". Use
+  // `agentops cleanup --reassign-null-user <id>` to backfill.
   const users = listUsers(d);
   const userById = new Map<string, { email: string; name: string | null }>();
   for (const u of users) {
@@ -50,13 +51,14 @@ export default function AnalyticsPage() {
     repoCounts.set(repo, repoEntry);
     totalCostAllTime += cost;
 
-    // Per-user aggregation. Pre-auth runs (userId === null) bucket
-    // under a synthetic "system" key so the admin can see how much
-    // activity predates auth being wired up.
-    const userKey = run.userId ? (run.userId as string) : "__system__";
+    // Per-user aggregation. Runs with no userId (pre-auth or
+    // local-mode hooks where there's no auth context) bucket under a
+    // synthetic "unattributed" key — flagged so it's obvious the rows
+    // don't belong to anyone, not just attributed to "the system".
+    const userKey = run.userId ? (run.userId as string) : "__unattributed__";
     if (!userAgg.has(userKey)) {
       const resolved = run.userId ? userById.get(run.userId as string) : null;
-      const label = resolved?.name ?? resolved?.email ?? "system";
+      const label = resolved?.name ?? resolved?.email ?? "unattributed";
       userAgg.set(userKey, { count: 0, cost: 0, label });
     }
     const userEntry = userAgg.get(userKey)!;
