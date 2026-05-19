@@ -55,6 +55,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (type === "testEnforcement" || (config as { type?: unknown }).type === "testEnforcement") {
+      return NextResponse.json(
+        { error: "testEnforcement policy type is no longer supported — hooks cannot observe test results from command output" },
+        { status: 400 },
+      );
+    }
+
     if (!severity || typeof severity !== "string") {
       return NextResponse.json(
         { error: "severity is required and must be a string" },

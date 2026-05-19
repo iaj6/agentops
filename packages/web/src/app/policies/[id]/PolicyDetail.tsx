@@ -82,12 +82,6 @@ function EditPolicyForm({
   const [maxFiles, setMaxFiles] = useState(
     policyType === "fileLimitCount" ? (config.maxFiles as number) : 20,
   );
-  const [requirePassing, setRequirePassing] = useState(
-    policyType === "testEnforcement" ? (config.requirePassing as boolean) : true,
-  );
-  const [minCoverage, setMinCoverage] = useState(
-    policyType === "testEnforcement" ? (config.minCoverage as number) : 80,
-  );
   const [riskyPatterns, setRiskyPatterns] = useState(
     policyType === "riskyOpFlag" ? (config.riskyPatterns as string[]).join(", ") : "",
   );
@@ -104,8 +98,6 @@ function EditPolicyForm({
         };
       case "fileLimitCount":
         return { type: "fileLimitCount", maxFiles };
-      case "testEnforcement":
-        return { type: "testEnforcement", requirePassing, minCoverage };
       case "riskyOpFlag":
         return {
           type: "riskyOpFlag",
@@ -260,33 +252,6 @@ function EditPolicyForm({
                   min={1}
                   className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                 />
-              </div>
-            )}
-
-            {policyType === "testEnforcement" && (
-              <div className="space-y-3">
-                <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={requirePassing}
-                    onChange={(e) => setRequirePassing(e.target.checked)}
-                    className="rounded border-border accent-accent"
-                  />
-                  Require all tests passing
-                </label>
-                <div>
-                  <label className="block text-xs text-muted mb-1">
-                    Minimum coverage (%)
-                  </label>
-                  <input
-                    type="number"
-                    value={minCoverage}
-                    onChange={(e) => setMinCoverage(Number(e.target.value))}
-                    min={0}
-                    max={100}
-                    className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                  />
-                </div>
               </div>
             )}
 

@@ -109,6 +109,13 @@ export async function PUT(
       );
     }
 
+    if ((config as { type?: unknown }).type === "testEnforcement") {
+      return NextResponse.json(
+        { error: "testEnforcement policy type is no longer supported — hooks cannot observe test results from command output" },
+        { status: 400 },
+      );
+    }
+
     updatePolicy(database, policyId, { name, config, severity, enabled });
 
     const me = await getRequestUser(request);

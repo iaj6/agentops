@@ -7,7 +7,6 @@ import { toast } from "@/hooks/useToast";
 const POLICY_TYPES = [
   { value: "pathRestriction", label: "Path Restriction", description: "Block edits to specific paths", mode: "guard" as const },
   { value: "fileLimitCount", label: "File Limit Count", description: "Limit number of files changed", mode: "guard" as const },
-  { value: "testEnforcement", label: "Test Enforcement", description: "Require passing tests", mode: "check" as const },
   { value: "riskyOpFlag", label: "Risky Op Flag", description: "Flag dangerous operations", mode: "guard" as const },
   { value: "costCeiling", label: "Cost Ceiling", description: "Block tool calls once session cost reaches limit", mode: "guard" as const },
 ] as const;
@@ -29,8 +28,6 @@ export function CreatePolicyForm({ onClose }: { onClose: () => void }) {
   // Config fields
   const [blockedPaths, setBlockedPaths] = useState("");
   const [maxFiles, setMaxFiles] = useState(20);
-  const [requirePassing, setRequirePassing] = useState(true);
-  const [minCoverage, setMinCoverage] = useState(80);
   const [riskyPatterns, setRiskyPatterns] = useState("");
   const [maxUsd, setMaxUsd] = useState(25);
 
@@ -43,8 +40,6 @@ export function CreatePolicyForm({ onClose }: { onClose: () => void }) {
         };
       case "fileLimitCount":
         return { type: "fileLimitCount", maxFiles };
-      case "testEnforcement":
-        return { type: "testEnforcement", requirePassing, minCoverage };
       case "riskyOpFlag":
         return {
           type: "riskyOpFlag",
@@ -230,33 +225,6 @@ export function CreatePolicyForm({ onClose }: { onClose: () => void }) {
                     min={1}
                     className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                   />
-                </div>
-              )}
-
-              {type === "testEnforcement" && (
-                <div className="space-y-3">
-                  <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={requirePassing}
-                      onChange={(e) => setRequirePassing(e.target.checked)}
-                      className="rounded border-border accent-accent"
-                    />
-                    Require all tests passing
-                  </label>
-                  <div>
-                    <label className="block text-xs text-muted mb-1">
-                      Minimum coverage (%)
-                    </label>
-                    <input
-                      type="number"
-                      value={minCoverage}
-                      onChange={(e) => setMinCoverage(Number(e.target.value))}
-                      min={0}
-                      max={100}
-                      className="w-32 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                    />
-                  </div>
                 </div>
               )}
 
