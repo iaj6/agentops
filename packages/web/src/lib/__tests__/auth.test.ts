@@ -357,6 +357,35 @@ describe("resolveViewScope", () => {
     expect(s.userId).toBe("u_admin");
     expect(s.active).toBe("mine");
   });
+
+  it("admin scoping by ?userId=<other-id> selects that user", () => {
+    const s = resolveViewScope(admin, { userId: "u_someone_else" });
+    expect(s.userId).toBe("u_someone_else");
+    expect(s.active).toBe("user");
+    expect(s.canToggle).toBe(true);
+  });
+
+  it("admin scoping by ?userId=<own-id> normalizes to 'mine'", () => {
+    const s = resolveViewScope(admin, { userId: "u_admin" });
+    expect(s.userId).toBe("u_admin");
+    expect(s.active).toBe("mine");
+  });
+
+  it("?userId wins over ?view=mine when both are present", () => {
+    const s = resolveViewScope(admin, {
+      view: "mine",
+      userId: "u_other",
+    });
+    expect(s.userId).toBe("u_other");
+    expect(s.active).toBe("user");
+  });
+
+  it("member ignores ?userId=<other-id> (still self-scoped)", () => {
+    const s = resolveViewScope(member, { userId: "u_someone_else" });
+    expect(s.userId).toBe("u_member");
+    expect(s.active).toBe("mine");
+    expect(s.canToggle).toBe(false);
+  });
 });
 
 // ─── unauthorized / forbidden response helpers ─────────────────────────────

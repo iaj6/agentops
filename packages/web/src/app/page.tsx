@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; userId?: string }>;
 }) {
   const user = await getRequestUser();
   if (!user) redirect("/login?next=/");
@@ -33,16 +33,24 @@ export default async function HomePage({
     name: u.name,
   }));
 
+  // Page chrome label: "Sarah's runs" when an admin drilled into one
+  // user, "Your runs" when scoped to self, "Fleet overview" when team-wide.
+  let subtitle: string;
+  if (scope.active === "user" && scope.userId) {
+    const target = users.find((u) => u.id === scope.userId);
+    subtitle = target ? `${target.name ?? target.email}'s runs` : "Filtered runs";
+  } else if (scope.active === "mine") {
+    subtitle = "Your runs";
+  } else {
+    subtitle = "Fleet overview — every user's runs";
+  }
+
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted">
-            {scope.active === "mine"
-              ? "Your runs"
-              : "Fleet overview — every user's runs"}
-          </p>
+          <p className="text-sm text-muted">{subtitle}</p>
         </div>
       </div>
       <FleetOverview>

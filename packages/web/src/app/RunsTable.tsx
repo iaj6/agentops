@@ -104,10 +104,12 @@ export function RunsTable({
       p.set("sortDir", sortDir);
       p.set("limit", String(pageSize));
       p.set("offset", String((page - 1) * pageSize));
-      // Carry through the current view scope so the search API applies
-      // the same Team/Mine filter the SSR page used.
+      // Carry through the current view scope (?view= or ?userId=) so
+      // the search API applies the same filter the SSR page used.
       const view = searchParams.get("view");
       if (view) p.set("view", view);
+      const userId = searchParams.get("userId");
+      if (userId) p.set("userId", userId);
 
       const res = await fetch(`/api/runs/search?${p.toString()}`);
       if (res.ok) {
@@ -128,8 +130,14 @@ export function RunsTable({
     debounceRef.current = setTimeout(() => {
       fetchSearchResults();
 
-      // Update URL params
+      // Update URL params. Preserve the active view scope (?view= or
+      // ?userId=) — the sidebar UserSelect manages those and we don't
+      // want a filter change to silently drop them.
       const p = new URLSearchParams();
+      const view = searchParams.get("view");
+      if (view) p.set("view", view);
+      const userId = searchParams.get("userId");
+      if (userId) p.set("userId", userId);
       if (query.trim()) p.set("q", query.trim());
       for (const st of filters.status) p.append("status", st);
       for (const r of filters.repo) p.append("repo", r);
@@ -146,7 +154,7 @@ export function RunsTable({
       router.replace(newUrl, { scroll: false });
     }, 300);
     return () => clearTimeout(debounceRef.current);
-  }, [query, filters, sortBy, sortDir, page, pageSize, fetchSearchResults, pathname, router]);
+  }, [query, filters, sortBy, sortDir, page, pageSize, fetchSearchResults, pathname, router, searchParams]);
 
   // Client-side sort for live runs (when no server search is active)
   const clientSorted = useMemo(() => {

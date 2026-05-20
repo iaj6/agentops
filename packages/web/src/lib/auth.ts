@@ -178,26 +178,36 @@ export async function requireOwnedSession(
 export interface ViewScope {
   readonly userId?: string;
   /** What's actually being shown — used by the sidebar toggle and page chrome. */
-  readonly active: "mine" | "team";
+  readonly active: "mine" | "team" | "user";
   /** Whether the user has any choice in the matter (admins do, members don't). */
   readonly canToggle: boolean;
 }
 
 export function resolveViewScope(
   user: User,
-  searchParams: { view?: string } | URLSearchParams,
+  searchParams: { view?: string; userId?: string } | URLSearchParams,
 ): ViewScope {
-  const viewParam =
+  const get = (key: string): string | null =>
     searchParams instanceof URLSearchParams
-      ? searchParams.get("view")
-      : (searchParams.view ?? null);
+      ? searchParams.get(key)
+      : ((searchParams as Record<string, string | undefined>)[key] ?? null);
+  const viewParam = get("view");
+  const userIdParam = get("userId");
 
   if (user.role !== "admin") {
     // Members never see anyone else's data, regardless of query param.
     return { userId: user.id, active: "mine", canToggle: false };
   }
 
-  // Admin: ?view=mine forces self-scope; default is team-wide.
+  // Admin: explicit ?userId=<id> wins; falls back to ?view=mine, then
+  // team-wide. ?userId=<own-id> normalizes to "mine" so the sidebar UI
+  // and page chrome agree.
+  if (userIdParam) {
+    if (userIdParam === user.id) {
+      return { userId: user.id, active: "mine", canToggle: true };
+    }
+    return { userId: userIdParam, active: "user", canToggle: true };
+  }
   if (viewParam === "mine") {
     return { userId: user.id, active: "mine", canToggle: true };
   }

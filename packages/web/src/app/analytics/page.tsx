@@ -29,7 +29,7 @@ export default function AnalyticsPage() {
   // Build daily success/failure counts
   const dailyCounts = new Map<string, { completed: number; failed: number }>();
   const repoCounts = new Map<string, { count: number; cost: number }>();
-  const userAgg = new Map<string, { count: number; cost: number; label: string }>();
+  const userAgg = new Map<string, { count: number; cost: number; label: string; userId: string | null }>();
 
   for (let i = 0; i < 30; i++) {
     const dd = new Date(thirtyDaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
@@ -59,7 +59,7 @@ export default function AnalyticsPage() {
     if (!userAgg.has(userKey)) {
       const resolved = run.userId ? userById.get(run.userId as string) : null;
       const label = resolved?.name ?? resolved?.email ?? "unattributed";
-      userAgg.set(userKey, { count: 0, cost: 0, label });
+      userAgg.set(userKey, { count: 0, cost: 0, label, userId: run.userId ?? null });
     }
     const userEntry = userAgg.get(userKey)!;
     userEntry.count++;
@@ -90,7 +90,7 @@ export default function AnalyticsPage() {
     .slice(0, 10);
 
   const topUsers = Array.from(userAgg.values())
-    .map((u) => ({ label: u.label, count: u.count, cost: u.cost }))
+    .map((u) => ({ label: u.label, count: u.count, cost: u.cost, userId: u.userId }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 

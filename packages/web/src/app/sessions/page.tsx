@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 export default async function SessionsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; userId?: string }>;
 }) {
   const user = await getRequestUser();
   if (!user) redirect("/login?next=/sessions");
@@ -38,7 +38,15 @@ export default async function SessionsPage({
   const active = sessions.filter((s) => s.status === "active").length;
   const terminated = sessions.filter((s) => s.status === "terminated").length;
 
-  const scopeLabel = scope.active === "mine" ? "your" : "team";
+  let scopeLabel: string;
+  if (scope.active === "user" && scope.userId) {
+    const target = users.find((u) => u.id === scope.userId);
+    scopeLabel = target ? `${target.name ?? target.email}'s` : "filtered";
+  } else if (scope.active === "mine") {
+    scopeLabel = "your";
+  } else {
+    scopeLabel = "team";
+  }
 
   return (
     <div className="p-6">

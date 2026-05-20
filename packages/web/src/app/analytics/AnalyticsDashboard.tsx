@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { MetricCard } from "@/components/MetricCard";
 import { SuccessChart } from "@/components/SuccessChart";
 
 interface Props {
   successData: { date: string; completed: number; failed: number }[];
   topRepos: { repo: string; count: number; cost: number }[];
-  topUsers: { label: string; count: number; cost: number }[];
+  topUsers: { label: string; count: number; cost: number; userId: string | null }[];
   totalRuns: number;
   totalCompleted: number;
   totalFailed: number;
@@ -164,8 +165,8 @@ export function AnalyticsDashboard({
               topUsers.map((user, i) => {
                 const maxCount = topUsers[0]?.count ?? 1;
                 const pct = (user.count / maxCount) * 100;
-                return (
-                  <div key={user.label} className="space-y-1">
+                const row = (
+                  <div className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-mono text-foreground">
                         <span className="text-muted mr-2">#{i + 1}</span>
@@ -187,6 +188,20 @@ export function AnalyticsDashboard({
                       />
                     </div>
                   </div>
+                );
+                // Only real users get a drill-in link; the synthetic
+                // "unattributed" bucket has no userId to filter on.
+                return user.userId ? (
+                  <Link
+                    key={user.userId}
+                    href={`/?userId=${encodeURIComponent(user.userId)}`}
+                    className="block rounded p-1 -m-1 transition-colors hover:bg-surface-2"
+                    title={`View ${user.label}'s runs`}
+                  >
+                    {row}
+                  </Link>
+                ) : (
+                  <div key={user.label}>{row}</div>
                 );
               })
             )}
