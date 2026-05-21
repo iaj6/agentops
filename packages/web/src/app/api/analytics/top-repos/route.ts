@@ -1,12 +1,20 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { listRuns } from "@agentops/db";
 import { db } from "@/lib/db";
+import { requireUser, resolveViewScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const user = await requireUser(request);
+  if (user instanceof NextResponse) return user;
+
   try {
-    const runs = listRuns(db(), { limit: 1000 });
+    const scope = resolveViewScope(user, request.nextUrl.searchParams);
+    const runs = listRuns(db(), {
+      limit: 1000,
+      ...(scope.userId ? { userId: scope.userId } : {}),
+    });
 
     const repoCounts = new Map<string, { count: number; totalCost: number }>();
 

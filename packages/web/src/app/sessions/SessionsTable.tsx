@@ -7,6 +7,7 @@ import { SessionStatus, isStaleSession } from "@agentops/core";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import { StaleBadge } from "@/components/StaleBadge";
 import { UserChip, type UserSummary } from "@/components/UserChip";
+import { UserFilter } from "@/components/UserFilter";
 import { useSessions } from "@/hooks/useSessions";
 import Link from "next/link";
 
@@ -18,9 +19,11 @@ const ALL_STATUSES = Object.values(SessionStatus);
 export function SessionsTable({
   sessions: initialSessions,
   users = [],
+  currentUser,
 }: {
   sessions: Session[];
   users?: UserSummary[];
+  currentUser: { id: string; role: string };
 }) {
   const userById = useMemo(() => {
     const m = new Map<string, UserSummary>();
@@ -31,7 +34,10 @@ export function SessionsTable({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const { sessions, loading, recentlyUpdated } = useSessions(initialSessions);
+  const { sessions, loading, recentlyUpdated } = useSessions(initialSessions, {
+    view: searchParams.get("view"),
+    userId: searchParams.get("userId"),
+  });
 
   // Filters from URL
   const [statusFilter, setStatusFilter] = useState<string>(
@@ -72,16 +78,21 @@ export function SessionsTable({
     return sorted;
   }, [sessions, statusFilter, sortBy, sortDir]);
 
-  // Sync filters to URL
+  // Sync filters to URL. Preserve view/userId — the UserFilter chip
+  // owns those; a local filter change shouldn't silently reset them.
   useEffect(() => {
     const p = new URLSearchParams();
+    const view = searchParams.get("view");
+    if (view) p.set("view", view);
+    const userId = searchParams.get("userId");
+    if (userId) p.set("userId", userId);
     if (statusFilter) p.set("status", statusFilter);
     if (sortBy !== "created") p.set("sortBy", sortBy);
     if (sortDir !== "desc") p.set("sortDir", sortDir);
     const qs = p.toString();
     const newUrl = qs ? `${pathname}?${qs}` : pathname;
     router.replace(newUrl, { scroll: false });
-  }, [statusFilter, sortBy, sortDir, pathname, router]);
+  }, [statusFilter, sortBy, sortDir, pathname, router, searchParams]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -144,7 +155,10 @@ export function SessionsTable({
   return (
     <div>
       {/* Filters */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        {currentUser.role === "admin" && (
+          <UserFilter currentUserId={currentUser.id} canSelect />
+        )}
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}

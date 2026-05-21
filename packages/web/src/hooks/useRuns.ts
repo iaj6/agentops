@@ -17,7 +17,10 @@ interface UseRunsReturn {
   recentlyUpdated: Set<string>;
 }
 
-export function useRuns(initialRuns: RunWithSummary[]): UseRunsReturn {
+export function useRuns(
+  initialRuns: RunWithSummary[],
+  scope?: { view?: string | null; userId?: string | null },
+): UseRunsReturn {
   const [runsWithSummaries, setRunsWithSummaries] = useState<RunWithSummary[]>(initialRuns);
   const [loading, setLoading] = useState(false);
   const [recentlyUpdated, setRecentlyUpdated] = useState<Set<string>>(
@@ -27,13 +30,23 @@ export function useRuns(initialRuns: RunWithSummary[]): UseRunsReturn {
     new Map(),
   );
 
-  // Fetch initial data from API
+  // Normalize scope to a stable string so useEffect can depend on it
+  // without churning on new object references each render.
+  const scopeKey = `${scope?.view ?? ""}|${scope?.userId ?? ""}`;
+
+  // Fetch from the API when the page mounts or the view scope changes.
+  // Without this re-fetch, navigating from /?userId=A to /?userId=B
+  // would leave the table showing A's runs — SSR delivers fresh
+  // initialRuns on every navigation but useState ignores prop updates.
   useEffect(() => {
     let cancelled = false;
     async function fetchRuns() {
       setLoading(true);
       try {
-        const res = await fetch("/api/runs?limit=50");
+        const p = new URLSearchParams({ limit: "50" });
+        if (scope?.view) p.set("view", scope.view);
+        if (scope?.userId) p.set("userId", scope.userId);
+        const res = await fetch(`/api/runs?${p.toString()}`);
         if (res.ok && !cancelled) {
           const data = await res.json();
           setRunsWithSummaries(data);
@@ -46,7 +59,10 @@ export function useRuns(initialRuns: RunWithSummary[]): UseRunsReturn {
     return () => {
       cancelled = true;
     };
-  }, []);
+    // scopeKey captures both view and userId; the eslint warning about
+    // the spread vars is intentional — we want stability via the string.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey]);
 
   const markUpdated = useCallback((runId: string) => {
     setRecentlyUpdated((prev) => new Set(prev).add(runId));

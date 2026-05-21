@@ -10,7 +10,10 @@ interface UseSessionsReturn {
   recentlyUpdated: Set<string>;
 }
 
-export function useSessions(initialSessions: Session[]): UseSessionsReturn {
+export function useSessions(
+  initialSessions: Session[],
+  scope?: { view?: string | null; userId?: string | null },
+): UseSessionsReturn {
   const [sessions, setSessions] = useState<Session[]>(initialSessions);
   const [loading, setLoading] = useState(false);
   const [recentlyUpdated, setRecentlyUpdated] = useState<Set<string>>(
@@ -20,13 +23,27 @@ export function useSessions(initialSessions: Session[]): UseSessionsReturn {
     new Map(),
   );
 
-  // Fetch initial data from API
+  // Stable scope key so the fetch + polling effects re-run when the
+  // user-filter changes but not on every render due to a new {} prop.
+  const scopeKey = `${scope?.view ?? ""}|${scope?.userId ?? ""}`;
+
+  function buildUrl(): string {
+    const p = new URLSearchParams({ limit: "50" });
+    if (scope?.view) p.set("view", scope.view);
+    if (scope?.userId) p.set("userId", scope.userId);
+    return `/api/sessions?${p.toString()}`;
+  }
+
+  // Fetch from the API when the page mounts or the view scope changes.
+  // The SSR-delivered initialSessions reflects the URL at first render,
+  // but useState ignores prop updates on navigation — so the fetch is
+  // what keeps us aligned with the current scope.
   useEffect(() => {
     let cancelled = false;
     async function fetchSessions() {
       setLoading(true);
       try {
-        const res = await fetch("/api/sessions?limit=50");
+        const res = await fetch(buildUrl());
         if (res.ok && !cancelled) {
           const data = await res.json();
           setSessions(data);
@@ -39,13 +56,14 @@ export function useSessions(initialSessions: Session[]): UseSessionsReturn {
     return () => {
       cancelled = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey]);
 
-  // Poll for updates every 5 seconds
+  // Poll for updates every 5 seconds, also scope-aware.
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const res = await fetch("/api/sessions?limit=50");
+        const res = await fetch(buildUrl());
         if (res.ok) {
           const data = await res.json();
           setSessions((prev) => {
@@ -67,7 +85,8 @@ export function useSessions(initialSessions: Session[]): UseSessionsReturn {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey]);
 
   const markUpdated = useCallback((sessionId: string) => {
     setRecentlyUpdated((prev) => new Set(prev).add(sessionId));

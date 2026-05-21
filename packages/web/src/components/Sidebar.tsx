@@ -3,15 +3,27 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { UserSelect } from "./UserSelect";
 
-const navItems = [
+// Nav is grouped into sections so the personal/observability/admin
+// split is visible at a glance. The Admin Console section is only
+// rendered when the viewer is an admin.
+//
+// This is step 1 of the layout cleanup — pages stay where they are.
+// Step 2 will split Settings into "My profile" (here) vs the admin
+// surfaces (Users, Webhooks, Audit) that currently live inside it.
+const observabilityItems = [
   { href: "/", label: "Runs", icon: RunsIcon },
   { href: "/sessions", label: "Sessions", icon: SessionsIcon },
   { href: "/events", label: "Events", icon: EventsIcon },
   { href: "/analytics", label: "Analytics", icon: AnalyticsIcon },
   { href: "/usage", label: "Usage", icon: UsageIcon },
+];
+
+const adminItems = [
   { href: "/policies", label: "Policies", icon: PoliciesIcon },
+];
+
+const personalItems = [
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
@@ -69,31 +81,20 @@ export function Sidebar() {
           AgentOps
         </span>
       </div>
-      <nav className="flex-1 space-y-0.5 px-1.5 md:px-2 py-3">
-        {navItems.map((item) => {
-          const isActive =
-            item.href === "/"
-              ? pathname === "/" || pathname.startsWith("/runs")
-              : pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              title={item.label}
-              className={`flex items-center justify-center md:justify-start gap-2.5 rounded-md px-2.5 md:px-3 py-2 text-sm transition-colors ${
-                isActive
-                  ? "bg-accent/10 text-accent"
-                  : "text-muted hover:bg-surface-2 hover:text-foreground"
-              }`}
-            >
-              <item.icon active={isActive} />
-              <span className="hidden md:inline">{item.label}</span>
-            </Link>
-          );
-        })}
+      <nav className="flex-1 overflow-y-auto px-1.5 md:px-2 py-3">
+        <NavSection items={observabilityItems} pathname={pathname} />
+
+        {user?.role === "admin" && (
+          <NavSection
+            heading="Admin Console"
+            items={adminItems}
+            pathname={pathname}
+          />
+        )}
+
+        <NavSection items={personalItems} pathname={pathname} />
       </nav>
       <div className="border-t border-border px-3 md:px-4 py-3 space-y-3">
-        {user?.role === "admin" && <UserSelect currentUserId={user.id} />}
         {user && (
           <div className="hidden md:block">
             <p className="text-xs font-medium text-foreground truncate" title={user.email}>
@@ -117,6 +118,55 @@ export function Sidebar() {
         <p className="hidden md:block text-xs text-muted">v0.1.0</p>
       </div>
     </aside>
+  );
+}
+
+interface NavItem {
+  href: string;
+  label: string;
+  icon: (props: { active: boolean }) => React.ReactNode;
+}
+
+function NavSection({
+  heading,
+  items,
+  pathname,
+}: {
+  heading?: string;
+  items: NavItem[];
+  pathname: string;
+}) {
+  return (
+    <div className="mb-2 last:mb-0">
+      {heading && (
+        <p className="hidden md:block px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted/70">
+          {heading}
+        </p>
+      )}
+      <div className="space-y-0.5">
+        {items.map((item) => {
+          const isActive =
+            item.href === "/"
+              ? pathname === "/" || pathname.startsWith("/runs")
+              : pathname.startsWith(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              title={item.label}
+              className={`flex items-center justify-center md:justify-start gap-2.5 rounded-md px-2.5 md:px-3 py-2 text-sm transition-colors ${
+                isActive
+                  ? "bg-accent/10 text-accent"
+                  : "text-muted hover:bg-surface-2 hover:text-foreground"
+              }`}
+            >
+              <item.icon active={isActive} />
+              <span className="hidden md:inline">{item.label}</span>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

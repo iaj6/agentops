@@ -11,6 +11,7 @@ import { FilterPanel, type Filters, emptyFilters } from "@/components/FilterPane
 import { CommandPalette } from "@/components/CommandPalette";
 import { SessionSummaryCard, RunFallbackCard } from "@/components/SessionSummaryCard";
 import type { UserSummary } from "@/components/UserChip";
+import { UserFilter } from "@/components/UserFilter";
 import { useRuns, type RunWithSummary } from "@/hooks/useRuns";
 
 function formatDuration(ms: number): string {
@@ -30,9 +31,11 @@ const PAGE_SIZES = [25, 50, 100];
 export function RunsTable({
   runs: initialRuns,
   users = [],
+  currentUser,
 }: {
   runs: RunWithSummary[];
   users?: UserSummary[];
+  currentUser: { id: string; role: string };
 }) {
   const userById = useMemo(() => {
     const m = new Map<string, UserSummary>();
@@ -43,8 +46,16 @@ export function RunsTable({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // SSE real-time connection
-  const { runsWithSummaries: liveRunsWithSummaries, connected, recentlyUpdated } = useRuns(initialRuns);
+  // SSE real-time connection. Scope is read from the URL so a sidebar
+  // dropdown change triggers a re-fetch with the new userId/view filter
+  // instead of replaying the cached unscoped data from the initial mount.
+  const { runsWithSummaries: liveRunsWithSummaries, connected, recentlyUpdated } = useRuns(
+    initialRuns,
+    {
+      view: searchParams.get("view"),
+      userId: searchParams.get("userId"),
+    },
+  );
 
   // Read initial state from URL
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
@@ -131,8 +142,8 @@ export function RunsTable({
       fetchSearchResults();
 
       // Update URL params. Preserve the active view scope (?view= or
-      // ?userId=) — the sidebar UserSelect manages those and we don't
-      // want a filter change to silently drop them.
+      // ?userId=) — the inline UserFilter chip manages those and we
+      // don't want a filter change to silently drop them.
       const p = new URLSearchParams();
       const view = searchParams.get("view");
       if (view) p.set("view", view);
@@ -267,6 +278,13 @@ export function RunsTable({
           totalCount={total}
         />
       </div>
+
+      {/* User-scope filter (admin only — hidden for members) */}
+      {currentUser.role === "admin" && (
+        <div className="mb-3 flex items-center">
+          <UserFilter currentUserId={currentUser.id} canSelect />
+        </div>
+      )}
 
       {/* Filter panel */}
       <FilterPanel

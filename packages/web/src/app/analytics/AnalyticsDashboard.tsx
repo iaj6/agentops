@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { MetricCard } from "@/components/MetricCard";
 import { SuccessChart } from "@/components/SuccessChart";
+import { UserFilter } from "@/components/UserFilter";
 
 interface Props {
   successData: { date: string; completed: number; failed: number }[];
@@ -14,6 +16,8 @@ interface Props {
   totalFailed: number;
   totalCostAllTime: number;
   totalCost30d: number;
+  subtitle: string;
+  currentUser: { id: string; role: string };
 }
 
 function formatDuration(ms: number): string {
@@ -66,6 +70,8 @@ export function AnalyticsDashboard({
   totalFailed,
   totalCostAllTime,
   totalCost30d,
+  subtitle,
+  currentUser,
 }: Props) {
   const successRate =
     totalCompleted + totalFailed > 0
@@ -77,27 +83,40 @@ export function AnalyticsDashboard({
   const [durationData, setDurationData] = useState<DurationEntry[]>([]);
   const [costPerDay, setCostPerDay] = useState<CostPerDayEntry[]>([]);
 
+  // Forward the active view scope to every chart endpoint so the
+  // dashboard panels all narrow to the same user when filtered.
+  const searchParams = useSearchParams();
+  const scopeQs = (() => {
+    const p = new URLSearchParams();
+    const view = searchParams.get("view");
+    const userId = searchParams.get("userId");
+    if (view) p.set("view", view);
+    if (userId) p.set("userId", userId);
+    const s = p.toString();
+    return s ? `?${s}` : "";
+  })();
+
   useEffect(() => {
-    fetch("/api/analytics/files-changed")
+    fetch(`/api/analytics/files-changed${scopeQs}`)
       .then((r) => r.json())
       .then((data) => setFilesChanged(data))
       .catch(() => {});
 
-    fetch("/api/analytics/policy-violations")
+    fetch(`/api/analytics/policy-violations${scopeQs}`)
       .then((r) => r.json())
       .then((data) => setPolicyViolations(data))
       .catch(() => {});
 
-    fetch("/api/analytics/duration")
+    fetch(`/api/analytics/duration${scopeQs}`)
       .then((r) => r.json())
       .then((data) => setDurationData(data))
       .catch(() => {});
 
-    fetch("/api/analytics/cost-per-day")
+    fetch(`/api/analytics/cost-per-day${scopeQs}`)
       .then((r) => r.json())
       .then((data) => setCostPerDay(data))
       .catch(() => {});
-  }, []);
+  }, [scopeQs]);
 
   // Compute runs per day from successData
   const runsPerDay = successData.map((d) => ({
@@ -107,11 +126,14 @@ export function AnalyticsDashboard({
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">Analytics</h1>
-        <p className="text-sm text-muted">
-          Spend, run health, and policy compliance across the fleet
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Analytics</h1>
+          <p className="text-sm text-muted">{subtitle}</p>
+        </div>
+        {currentUser.role === "admin" && (
+          <UserFilter currentUserId={currentUser.id} canSelect />
+        )}
       </div>
 
       {/* Summary stats */}

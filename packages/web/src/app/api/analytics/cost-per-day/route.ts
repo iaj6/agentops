@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { listRuns } from "@agentops/db";
 import { db } from "@/lib/db";
+import { requireUser, resolveViewScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -9,9 +10,16 @@ export const dynamic = "force-dynamic";
 // ascending by date. The Cost Per Day chart on the dashboard binds
 // directly to the response shape.
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const user = await requireUser(request);
+  if (user instanceof NextResponse) return user;
+
   try {
-    const runs = listRuns(db(), { limit: 5000 });
+    const scope = resolveViewScope(user, request.nextUrl.searchParams);
+    const runs = listRuns(db(), {
+      limit: 5000,
+      ...(scope.userId ? { userId: scope.userId } : {}),
+    });
 
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);

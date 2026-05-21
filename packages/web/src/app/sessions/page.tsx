@@ -72,6 +72,7 @@ export default async function SessionsPage({
           <SessionsTable
             sessions={JSON.parse(JSON.stringify(sessions))}
             users={users}
+            currentUser={{ id: user.id, role: user.role }}
           />
         </Suspense>
       )}

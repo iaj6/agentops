@@ -76,6 +76,7 @@ export default async function HomePage({
             <RunsTable
               runs={JSON.parse(JSON.stringify(runsWithSummaries))}
               users={users}
+              currentUser={{ id: user.id, role: user.role }}
             />
           </Suspense>
         )}
