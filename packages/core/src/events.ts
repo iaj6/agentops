@@ -24,6 +24,13 @@ export const EVENT_TYPES = {
   // Cost events
   "cost.threshold": "cost.threshold",
 
+  // Budget events (per-user spend caps). Emitted once per period when a
+  // user's period spend crosses the warn threshold (warning) or the
+  // budget itself (breached). Dedupe is enforced by the budgets table
+  // last_warn_at / last_breach_at columns, not by the event sink.
+  "budget.warning": "budget.warning",
+  "budget.breached": "budget.breached",
+
   // Session events
   "session.started": "session.started",
   "session.terminated": "session.terminated",

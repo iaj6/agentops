@@ -254,3 +254,20 @@ export const auditLog = sqliteTable("audit_log", {
   ip: text("ip"),
   metadata: text("metadata", { mode: "json" }),
 });
+
+// Per-user period budgets. One row per (user, set-or-unset). Period
+// is a calendar bucket (week starts Monday UTC; month starts day 1
+// UTC) so users can predict when their clock resets. lastWarnAt /
+// lastBreachAt store ISO timestamps of the last threshold-crossing
+// event we emitted, used to dedupe so we don't fire on every
+// PreToolUse after the threshold is crossed — only once per period.
+export const userBudgets = sqliteTable("user_budgets", {
+  userId: text("user_id").primaryKey(),
+  amountUsd: integer("amount_usd_cents").notNull(),
+  period: text("period").notNull(), // 'week' | 'month'
+  warnAtPct: integer("warn_at_pct").notNull().default(80),
+  lastWarnAt: text("last_warn_at"),
+  lastBreachAt: text("last_breach_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});

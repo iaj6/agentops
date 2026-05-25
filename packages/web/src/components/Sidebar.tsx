@@ -22,6 +22,7 @@ const observabilityItems = [
 
 const adminItems = [
   { href: "/admin/users", label: "Users", icon: UsersIcon },
+  { href: "/admin/budgets", label: "Budgets", icon: BudgetsIcon },
   { href: "/policies", label: "Policies", icon: PoliciesIcon },
   { href: "/admin/webhooks", label: "Webhooks", icon: WebhooksIcon },
   { href: "/admin/audit", label: "Audit Log", icon: AuditIcon },
@@ -374,6 +375,26 @@ function WebhooksIcon({ active }: { active: boolean }) {
       <circle cx="11.5" cy="11.5" r="2" stroke="currentColor" strokeWidth="1.5" />
       <path
         d="M6.4 6.4l2.6 3M6 12h3.5M11 9.6V6"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function BudgetsIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      className={active ? "text-accent" : "text-muted"}
+    >
+      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M8 4.5v3.5l2.25 2.25"
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"

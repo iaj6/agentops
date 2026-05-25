@@ -22,6 +22,8 @@ export const AUDIT_ACTIONS = {
   WEBHOOK_CREATED: "webhook.created",
   WEBHOOK_DELETED: "webhook.deleted",
   WEBHOOK_TEST_SENT: "webhook.test_sent",
+  BUDGET_SET: "budget.set",
+  BUDGET_DELETED: "budget.deleted",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

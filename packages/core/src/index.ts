@@ -149,6 +149,18 @@ export {
 export { EVENT_TYPES, createEvent, EventBus } from "./events.js";
 export type { EventType } from "./events.js";
 
+// Per-user budgets (Feature A)
+export {
+  budgetPeriodStart,
+  computeBudgetState,
+  pickBudgetEvent,
+} from "./budget.js";
+export type {
+  BudgetConfig,
+  BudgetStatus,
+  BudgetState,
+} from "./budget.js";
+
 // Coordination (WS4)
 export type {
   ConflictCheckResult,

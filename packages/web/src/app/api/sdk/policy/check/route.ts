@@ -6,8 +6,17 @@ import {
   evaluatePreToolPolicies,
   PolicySeverity,
   type GuardContext,
+  computeBudgetState,
+  pickBudgetEvent,
 } from "@agentops/core";
-import { insertEvent, insertPolicyResult, listPolicies } from "@agentops/db";
+import {
+  getBudget,
+  insertEvent,
+  insertPolicyResult,
+  listPolicies,
+  listRuns,
+  markThresholdFired,
+} from "@agentops/db";
 import { db } from "@/lib/db";
 import { requireOwnedRun } from "@/lib/auth";
 import { internalError } from "@/lib/log";
@@ -154,6 +163,10 @@ export async function POST(request: NextRequest) {
           evaluatedAt: now,
         });
       }
+      // Even on a block, still run the budget check below — a block
+      // doesn't mean the user hasn't already crossed a threshold this
+      // period, and we want the admin notified either way.
+      void checkBudgetThreshold(run.userId ?? null, body, run);
       return NextResponse.json({
         decision: "block",
         reason: errors.map((v) => `[${v.policy}] ${v.message}`).join("; "),
@@ -161,8 +174,79 @@ export async function POST(request: NextRequest) {
         warnings,
       });
     }
+    void checkBudgetThreshold(run.userId ?? null, body, run);
     return NextResponse.json({ decision: "allow", warnings });
   } catch (error) {
     return internalError(request, error, "sdk/policy/check");
+  }
+}
+
+// Budget threshold check. Fires `budget.warning` and `budget.breached`
+// events with per-period dedupe via user_budgets.last_*_at columns —
+// at most one of each per (user, period). Runs after the policy
+// decision so a hook that's about to be blocked still triggers the
+// alert (the admin wants to know either way). Never throws — budget
+// is an observability add-on and must not break the hook path.
+function checkBudgetThreshold(
+  userId: string | null,
+  body: CheckBody,
+  run: { id: unknown; createdAt: string; metrics: { costUsd: number } },
+): void {
+  try {
+    if (!userId) return;
+    const d = db();
+    const budget = getBudget(d, userId);
+    if (!budget) return;
+
+    // Use the user's existing runs as the period spend baseline, then
+    // overlay the live session cost from the request (the hook knows
+    // it from the local transcript). This way we count today's spend
+    // even if the current run's DB row hasn't been updated yet.
+    const allRuns = listRuns(d, { userId, limit: 1000 });
+    const otherRuns = allRuns.filter((r) => (r.id as string) !== (run.id as string));
+    const sessionCost =
+      typeof body.cumulativeCostUsd === "number"
+        ? body.cumulativeCostUsd
+        : run.metrics.costUsd ?? 0;
+    const runsForCheck = [
+      ...otherRuns.map((r) => ({
+        createdAt: r.createdAt,
+        metrics: r.metrics,
+      })),
+      {
+        createdAt: run.createdAt,
+        metrics: { ...run.metrics, costUsd: sessionCost },
+      },
+    ];
+
+    const state = computeBudgetState(budget, runsForCheck);
+    const event = pickBudgetEvent(state, budget.lastWarnAt, budget.lastBreachAt);
+    if (!event) return;
+
+    const now = new Date().toISOString();
+    const eventType =
+      event === "breached"
+        ? EVENT_TYPES["budget.breached"]
+        : EVENT_TYPES["budget.warning"];
+    const agentEvent = createEvent(EventCategory.Cost, eventType, userId, {
+      userId,
+      runId: run.id as string,
+      spent: state.spent,
+      amountUsd: budget.amountUsd,
+      pct: state.pct,
+      period: budget.period,
+      periodStart: state.periodStart,
+    });
+    insertEvent(d, agentEvent);
+    void dispatchWebhookEvent(d, {
+      id: agentEvent.id as string,
+      type: agentEvent.type,
+      payload: agentEvent.payload,
+      timestamp: agentEvent.timestamp,
+    });
+    markThresholdFired(d, userId, event, now);
+  } catch (err) {
+    // Swallow — budget telemetry should never break the hook path.
+    console.error("budget check failed:", err);
   }
 }

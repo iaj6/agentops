@@ -91,6 +91,16 @@ export {
 } from "./starter-policies.js";
 export type { LoadStarterPoliciesResult } from "./starter-policies.js";
 
+// Per-user budgets (Feature A)
+export {
+  getBudget,
+  listBudgets,
+  upsertBudget,
+  deleteBudget,
+  markThresholdFired,
+} from "./budgets.js";
+export type { UserBudget, BudgetPeriod } from "./budgets.js";
+
 // Webhooks
 export {
   insertWebhook,

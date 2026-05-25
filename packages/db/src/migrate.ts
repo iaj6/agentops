@@ -269,6 +269,24 @@ export function migrate(sqlite: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
   `);
 
+  // ─── Per-user budgets (Feature A) ────────────────────────────────────────
+  // Amount stored in cents to avoid floating-point rounding. Period is
+  // either 'week' (Monday UTC start) or 'month' (day 1 UTC start). The
+  // two last_*_at columns dedupe threshold-crossing events so we fire
+  // at most once per (user, period, threshold).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS user_budgets (
+      user_id TEXT PRIMARY KEY,
+      amount_usd_cents INTEGER NOT NULL,
+      period TEXT NOT NULL,
+      warn_at_pct INTEGER NOT NULL DEFAULT 80,
+      last_warn_at TEXT,
+      last_breach_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
   // Add pending_raw_token column to existing device_codes tables (safe to
   // run multiple times). Forward-additive migration for any pre-2.3 DBs.
   try {

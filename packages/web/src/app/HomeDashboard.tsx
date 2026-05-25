@@ -18,6 +18,14 @@ interface Violation {
   evaluatedAt: string;
 }
 
+interface BudgetSnapshot {
+  amountUsd: number;
+  period: "week" | "month";
+  spent: number;
+  pct: number;
+  status: "ok" | "warning" | "breached";
+}
+
 interface Props {
   userName: string;
   userEmail: string;
@@ -29,6 +37,7 @@ interface Props {
   monthRunCount: number;
   sparkData: number[];
   recentViolations: Violation[];
+  budget: BudgetSnapshot | null;
 }
 
 function formatCost(usd: number): string {
@@ -62,6 +71,7 @@ export function HomeDashboard({
   monthRunCount,
   sparkData,
   recentViolations,
+  budget,
 }: Props) {
   const hour = new Date().getHours();
   const greeting = greetingFor(hour);
@@ -94,6 +104,9 @@ export function HomeDashboard({
         activeCount={activeSessions.length}
         sparkData={sparkData}
       />
+
+      {/* ── Budget snapshot (only when admin has set one for this user) ─ */}
+      {budget && <BudgetSnapshotCard budget={budget} />}
 
       {/* ── Active sessions strip (only when something's live) ──────────── */}
       {activeSessions.length > 0 && (
@@ -243,6 +256,68 @@ function HeroMetric({
       </p>
       {sub && <p className="mt-0.5 text-xs text-muted">{sub}</p>}
     </div>
+  );
+}
+
+// ─── Budget snapshot ──────────────────────────────────────────────────────
+
+function BudgetSnapshotCard({ budget }: { budget: BudgetSnapshot }) {
+  // Colors mirror the admin Budgets table so a user who sees a red
+  // bar here can ask their admin "what's status red mean?" and get
+  // the same answer in both places.
+  const tone =
+    budget.status === "breached"
+      ? {
+          ring: "border-red/40",
+          text: "text-red",
+          bar: "bg-red",
+          label: "Over budget",
+        }
+      : budget.status === "warning"
+        ? {
+            ring: "border-yellow/40",
+            text: "text-yellow",
+            bar: "bg-yellow",
+            label: "Approaching budget",
+          }
+        : {
+            ring: "border-border",
+            text: "text-foreground",
+            bar: "bg-green",
+            label: "On track",
+          };
+  const periodLabel = budget.period === "week" ? "this week" : "this month";
+  const cappedPct = Math.min(budget.pct, 100);
+
+  return (
+    <section className={`rounded-lg border ${tone.ring} bg-surface p-4`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
+          Your budget
+        </h2>
+        <p className={`text-xs font-medium ${tone.text}`}>{tone.label}</p>
+      </div>
+      <div className="flex items-baseline gap-3 mb-3">
+        <p className="text-2xl font-semibold font-mono text-foreground">
+          {formatCost(budget.spent)}
+        </p>
+        <p className="text-sm text-muted">
+          of {formatCost(budget.amountUsd)} {periodLabel} ({budget.pct}%)
+        </p>
+      </div>
+      <div className="relative h-2 w-full overflow-hidden rounded-full bg-surface-2">
+        <div
+          className={`h-full ${tone.bar} transition-all`}
+          style={{ width: `${cappedPct}%` }}
+        />
+      </div>
+      {budget.status === "breached" && (
+        <p className="mt-3 text-xs text-muted">
+          Your admin has been notified. New tool calls aren&apos;t blocked —
+          this is an observability cap.
+        </p>
+      )}
+    </section>
   );
 }
 

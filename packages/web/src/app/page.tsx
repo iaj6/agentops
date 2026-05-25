@@ -5,8 +5,14 @@ import {
   listSessions,
   getPolicyResults,
   getPolicy,
+  getBudget,
+  listRuns,
 } from "@agentops/db";
-import { createRunId, createPolicyId } from "@agentops/core";
+import {
+  createRunId,
+  createPolicyId,
+  computeBudgetState,
+} from "@agentops/core";
 import { db } from "@/lib/db";
 import { getRequestUser } from "@/lib/auth";
 import { HomeDashboard } from "./HomeDashboard";
@@ -106,6 +112,28 @@ export default async function HomePage() {
   violations.sort((a, b) => b.evaluatedAt.localeCompare(a.evaluatedAt));
   const recentViolations = violations.slice(0, 5);
 
+  // Personal budget snapshot. Only present for members the admin has
+  // explicitly capped — when null, the Home card renders nothing.
+  const budget = getBudget(database, user.id);
+  let budgetSnapshot: {
+    amountUsd: number;
+    period: "week" | "month";
+    spent: number;
+    pct: number;
+    status: "ok" | "warning" | "breached";
+  } | null = null;
+  if (budget) {
+    const allRuns = listRuns(database, { userId: user.id, limit: 1000 });
+    const state = computeBudgetState(budget, allRuns);
+    budgetSnapshot = {
+      amountUsd: budget.amountUsd,
+      period: budget.period,
+      spent: state.spent,
+      pct: state.pct,
+      status: state.status,
+    };
+  }
+
   return (
     <HomeDashboard
       userName={user.name ?? user.email.split("@")[0] ?? "there"}
@@ -118,6 +146,7 @@ export default async function HomePage() {
       monthRunCount={monthRunCount}
       sparkData={sparkBuckets}
       recentViolations={recentViolations}
+      budget={budgetSnapshot}
     />
   );
 }
