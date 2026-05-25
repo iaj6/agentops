@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   listRunsWithSummaries,
   listSessions,
@@ -6,15 +6,24 @@ import {
 } from "@agentops/db";
 import { isStaleRun, isStaleSession } from "@agentops/core";
 import { db } from "@/lib/db";
+import { requireUser, resolveViewScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const user = await requireUser(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     const d = db();
+    const scope = resolveViewScope(user, request.nextUrl.searchParams);
+    const scopeFilter = scope.userId ? { userId: scope.userId } : {};
 
-    // Runs (with summaries for aggregate stats)
-    const runsWithSummaries = listRunsWithSummaries(d, { limit: 1000 });
+    // Runs (with summaries for aggregate stats). Scoped so the
+    // FleetOverview headline numbers narrow to the selected user when
+    // the UserFilter chip is set — otherwise admins reading the page
+    // would see team totals above a single-user table.
+    const runsWithSummaries = listRunsWithSummaries(d, { limit: 1000, ...scopeFilter });
     const runs = runsWithSummaries.map((r) => r.run);
     const totalRuns = runs.length;
     // Split "running" into active + stale. The stale bucket exists because
@@ -66,7 +75,7 @@ export async function GET() {
       .map(([repo, count]) => ({ repo, count }));
 
     // Sessions
-    const allSessions = listSessions(d, { limit: 10000 });
+    const allSessions = listSessions(d, { limit: 10000, ...scopeFilter });
     const activeAll = allSessions.filter((s) => s.status === "active");
     const sessStale = activeAll.filter((s) => isStaleSession(s, undefined, nowMs)).length;
     const sessActive = activeAll.length - sessStale;

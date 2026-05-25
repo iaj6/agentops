@@ -216,7 +216,7 @@ export function AnalyticsDashboard({
                 return user.userId ? (
                   <Link
                     key={user.userId}
-                    href={`/?userId=${encodeURIComponent(user.userId)}`}
+                    href={`/runs?userId=${encodeURIComponent(user.userId)}`}
                     className="block rounded p-1 -m-1 transition-colors hover:bg-surface-2"
                     title={`View ${user.label}'s runs`}
                   >

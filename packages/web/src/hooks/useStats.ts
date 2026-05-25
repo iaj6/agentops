@@ -21,13 +21,23 @@ interface UseStatsReturn {
   loading: boolean;
 }
 
-export function useStats(): UseStatsReturn {
+export function useStats(scope?: {
+  view?: string | null;
+  userId?: string | null;
+}): UseStatsReturn {
   const [stats, setStats] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Stable key so re-renders with new {} prop don't churn the effect.
+  const scopeKey = `${scope?.view ?? ""}|${scope?.userId ?? ""}`;
+
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch("/api/stats");
+      const p = new URLSearchParams();
+      if (scope?.view) p.set("view", scope.view);
+      if (scope?.userId) p.set("userId", scope.userId);
+      const qs = p.toString();
+      const res = await fetch(`/api/stats${qs ? `?${qs}` : ""}`);
       if (res.ok) {
         const data = await res.json();
         setStats(data);
@@ -35,7 +45,8 @@ export function useStats(): UseStatsReturn {
     } finally {
       setLoading(false);
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey]);
 
   useEffect(() => {
     fetchStats();
