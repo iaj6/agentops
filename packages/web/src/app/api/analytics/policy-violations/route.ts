@@ -1,32 +1,43 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { policyResults } from "@agentops/db";
-import { eq } from "drizzle-orm";
+import { policyResults, runs } from "@agentops/db";
+import { and, eq } from "drizzle-orm";
+import { requireUser, resolveViewScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const user = await requireUser(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     const d = db();
+    const scope = resolveViewScope(user, request.nextUrl.searchParams);
 
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     const dailyViolations = new Map<string, number>();
-
-    // Seed all 30 days
     for (let i = 0; i < 30; i++) {
       const dd = new Date(thirtyDaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
       const key = dd.toISOString().slice(0, 10);
       dailyViolations.set(key, 0);
     }
 
-    // Query all failed policy results
-    const failedResults = d
-      .select()
+    // Join to runs so we can filter on the run's owner. Without the
+    // join the chart would show team-wide violations even when the
+    // user-filter chip narrowed every other Analytics panel.
+    const baseQuery = d
+      .select({ evaluatedAt: policyResults.evaluatedAt })
       .from(policyResults)
-      .where(eq(policyResults.passed, false))
-      .all();
+      .innerJoin(runs, eq(policyResults.runId, runs.id));
+
+    const conditions = [eq(policyResults.passed, false)];
+    if (scope.userId) {
+      conditions.push(eq(runs.userId, scope.userId));
+    }
+
+    const failedResults = baseQuery.where(and(...conditions)).all();
 
     for (const result of failedResults) {
       const evalDate = new Date(result.evaluatedAt);

@@ -4,6 +4,8 @@ import { listRuns, getRun, listEvents } from "@agentops/db";
 import { createRunId } from "@agentops/core";
 import type { Run, AgentEvent } from "@agentops/core";
 import { db } from "@/lib/db";
+import { requireUser, resolveViewScope } from "@/lib/auth";
+import { resolveOwnedSourceIds } from "@/lib/event-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -29,10 +31,23 @@ function detectEventType(
 }
 
 export async function GET(request: NextRequest) {
+  const user = await requireUser(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     const runIdParam = request.nextUrl.searchParams.get("runId");
     const categoryParam = request.nextUrl.searchParams.get("category");
     const typeParam = request.nextUrl.searchParams.get("type");
+
+    // Resolve view scope once at stream start. The user's owned
+    // sourceIds are captured here so the poll loop can filter every
+    // batch through the same set — without this an admin filtered to
+    // one user would still stream the team's events back.
+    const scope = resolveViewScope(user, request.nextUrl.searchParams);
+    const scopedSourceIds = resolveOwnedSourceIds(scope.userId);
+    const scopedSourceIdSet = scopedSourceIds
+      ? new Set(scopedSourceIds)
+      : null;
 
     const encoder = new TextEncoder();
     let closed = false;
@@ -47,10 +62,22 @@ export async function GET(request: NextRequest) {
           if (runIdParam) {
             const run = getRun(db(), createRunId(runIdParam));
             if (run) {
+              // When the stream is scoped to a user, ignore runs they
+              // don't own — single-run subscriptions should not leak
+              // through the scope.
+              if (
+                scopedSourceIdSet &&
+                !scopedSourceIdSet.has(run.id as string)
+              ) {
+                return;
+              }
               knownRuns.set(run.id as string, run);
             }
           } else {
-            const runs = listRuns(db(), { limit: 50 });
+            const runs = listRuns(db(), {
+              limit: 50,
+              ...(scope.userId ? { userId: scope.userId } : {}),
+            });
             for (const run of runs) {
               knownRuns.set(run.id as string, run);
             }
@@ -79,12 +106,19 @@ export async function GET(request: NextRequest) {
 
           try {
             // Poll persisted events from events table
-            const eventFilters: { since?: string; category?: string; type?: string; limit?: number } = {
+            const eventFilters: {
+              since?: string;
+              category?: string;
+              type?: string;
+              sourceIds?: ReadonlyArray<string>;
+              limit?: number;
+            } = {
               since: lastEventTimestamp,
               limit: 100,
             };
             if (categoryParam) eventFilters.category = categoryParam;
             if (typeParam) eventFilters.type = typeParam;
+            if (scopedSourceIds) eventFilters.sourceIds = scopedSourceIds;
 
             const newEvents = listEvents(db(), eventFilters);
             for (const evt of newEvents.reverse()) {
@@ -98,6 +132,13 @@ export async function GET(request: NextRequest) {
             if (runIdParam) {
               const current = getRun(db(), createRunId(runIdParam));
               if (!current) return;
+              // Don't leak run updates outside the user's scope.
+              if (
+                scopedSourceIdSet &&
+                !scopedSourceIdSet.has(current.id as string)
+              ) {
+                return;
+              }
 
               const prev = knownRuns.get(current.id as string);
               const eventType = detectEventType(prev, current);
@@ -109,7 +150,10 @@ export async function GET(request: NextRequest) {
                 knownRuns.set(current.id as string, current);
               }
             } else {
-              const currentRuns = listRuns(db(), { limit: 50 });
+              const currentRuns = listRuns(db(), {
+                limit: 50,
+                ...(scope.userId ? { userId: scope.userId } : {}),
+              });
               const currentMap = new Map<string, Run>();
               for (const run of currentRuns) {
                 currentMap.set(run.id as string, run);
