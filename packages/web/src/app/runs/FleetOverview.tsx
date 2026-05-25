@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { MetricCard } from "@/components/MetricCard";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { useStats } from "@/hooks/useStats";
@@ -13,7 +14,15 @@ function formatCost(usd: number): string {
 }
 
 export function FleetOverview({ children }: { children: ReactNode }) {
-  const { stats, loading } = useStats();
+  // Forward the active UserFilter scope to /api/stats so the headline
+  // numbers above the runs table narrow with the chip. Without this,
+  // an admin filtering to one user sees "TOTAL SPEND $572" sitting on
+  // top of that user's eight rows — wrong story.
+  const searchParams = useSearchParams();
+  const { stats, loading } = useStats({
+    view: searchParams.get("view"),
+    userId: searchParams.get("userId"),
+  });
 
   if (loading || !stats) {
     return (

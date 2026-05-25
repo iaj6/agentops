@@ -4,15 +4,16 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
-// Nav is grouped into sections so the personal/observability/admin
-// split is visible at a glance. The Admin Console section is only
-// rendered when the viewer is an admin.
-//
-// This is step 1 of the layout cleanup — pages stay where they are.
-// Step 2 will split Settings into "My profile" (here) vs the admin
-// surfaces (Users, Webhooks, Audit) that currently live inside it.
+// Nav is grouped into three sections: My Workspace (personal),
+// Observability (team-wide data, scopeable via the inline UserFilter
+// chip), and Admin Console (admin-only — hidden for members).
+const workspaceItems = [
+  { href: "/", label: "Home", icon: HomeIcon },
+  { href: "/settings", label: "Settings", icon: SettingsIcon },
+];
+
 const observabilityItems = [
-  { href: "/", label: "Runs", icon: RunsIcon },
+  { href: "/runs", label: "Runs", icon: RunsIcon },
   { href: "/sessions", label: "Sessions", icon: SessionsIcon },
   { href: "/events", label: "Events", icon: EventsIcon },
   { href: "/analytics", label: "Analytics", icon: AnalyticsIcon },
@@ -20,11 +21,10 @@ const observabilityItems = [
 ];
 
 const adminItems = [
+  { href: "/admin/users", label: "Users", icon: UsersIcon },
   { href: "/policies", label: "Policies", icon: PoliciesIcon },
-];
-
-const personalItems = [
-  { href: "/settings", label: "Settings", icon: SettingsIcon },
+  { href: "/admin/webhooks", label: "Webhooks", icon: WebhooksIcon },
+  { href: "/admin/audit", label: "Audit Log", icon: AuditIcon },
 ];
 
 const AUTH_PATHS = new Set(["/login", "/change-password", "/auth/device"]);
@@ -82,7 +82,17 @@ export function Sidebar() {
         </span>
       </div>
       <nav className="flex-1 overflow-y-auto px-1.5 md:px-2 py-3">
-        <NavSection items={observabilityItems} pathname={pathname} />
+        <NavSection
+          heading="My Workspace"
+          items={workspaceItems}
+          pathname={pathname}
+        />
+
+        <NavSection
+          heading="Observability"
+          items={observabilityItems}
+          pathname={pathname}
+        />
 
         {user?.role === "admin" && (
           <NavSection
@@ -91,8 +101,6 @@ export function Sidebar() {
             pathname={pathname}
           />
         )}
-
-        <NavSection items={personalItems} pathname={pathname} />
       </nav>
       <div className="border-t border-border px-3 md:px-4 py-3 space-y-3">
         {user && (
@@ -145,9 +153,12 @@ function NavSection({
       )}
       <div className="space-y-0.5">
         {items.map((item) => {
+          // Root path matches exactly (Home page only). Everything else
+          // matches the path or any sub-route, so /runs highlights for
+          // /runs/[id] and /admin/users highlights for any /admin/users/*.
           const isActive =
             item.href === "/"
-              ? pathname === "/" || pathname.startsWith("/runs")
+              ? pathname === "/"
               : pathname.startsWith(item.href);
           return (
             <Link
@@ -291,6 +302,106 @@ function SettingsIcon({ active }: { active: boolean }) {
       <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" />
       <path
         d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function HomeIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      className={active ? "text-accent" : "text-muted"}
+    >
+      <path
+        d="M2 7l6-5 6 5v6.5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6 14.5v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+}
+
+function UsersIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      className={active ? "text-accent" : "text-muted"}
+    >
+      <circle cx="6" cy="6" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M1.5 14c0-2.21 2.01-4 4.5-4s4.5 1.79 4.5 4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="5.5" r="1.75" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M11 9.6c.33-.07.66-.1 1-.1 2 0 3.5 1.4 3.5 3.1"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function WebhooksIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      className={active ? "text-accent" : "text-muted"}
+    >
+      <circle cx="5" cy="5" r="2" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="11.5" cy="11.5" r="2" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M6.4 6.4l2.6 3M6 12h3.5M11 9.6V6"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function AuditIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      className={active ? "text-accent" : "text-muted"}
+    >
+      <rect
+        x="3"
+        y="2"
+        width="10"
+        height="12"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"
