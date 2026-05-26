@@ -1,5 +1,8 @@
 # AgentOps
 
+[![CI](https://github.com/iaj6/agentops/actions/workflows/ci.yml/badge.svg)](https://github.com/iaj6/agentops/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **The control plane for autonomous AI coding agents.**
 
 AgentOps is a self-hosted governance and observability layer for AI agents that
@@ -63,7 +66,7 @@ back to a local SQLite database when no dashboard is configured.
 You need Docker + Docker Compose.
 
 ```bash
-git clone https://github.com/agentops-ai/agentops
+git clone https://github.com/iaj6/agentops
 cd agentops
 
 docker compose up -d                    # build + start
@@ -224,7 +227,7 @@ authorization flow.
 
 ```bash
 # 1. Get the CLI. (npm publish is on the roadmap; for now, from source.)
-git clone https://github.com/agentops-ai/agentops
+git clone https://github.com/iaj6/agentops
 cd agentops
 npm install
 npm run build
@@ -399,7 +402,7 @@ await client.completeRun(run.id);
 ## Development
 
 ```bash
-git clone https://github.com/agentops-ai/agentops
+git clone https://github.com/iaj6/agentops
 cd agentops
 npm install
 npm run build
