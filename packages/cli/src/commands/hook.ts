@@ -562,15 +562,56 @@ async function handleUserPromptSubmit(input: HookInput, dbPath?: string): Promis
 }
 
 // ─── Stop handler (fires after every Claude response) ────────────────────────
+//
+// Stop is NOT a session-end signal — that's SessionEnd's job. We don't
+// finalize here. But Stop IS the only post-turn signal that fires when
+// Claude finishes WITHOUT calling a tool (long chat answer, analysis-only,
+// document Q&A), which is exactly where PreToolUse can't see the cost.
+//
+// So Stop reads the transcript-based cost and surfaces a stderr warning
+// when the user is approaching a CostCeiling (default ≥80% of any cap)
+// or has already crossed it. Stop never blocks — returning a block JSON
+// from a Stop hook means "force Claude to continue", the opposite of
+// what we want. Hard enforcement happens at UserPromptSubmit (next turn).
+//
+// Uses ops.evaluateBudget (read-only) so chat-heavy turns don't spam
+// duplicate policy_result rows on every Stop fire.
 
-async function handleStop(input: HookInput, _dbPath?: string): Promise<void> {
-  // Stop fires after every Claude response within a session — it is NOT a
-  // reliable "session ended" signal. We do not finalize here; SessionEnd
-  // is the sole finalization path. This handler exists only to acknowledge
-  // the event and exit cleanly so Claude Code is not blocked.
+async function handleStop(input: HookInput, dbPath?: string): Promise<void> {
   const state = readState(input.session_id);
   if (!state) {
     process.exit(0);
+  }
+
+  const cwd = state.cwd ?? input.cwd;
+  const backend = state.backend ?? detectBackend();
+  const usage: SessionUsage = cwd
+    ? readSessionUsage(transcriptPath(cwd, input.session_id), backend)
+    : ZERO_USAGE;
+
+  const ops = createOps(opsConfigFromState(state, dbPath), input.session_id);
+
+  let decision: { decision: "allow" | "block"; reason?: string; warnings: ReadonlyArray<PolicyViolation> };
+  try {
+    decision = await ops.evaluateBudget({
+      runId: state.runId,
+      cumulativeCostUsd: usage.totalCostUsd,
+    });
+  } catch (err) {
+    // Stop is informational — never break the session on an eval
+    // failure. Log and exit 0.
+    logSdkFailure("budget evaluate (stop)", err);
+    process.exit(0);
+  }
+
+  for (const w of decision.warnings) {
+    process.stderr.write(`[agentops warning] ${w.policy}: ${w.message}\n`);
+  }
+  if (decision.decision === "block") {
+    const reason = decision.reason ?? "Budget exceeded";
+    process.stderr.write(
+      `[agentops] ⚠ Budget exceeded — the next prompt will be blocked. ${reason}\n`,
+    );
   }
   process.exit(0);
 }

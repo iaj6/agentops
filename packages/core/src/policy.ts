@@ -608,3 +608,50 @@ export function evaluateBudgetPolicies(
   }
   return violations;
 }
+
+export const DEFAULT_BUDGET_WARN_AT_PCT = 0.8;
+
+/**
+ * Return informational "approaching ceiling" warnings for CostCeiling
+ * policies where cost is at or above `warnAtPct` of the ceiling but
+ * has not yet reached it. Used by the Stop hook so a chat-heavy session
+ * sees an early heads-up before the next prompt is hard-blocked.
+ *
+ * Always emits with severity=Warning regardless of the policy's own
+ * severity — these are advisory, not enforcement. The breach itself
+ * is evaluateBudgetPolicies's job; the two functions are independent
+ * so a single policy can yield at most one of them (warning OR breach,
+ * never both).
+ *
+ * `warnAtPct` should be a fraction in (0, 1). Out-of-range values
+ * (≤0 or ≥1) suppress warnings entirely — there's no useful threshold.
+ */
+export function evaluateBudgetWarnings(
+  context: BudgetCheckContext,
+  activePolicies: ReadonlyArray<Policy & { enabled: boolean }>,
+  warnAtPct: number = DEFAULT_BUDGET_WARN_AT_PCT,
+): PolicyViolation[] {
+  if (!Number.isFinite(warnAtPct) || warnAtPct <= 0 || warnAtPct >= 1) {
+    return [];
+  }
+  const warnings: PolicyViolation[] = [];
+  const cost = context.cumulativeCostUsd;
+  if (!Number.isFinite(cost) || cost < 0) return [];
+
+  for (const policy of activePolicies) {
+    if (!policy.enabled) continue;
+    if (policy.config.type !== PolicyType.CostCeiling) continue;
+    const config = policy.config as CostCeilingConfig;
+    if (!Number.isFinite(config.maxUsd) || config.maxUsd <= 0) continue;
+    const pct = cost / config.maxUsd;
+    if (pct >= warnAtPct && pct < 1) {
+      const pctDisplay = Math.round(pct * 100);
+      warnings.push({
+        policy: policy.name,
+        message: `Approaching ceiling: $${cost.toFixed(2)} of $${config.maxUsd.toFixed(2)} (${pctDisplay}%)`,
+        severity: PolicySeverity.Warning,
+      });
+    }
+  }
+  return warnings;
+}

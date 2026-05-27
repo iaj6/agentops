@@ -33,6 +33,7 @@ import {
   generateSummary,
   evaluatePreToolPolicies,
   evaluateBudgetPolicies,
+  evaluateBudgetWarnings,
   type Action,
   type Metrics,
   type PolicyViolation,
@@ -97,10 +98,18 @@ export interface HookOps {
   checkPolicy(args: CheckPolicyArgs): Promise<PolicyDecision>;
   /**
    * Evaluate turn-boundary policies (CostCeiling) given the session's
-   * cumulative cost. Used by UserPromptSubmit and Stop hooks to enforce
-   * budget caps on chat-only turns that never trigger PreToolUse.
+   * cumulative cost AND persist the outcome on violation (event +
+   * policy_result row). Used by UserPromptSubmit, where the block is
+   * an actionable event the dashboard / webhooks need to see.
    */
   checkBudget(args: CheckBudgetArgs): Promise<PolicyDecision>;
+  /**
+   * Same evaluation as checkBudget but read-only — no event emission,
+   * no policy_result writes. Used by Stop, which fires after every
+   * Claude response and would otherwise spam duplicate rows. Stop
+   * only consumes the warnings/decision to emit stderr messages.
+   */
+  evaluateBudget(args: CheckBudgetArgs): Promise<PolicyDecision>;
   /** Record an Action against the run. */
   reportAction(runId: string, action: Action): Promise<void>;
   /** Finalize the run (artifacts + metrics + complete + summary + emit). */
@@ -307,9 +316,19 @@ class DirectOps implements HookOps {
       { cumulativeCostUsd: args.cumulativeCostUsd },
       activePolicies,
     );
+    const approaching = evaluateBudgetWarnings(
+      { cumulativeCostUsd: args.cumulativeCostUsd },
+      activePolicies,
+    );
 
     const errors = violations.filter((v) => v.severity === PolicySeverity.Error);
-    const warnings = violations.filter((v) => v.severity !== PolicySeverity.Error);
+    // Merge severity-based non-error violations with approaching-ceiling
+    // warnings. Stop / UserPromptSubmit handlers stream all of these to
+    // stderr via the existing warning emission loop.
+    const warnings = [
+      ...violations.filter((v) => v.severity !== PolicySeverity.Error),
+      ...approaching,
+    ];
 
     if (errors.length > 0) {
       // Resolve violation names → policy IDs once; reused by the event
@@ -350,6 +369,36 @@ class DirectOps implements HookOps {
         });
       }
 
+      return {
+        decision: "block",
+        reason: errors.map((v) => `[${v.policy}] ${v.message}`).join("; "),
+        violations: errors,
+        warnings,
+      };
+    }
+    return { decision: "allow", violations: [], warnings };
+  }
+
+  async evaluateBudget(args: CheckBudgetArgs): Promise<PolicyDecision> {
+    const db = this.db();
+    const activePolicies = listPolicies(db, { enabled: true });
+
+    const violations = evaluateBudgetPolicies(
+      { cumulativeCostUsd: args.cumulativeCostUsd },
+      activePolicies,
+    );
+    const approaching = evaluateBudgetWarnings(
+      { cumulativeCostUsd: args.cumulativeCostUsd },
+      activePolicies,
+    );
+
+    const errors = violations.filter((v) => v.severity === PolicySeverity.Error);
+    const warnings = [
+      ...violations.filter((v) => v.severity !== PolicySeverity.Error),
+      ...approaching,
+    ];
+
+    if (errors.length > 0) {
       return {
         decision: "block",
         reason: errors.map((v) => `[${v.policy}] ${v.message}`).join("; "),
@@ -753,6 +802,32 @@ class SdkOps implements HookOps {
     });
     if (res.status !== 200 || !res.data.decision) {
       throw new SdkError("checkBudget", res.status, res.data.error);
+    }
+    return {
+      decision: res.data.decision,
+      ...(res.data.reason ? { reason: res.data.reason } : {}),
+      violations: res.data.violations ?? [],
+      warnings: res.data.warnings ?? [],
+    };
+  }
+
+  async evaluateBudget(args: CheckBudgetArgs): Promise<PolicyDecision> {
+    // Read-only evaluation. The server route below skips all side
+    // effects (no event, no policy_result, no budget-threshold check)
+    // so Stop can call this on every Claude response without spamming.
+    await this.drainOutbox();
+    const res = await this.post<{
+      decision?: "allow" | "block";
+      reason?: string;
+      violations?: PolicyViolation[];
+      warnings?: PolicyViolation[];
+      error?: string;
+    }>("/api/sdk/policy/evaluate-budget", {
+      runId: args.runId,
+      cumulativeCostUsd: args.cumulativeCostUsd,
+    });
+    if (res.status !== 200 || !res.data.decision) {
+      throw new SdkError("evaluateBudget", res.status, res.data.error);
     }
     return {
       decision: res.data.decision,

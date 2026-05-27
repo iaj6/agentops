@@ -609,7 +609,7 @@ describe("handleStop", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  it("with state file → still exits 0 (Stop is informational only)", async () => {
+  it("with state file but no policies → exits 0 with no stderr", async () => {
     const sid = freshSessionId();
     await _handleSessionStart({ session_id: sid, cwd: "/tmp/test-cwd" }, testDbPath);
     const state = _readState(sid)!;
@@ -619,9 +619,100 @@ describe("handleStop", () => {
     );
 
     expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
     // Run should NOT be completed after Stop — that's SessionEnd's job.
     const run = getRun(getDb(testDbPath), createRunId(state.runId))!;
     expect(run.status).toBe("running");
+  });
+
+  it("cost approaching ceiling → emits Approaching warning to stderr", async () => {
+    const sid = freshSessionId();
+    const cwd = "/tmp/test-cwd";
+    await _handleSessionStart({ session_id: sid, cwd }, testDbPath);
+
+    // Ceiling chosen so 5000 input tokens on opus 4.7 (~$0.075) lands
+    // squarely in the 80–99% warning band: maxUsd ≈ $0.085.
+    insertPolicy(getDb(testDbPath), {
+      id: createPolicyId("p_warn_band"),
+      name: "Soft ceiling",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 0.085 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+    writeFakeTranscript(cwd, sid, [{ model: "claude-opus-4-7", input: 5000 }]);
+
+    const result = await runHook(() =>
+      _handleStop({ session_id: sid, cwd }, testDbPath),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("Approaching");
+    expect(result.stderr).toContain("Soft ceiling");
+    // Should not have emitted the "Budget exceeded" line — still under ceiling.
+    expect(result.stderr).not.toContain("Budget exceeded");
+    cleanupTranscriptFile(sid, cwd);
+  });
+
+  it("cost over ceiling → emits Budget exceeded stderr (still exits 0)", async () => {
+    const sid = freshSessionId();
+    const cwd = "/tmp/test-cwd";
+    await _handleSessionStart({ session_id: sid, cwd }, testDbPath);
+
+    insertPolicy(getDb(testDbPath), {
+      id: createPolicyId("p_breach"),
+      name: "Hard ceiling",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 0.01 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+    writeFakeTranscript(cwd, sid, [{ model: "claude-opus-4-7", input: 5000 }]);
+
+    const result = await runHook(() =>
+      _handleStop({ session_id: sid, cwd }, testDbPath),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("Budget exceeded");
+    expect(result.stderr).toContain("next prompt will be blocked");
+    // Stop never blocks Claude — stdout must be empty.
+    expect(result.stdout).toBe("");
+    cleanupTranscriptFile(sid, cwd);
+  });
+
+  it("does NOT write events or policy_result rows even on breach (read-only)", async () => {
+    const sid = freshSessionId();
+    const cwd = "/tmp/test-cwd";
+    await _handleSessionStart({ session_id: sid, cwd }, testDbPath);
+    const state = _readState(sid)!;
+
+    insertPolicy(getDb(testDbPath), {
+      id: createPolicyId("p_no_writes"),
+      name: "Audit ceiling",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 0.01 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+    writeFakeTranscript(cwd, sid, [{ model: "claude-opus-4-7", input: 5000 }]);
+
+    await runHook(() => _handleStop({ session_id: sid, cwd }, testDbPath));
+
+    // No policy.violated event from Stop — that's UserPromptSubmit's job.
+    const events = listEvents(getDb(testDbPath), { limit: 20 });
+    const violation = events.find(
+      (e) => e.type === "policy.violated" && e.sourceId === state.runId,
+    );
+    expect(violation).toBeUndefined();
+
+    // No policy_result row from Stop.
+    const results = getPolicyResults(getDb(testDbPath), state.runId);
+    expect(results.length).toBe(0);
+    cleanupTranscriptFile(sid, cwd);
   });
 });
 

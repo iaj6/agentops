@@ -7,6 +7,8 @@ import {
   getPolicyMode,
   runHasMutations,
   evaluateBudgetPolicies,
+  evaluateBudgetWarnings,
+  DEFAULT_BUDGET_WARN_AT_PCT,
 } from "../policy.js";
 import type { Policy } from "../policy.js";
 import type { Run, Action } from "../types.js";
@@ -751,5 +753,114 @@ describe("evaluateBudgetPolicies", () => {
     const v = evaluateBudgetPolicies({ cumulativeCostUsd: 1 }, [broken]);
     expect(v).toHaveLength(1);
     expect(v[0]!.message).toContain("invalid");
+  });
+});
+
+describe("evaluateBudgetWarnings", () => {
+  const ceilingPolicy: Policy & { enabled: boolean } = {
+    id: createPolicyId("p_ceil_warn"),
+    name: "Session cost ceiling ($10)",
+    type: PolicyType.CostCeiling,
+    config: { type: PolicyType.CostCeiling, maxUsd: 10 },
+    severity: PolicySeverity.Error,
+    enabled: true,
+  };
+
+  it("returns no warnings when under the default 80% threshold", () => {
+    expect(
+      evaluateBudgetWarnings({ cumulativeCostUsd: 5 }, [ceilingPolicy]),
+    ).toEqual([]);
+  });
+
+  it("returns a warning when at the 80% threshold", () => {
+    const w = evaluateBudgetWarnings({ cumulativeCostUsd: 8 }, [ceilingPolicy]);
+    expect(w).toHaveLength(1);
+    expect(w[0]!.policy).toBe("Session cost ceiling ($10)");
+    expect(w[0]!.message).toContain("Approaching");
+    expect(w[0]!.message).toContain("80%");
+    expect(w[0]!.severity).toBe(PolicySeverity.Warning);
+  });
+
+  it("returns a warning at 90%", () => {
+    const w = evaluateBudgetWarnings({ cumulativeCostUsd: 9 }, [ceilingPolicy]);
+    expect(w).toHaveLength(1);
+    expect(w[0]!.message).toContain("90%");
+  });
+
+  it("does NOT return a warning at or above the ceiling (breach territory)", () => {
+    expect(
+      evaluateBudgetWarnings({ cumulativeCostUsd: 10 }, [ceilingPolicy]),
+    ).toEqual([]);
+    expect(
+      evaluateBudgetWarnings({ cumulativeCostUsd: 15 }, [ceilingPolicy]),
+    ).toEqual([]);
+  });
+
+  it("respects a custom warnAtPct", () => {
+    const w90 = evaluateBudgetWarnings({ cumulativeCostUsd: 8 }, [ceilingPolicy], 0.9);
+    expect(w90).toEqual([]); // 80% < 90% threshold
+    const w70 = evaluateBudgetWarnings({ cumulativeCostUsd: 8 }, [ceilingPolicy], 0.7);
+    expect(w70).toHaveLength(1);
+  });
+
+  it("returns no warnings when warnAtPct is out of range", () => {
+    // Out-of-range thresholds suppress warnings entirely; no useful signal.
+    for (const bad of [0, 1, -0.1, 1.5, NaN]) {
+      expect(
+        evaluateBudgetWarnings({ cumulativeCostUsd: 9 }, [ceilingPolicy], bad),
+      ).toEqual([]);
+    }
+  });
+
+  it("ignores disabled or non-CostCeiling policies", () => {
+    const disabled = { ...ceilingPolicy, enabled: false };
+    expect(evaluateBudgetWarnings({ cumulativeCostUsd: 9 }, [disabled])).toEqual([]);
+
+    const pathPolicy: Policy & { enabled: boolean } = {
+      id: createPolicyId("p_path_warn"),
+      name: "No .env",
+      type: PolicyType.PathRestriction,
+      config: { type: PolicyType.PathRestriction, blockedPaths: [".env"] },
+      severity: PolicySeverity.Error,
+      enabled: true,
+    };
+    expect(evaluateBudgetWarnings({ cumulativeCostUsd: 100 }, [pathPolicy])).toEqual([]);
+  });
+
+  it("ignores policies with invalid maxUsd", () => {
+    const broken: Policy & { enabled: boolean } = {
+      ...ceilingPolicy,
+      config: { type: PolicyType.CostCeiling, maxUsd: 0 },
+    };
+    expect(evaluateBudgetWarnings({ cumulativeCostUsd: 5 }, [broken])).toEqual([]);
+  });
+
+  it("returns no warnings on invalid cost (no useful signal)", () => {
+    expect(
+      evaluateBudgetWarnings({ cumulativeCostUsd: NaN }, [ceilingPolicy]),
+    ).toEqual([]);
+    expect(
+      evaluateBudgetWarnings({ cumulativeCostUsd: -1 }, [ceilingPolicy]),
+    ).toEqual([]);
+  });
+
+  it("emits one warning per approaching policy", () => {
+    const lower: Policy & { enabled: boolean } = {
+      ...ceilingPolicy,
+      id: createPolicyId("p_ceil_lower_warn"),
+      name: "Soft ceiling ($5)",
+      config: { type: PolicyType.CostCeiling, maxUsd: 5 },
+    };
+    // Cost $4.50: 90% of $5 (warning) AND 45% of $10 (no warning).
+    const w = evaluateBudgetWarnings(
+      { cumulativeCostUsd: 4.5 },
+      [lower, ceilingPolicy],
+    );
+    expect(w).toHaveLength(1);
+    expect(w[0]!.policy).toBe("Soft ceiling ($5)");
+  });
+
+  it("exports DEFAULT_BUDGET_WARN_AT_PCT", () => {
+    expect(DEFAULT_BUDGET_WARN_AT_PCT).toBe(0.8);
   });
 });

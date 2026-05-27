@@ -85,6 +85,8 @@ export {
   runHasMutations,
   evaluatePreToolPolicies,
   evaluateBudgetPolicies,
+  evaluateBudgetWarnings,
+  DEFAULT_BUDGET_WARN_AT_PCT,
 } from "./policy.js";
 
 // Scoring

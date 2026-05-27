@@ -3,6 +3,6 @@
 // modified after every build, and the next prebuild regenerates it.
 
 export const VERSION = "0.1.0";
-export const GIT_SHA = "c1727a2";
+export const GIT_SHA = "9d4df2a";
 export const DIRTY = true;
-export const BUILT_AT = "2026-05-27T15:50:25.697Z";
+export const BUILT_AT = "2026-05-27T15:57:50.301Z";

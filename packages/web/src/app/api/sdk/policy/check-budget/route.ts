@@ -4,6 +4,7 @@ import {
   EVENT_TYPES,
   EventCategory,
   evaluateBudgetPolicies,
+  evaluateBudgetWarnings,
   PolicySeverity,
   computeBudgetState,
   pickBudgetEvent,
@@ -66,9 +67,18 @@ export async function POST(request: NextRequest) {
       { cumulativeCostUsd: body.cumulativeCostUsd },
       activePolicies,
     );
+    const approaching = evaluateBudgetWarnings(
+      { cumulativeCostUsd: body.cumulativeCostUsd },
+      activePolicies,
+    );
 
     const errors = violations.filter((v) => v.severity === PolicySeverity.Error);
-    const warnings = violations.filter((v) => v.severity !== PolicySeverity.Error);
+    // Merge severity-based non-error violations with approaching-ceiling
+    // warnings so the hook handler sees a single warnings list.
+    const warnings = [
+      ...violations.filter((v) => v.severity !== PolicySeverity.Error),
+      ...approaching,
+    ];
 
     if (errors.length > 0) {
       // Emit policy.violated + write policy_result, mirroring the

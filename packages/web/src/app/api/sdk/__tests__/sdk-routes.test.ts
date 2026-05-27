@@ -64,6 +64,7 @@ import { POST as heartbeatRoute } from "@/app/api/sdk/sessions/[id]/heartbeat/ro
 import { POST as terminateSessionRoute } from "@/app/api/sdk/sessions/[id]/terminate/route";
 import { POST as policyCheckRoute } from "@/app/api/sdk/policy/check/route";
 import { POST as policyCheckBudgetRoute } from "@/app/api/sdk/policy/check-budget/route";
+import { POST as policyEvaluateBudgetRoute } from "@/app/api/sdk/policy/evaluate-budget/route";
 
 let db: AgentOpsDb;
 let alice: TestUser;
@@ -793,5 +794,133 @@ describe("POST /api/sdk/policy/check-budget", () => {
       (e) => e.type === "policy.violated" && e.sourceId === runId,
     );
     expect(violation).toBeUndefined();
+  });
+
+  it("returns Approaching warnings when cost is in 80-99% band", async () => {
+    const { runId } = seedRun(alice);
+    insertPolicy(db, {
+      id: createPolicyId("p_approach"),
+      name: "$10 ceiling",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 10 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+    const req = authedRequest("http://localhost/api/sdk/policy/check-budget", {
+      token: alice.token,
+      body: { runId, cumulativeCostUsd: 8.5 },
+    });
+    const res = await policyCheckBudgetRoute(req);
+    const body = (await jsonOf(res)) as {
+      decision?: string;
+      warnings?: Array<{ policy: string; message: string }>;
+    };
+    expect(body.decision).toBe("allow");
+    expect(body.warnings).toBeDefined();
+    expect(body.warnings!.length).toBeGreaterThan(0);
+    expect(body.warnings![0]!.message).toContain("Approaching");
+    expect(body.warnings![0]!.message).toContain("85%");
+  });
+});
+
+// ─── POST /api/sdk/policy/evaluate-budget (read-only) ─────────────────────
+
+describe("POST /api/sdk/policy/evaluate-budget", () => {
+  it("400 on missing runId", async () => {
+    const req = authedRequest("http://localhost/api/sdk/policy/evaluate-budget", {
+      token: alice.token,
+      body: { cumulativeCostUsd: 1 },
+    });
+    const res = await policyEvaluateBudgetRoute(req);
+    expect(res.status).toBe(400);
+  });
+
+  it("400 on missing cumulativeCostUsd", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest("http://localhost/api/sdk/policy/evaluate-budget", {
+      token: alice.token,
+      body: { runId },
+    });
+    const res = await policyEvaluateBudgetRoute(req);
+    expect(res.status).toBe(400);
+  });
+
+  it("404 when caller does not own the run", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest("http://localhost/api/sdk/policy/evaluate-budget", {
+      token: bob.token,
+      body: { runId, cumulativeCostUsd: 1 },
+    });
+    const res = await policyEvaluateBudgetRoute(req);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns block decision when over ceiling, but writes NO event / policy_result", async () => {
+    const { runId } = seedRun(alice);
+    insertPolicy(db, {
+      id: createPolicyId("p_eval_block"),
+      name: "$1 ceiling",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 1 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+
+    const req = authedRequest("http://localhost/api/sdk/policy/evaluate-budget", {
+      token: alice.token,
+      body: { runId, cumulativeCostUsd: 5 },
+    });
+    const res = await policyEvaluateBudgetRoute(req);
+    const body = (await jsonOf(res)) as { decision?: string; reason?: string };
+    expect(body.decision).toBe("block");
+    expect(body.reason).toContain("Cost ceiling");
+
+    // Critical invariant for Stop: evaluate-budget is read-only.
+    const events = listEvents(db, { limit: 20 });
+    const violation = events.find(
+      (e) => e.type === "policy.violated" && e.sourceId === runId,
+    );
+    expect(violation).toBeUndefined();
+    expect(getPolicyResults(db, runId).length).toBe(0);
+    expect(dispatchWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it("returns Approaching warnings when in 80-99% band, no side effects", async () => {
+    const { runId } = seedRun(alice);
+    insertPolicy(db, {
+      id: createPolicyId("p_eval_warn"),
+      name: "$10 ceiling",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 10 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+    const req = authedRequest("http://localhost/api/sdk/policy/evaluate-budget", {
+      token: alice.token,
+      body: { runId, cumulativeCostUsd: 8 },
+    });
+    const res = await policyEvaluateBudgetRoute(req);
+    const body = (await jsonOf(res)) as {
+      decision?: string;
+      warnings?: Array<{ message: string }>;
+    };
+    expect(body.decision).toBe("allow");
+    expect(body.warnings!.length).toBeGreaterThan(0);
+    expect(body.warnings![0]!.message).toContain("Approaching");
+    expect(getPolicyResults(db, runId).length).toBe(0);
+  });
+
+  it("allow when no policies are active", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest("http://localhost/api/sdk/policy/evaluate-budget", {
+      token: alice.token,
+      body: { runId, cumulativeCostUsd: 999 },
+    });
+    const res = await policyEvaluateBudgetRoute(req);
+    const body = (await jsonOf(res)) as { decision?: string };
+    expect(body.decision).toBe("allow");
   });
 });
