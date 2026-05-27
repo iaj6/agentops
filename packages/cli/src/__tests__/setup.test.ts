@@ -57,6 +57,7 @@ describe("agentops setup", () => {
 
     const hooks = settings.hooks as Record<string, unknown>;
     expect(hooks.SessionStart).toBeDefined();
+    expect(hooks.UserPromptSubmit).toBeDefined();
     expect(hooks.PreToolUse).toBeDefined();
     expect(hooks.PostToolUse).toBeDefined();
     expect(hooks.Stop).toBeDefined();
@@ -76,6 +77,8 @@ describe("agentops setup", () => {
     const hooks = settings.hooks as Record<string, Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>>;
 
     expect(hooks.SessionStart![0]!.hooks[0]!.command).toBe("agentops hook session-start");
+    expect(hooks.UserPromptSubmit![0]!.matcher).toBe("");
+    expect(hooks.UserPromptSubmit![0]!.hooks[0]!.command).toBe("agentops hook user-prompt-submit");
     expect(hooks.PreToolUse![0]!.matcher).toBe("Bash|Edit|Write|NotebookEdit");
     expect(hooks.PreToolUse![0]!.hooks[0]!.command).toBe("agentops hook pre-tool-use");
     expect(hooks.PostToolUse![0]!.matcher).toBe(".*");
@@ -95,6 +98,7 @@ describe("agentops setup", () => {
 
     const prefix = "AGENTOPS_SERVER_URL=https://acme.agentops.internal ";
     expect(hooks.SessionStart![0]!.hooks[0]!.command).toBe(prefix + "agentops hook session-start");
+    expect(hooks.UserPromptSubmit![0]!.hooks[0]!.command).toBe(prefix + "agentops hook user-prompt-submit");
     expect(hooks.PreToolUse![0]!.hooks[0]!.command).toBe(prefix + "agentops hook pre-tool-use");
     expect(hooks.PostToolUse![0]!.hooks[0]!.command).toBe(prefix + "agentops hook post-tool-use");
     expect(hooks.Stop![0]!.hooks[0]!.command).toBe(prefix + "agentops hook stop");
@@ -264,6 +268,7 @@ describe("agentops setup", () => {
     const parsed = JSON.parse(output.trim());
     expect(parsed.status).toBe("configured");
     expect(parsed.hooks).toContain("SessionStart");
+    expect(parsed.hooks).toContain("UserPromptSubmit");
     expect(parsed.hooks).toContain("PreToolUse");
     expect(parsed.hooks).toContain("PostToolUse");
     expect(parsed.hooks).toContain("Stop");

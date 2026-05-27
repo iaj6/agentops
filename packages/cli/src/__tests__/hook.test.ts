@@ -41,7 +41,7 @@ describe("Hook command registration", () => {
     expect(hookCmd!.description()).toContain("hook");
   });
 
-  it("registers all seven subcommands", () => {
+  it("registers all eight subcommands", () => {
     const program = new Command();
     program.option("--db-path <path>").option("--json");
     registerHookCommand(program);
@@ -49,6 +49,7 @@ describe("Hook command registration", () => {
     const hookCmd = program.commands.find((c) => c.name() === "hook");
     const subcommands = hookCmd!.commands.map((c) => c.name());
     expect(subcommands).toContain("session-start");
+    expect(subcommands).toContain("user-prompt-submit");
     expect(subcommands).toContain("pre-tool-use");
     expect(subcommands).toContain("post-tool-use");
     expect(subcommands).toContain("stop");

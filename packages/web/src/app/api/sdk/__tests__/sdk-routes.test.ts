@@ -63,6 +63,7 @@ import { POST as failRunRoute } from "@/app/api/sdk/runs/[id]/fail/route";
 import { POST as heartbeatRoute } from "@/app/api/sdk/sessions/[id]/heartbeat/route";
 import { POST as terminateSessionRoute } from "@/app/api/sdk/sessions/[id]/terminate/route";
 import { POST as policyCheckRoute } from "@/app/api/sdk/policy/check/route";
+import { POST as policyCheckBudgetRoute } from "@/app/api/sdk/policy/check-budget/route";
 
 let db: AgentOpsDb;
 let alice: TestUser;
@@ -616,5 +617,181 @@ describe("POST /api/sdk/policy/check", () => {
     await policyCheckRoute(req);
     const results = getPolicyResults(db, runId);
     expect(results.length).toBe(0);
+  });
+});
+
+// ─── POST /api/sdk/policy/check-budget ────────────────────────────────────
+
+describe("POST /api/sdk/policy/check-budget", () => {
+  it("400 on missing runId", async () => {
+    const req = authedRequest("http://localhost/api/sdk/policy/check-budget", {
+      token: alice.token,
+      body: { cumulativeCostUsd: 1 },
+    });
+    const res = await policyCheckBudgetRoute(req);
+    expect(res.status).toBe(400);
+  });
+
+  it("400 on missing cumulativeCostUsd", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest("http://localhost/api/sdk/policy/check-budget", {
+      token: alice.token,
+      body: { runId },
+    });
+    const res = await policyCheckBudgetRoute(req);
+    expect(res.status).toBe(400);
+  });
+
+  it("allow when no policies are active", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest("http://localhost/api/sdk/policy/check-budget", {
+      token: alice.token,
+      body: { runId, cumulativeCostUsd: 999 },
+    });
+    const res = await policyCheckBudgetRoute(req);
+    expect(res.status).toBe(200);
+    const body = (await jsonOf(res)) as { decision?: string };
+    expect(body.decision).toBe("allow");
+  });
+
+  it("allow when cost is under the ceiling", async () => {
+    const { runId } = seedRun(alice);
+    insertPolicy(db, {
+      id: createPolicyId("p_cost_ok"),
+      name: "$5 ceiling",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 5 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+    const req = authedRequest("http://localhost/api/sdk/policy/check-budget", {
+      token: alice.token,
+      body: { runId, cumulativeCostUsd: 2.5 },
+    });
+    const res = await policyCheckBudgetRoute(req);
+    const body = (await jsonOf(res)) as { decision?: string };
+    expect(body.decision).toBe("allow");
+  });
+
+  it("block when cost meets or exceeds the ceiling", async () => {
+    const { runId } = seedRun(alice);
+    insertPolicy(db, {
+      id: createPolicyId("p_cost_block"),
+      name: "$5 ceiling",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 5 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+    const req = authedRequest("http://localhost/api/sdk/policy/check-budget", {
+      token: alice.token,
+      body: { runId, cumulativeCostUsd: 6.27 },
+    });
+    const res = await policyCheckBudgetRoute(req);
+    const body = (await jsonOf(res)) as { decision?: string; reason?: string };
+    expect(body.decision).toBe("block");
+    expect(body.reason).toContain("Cost ceiling");
+  });
+
+  it("ignores non-CostCeiling policies (tool-keyed policies don't fire here)", async () => {
+    const { runId } = seedRun(alice);
+    insertPolicy(db, {
+      id: createPolicyId("p_path_only"),
+      name: "Path",
+      type: PolicyType.PathRestriction,
+      config: { type: PolicyType.PathRestriction, blockedPaths: [".env"] },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+    const req = authedRequest("http://localhost/api/sdk/policy/check-budget", {
+      token: alice.token,
+      body: { runId, cumulativeCostUsd: 100 },
+    });
+    const res = await policyCheckBudgetRoute(req);
+    const body = (await jsonOf(res)) as { decision?: string };
+    expect(body.decision).toBe("allow");
+  });
+
+  it("404 when caller does not own the run", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest("http://localhost/api/sdk/policy/check-budget", {
+      token: bob.token,
+      body: { runId, cumulativeCostUsd: 1 },
+    });
+    const res = await policyCheckBudgetRoute(req);
+    expect(res.status).toBe(404);
+  });
+
+  it("emits policy.violated event with source=turn-boundary on block", async () => {
+    const { runId } = seedRun(alice);
+    insertPolicy(db, {
+      id: createPolicyId("p_audit_budget"),
+      name: "$1 audit ceiling",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 1 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+
+    const req = authedRequest("http://localhost/api/sdk/policy/check-budget", {
+      token: alice.token,
+      body: { runId, cumulativeCostUsd: 2 },
+    });
+    await policyCheckBudgetRoute(req);
+
+    const events = listEvents(db, { limit: 20 });
+    const violation = events.find(
+      (e) => e.type === "policy.violated" && e.sourceId === runId,
+    );
+    expect(violation).toBeDefined();
+    expect((violation!.payload as { source?: string }).source).toBe("turn-boundary");
+    expect(dispatchWebhookEvent).toHaveBeenCalledTimes(1);
+    expect(dispatchWebhookEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: "policy.violated" }),
+    );
+  });
+
+  it("writes a policy_result row with source=turn-boundary on block", async () => {
+    const { runId } = seedRun(alice);
+    insertPolicy(db, {
+      id: createPolicyId("p_history_budget"),
+      name: "History ceiling",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 1 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+
+    const req = authedRequest("http://localhost/api/sdk/policy/check-budget", {
+      token: alice.token,
+      body: { runId, cumulativeCostUsd: 5 },
+    });
+    await policyCheckBudgetRoute(req);
+
+    const results = getPolicyResults(db, runId);
+    const blockRow = results.find((r) => r.policyId === "p_history_budget");
+    expect(blockRow).toBeDefined();
+    expect(blockRow!.passed).toBe(false);
+    expect((blockRow!.details as { source?: string }).source).toBe("turn-boundary");
+  });
+
+  it("does NOT emit policy.violated on allow", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest("http://localhost/api/sdk/policy/check-budget", {
+      token: alice.token,
+      body: { runId, cumulativeCostUsd: 0.01 },
+    });
+    await policyCheckBudgetRoute(req);
+    const events = listEvents(db, { limit: 20 });
+    const violation = events.find(
+      (e) => e.type === "policy.violated" && e.sourceId === runId,
+    );
+    expect(violation).toBeUndefined();
   });
 });

@@ -13,6 +13,7 @@ import {
   _readState,
   _cleanupState,
   _handleSessionStart,
+  _handleUserPromptSubmit,
   _handlePreToolUse,
   _handlePostToolUse,
   _handleSessionEnd,
@@ -237,6 +238,138 @@ describe("handleSessionStart (DirectOps mode)", () => {
     const parsed = JSON.parse(raw);
     expect(parsed.runId).toBeTruthy();
     expect(parsed.sessionId).toBeTruthy();
+  });
+});
+
+// ─── handleUserPromptSubmit ────────────────────────────────────────────────
+
+describe("handleUserPromptSubmit (DirectOps mode)", () => {
+  it("no state file → exits 0 silently (fail-open default)", async () => {
+    const sid = freshSessionId();
+    const result = await runHook(() =>
+      _handleUserPromptSubmit({ session_id: sid }, testDbPath),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
+  it("no policies → exits 0 (allow)", async () => {
+    const sid = freshSessionId();
+    await _handleSessionStart({ session_id: sid, cwd: "/tmp/test-cwd" }, testDbPath);
+
+    const result = await runHook(() =>
+      _handleUserPromptSubmit({ session_id: sid, cwd: "/tmp/test-cwd" }, testDbPath),
+    );
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("cost under ceiling → exits 0 (allow)", async () => {
+    const sid = freshSessionId();
+    const cwd = "/tmp/test-cwd";
+    await _handleSessionStart({ session_id: sid, cwd }, testDbPath);
+
+    insertPolicy(getDb(testDbPath), {
+      id: createPolicyId("p_cost"),
+      name: "Ceiling $5",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 5 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+
+    // Tiny usage well under the ceiling.
+    writeFakeTranscript(cwd, sid, [{ model: "claude-opus-4-7", input: 100 }]);
+
+    const result = await runHook(() =>
+      _handleUserPromptSubmit({ session_id: sid, cwd }, testDbPath),
+    );
+    expect(result.exitCode).toBe(0);
+    cleanupTranscriptFile(sid, cwd);
+  });
+
+  it("cost over ceiling → exits 2 with block JSON", async () => {
+    const sid = freshSessionId();
+    const cwd = "/tmp/test-cwd";
+    await _handleSessionStart({ session_id: sid, cwd }, testDbPath);
+
+    insertPolicy(getDb(testDbPath), {
+      id: createPolicyId("p_cost"),
+      name: "Ceiling $0.01",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 0.01 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+
+    // ~$0.075 of usage on opus-4-7 — blows past the $0.01 ceiling.
+    writeFakeTranscript(cwd, sid, [{ model: "claude-opus-4-7", input: 5000 }]);
+
+    const result = await runHook(() =>
+      _handleUserPromptSubmit({ session_id: sid, cwd }, testDbPath),
+    );
+
+    expect(result.exitCode).toBe(2);
+    const decision = JSON.parse(result.stdout);
+    expect(decision.decision).toBe("block");
+    expect(decision.reason).toContain("Cost ceiling reached");
+    cleanupTranscriptFile(sid, cwd);
+  });
+
+  it("emits policy.violated event with source=turn-boundary on block", async () => {
+    const sid = freshSessionId();
+    const cwd = "/tmp/test-cwd";
+    await _handleSessionStart({ session_id: sid, cwd }, testDbPath);
+    const state = _readState(sid)!;
+
+    insertPolicy(getDb(testDbPath), {
+      id: createPolicyId("p_audit"),
+      name: "Audit ceiling",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 0.01 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+    writeFakeTranscript(cwd, sid, [{ model: "claude-opus-4-7", input: 5000 }]);
+
+    await runHook(() => _handleUserPromptSubmit({ session_id: sid, cwd }, testDbPath));
+
+    const events = listEvents(getDb(testDbPath), { limit: 20 });
+    const violation = events.find(
+      (e) => e.type === "policy.violated" && e.sourceId === state.runId,
+    );
+    expect(violation).toBeDefined();
+    expect((violation!.payload as { source?: string }).source).toBe("turn-boundary");
+    cleanupTranscriptFile(sid, cwd);
+  });
+
+  it("writes a policy_result row with source=turn-boundary on block", async () => {
+    const sid = freshSessionId();
+    const cwd = "/tmp/test-cwd";
+    await _handleSessionStart({ session_id: sid, cwd }, testDbPath);
+    const state = _readState(sid)!;
+
+    insertPolicy(getDb(testDbPath), {
+      id: createPolicyId("p_history"),
+      name: "History ceiling",
+      type: PolicyType.CostCeiling,
+      config: { type: PolicyType.CostCeiling, maxUsd: 0.01 },
+      severity: PolicySeverity.Error,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    });
+    writeFakeTranscript(cwd, sid, [{ model: "claude-opus-4-7", input: 5000 }]);
+
+    await runHook(() => _handleUserPromptSubmit({ session_id: sid, cwd }, testDbPath));
+
+    const results = getPolicyResults(getDb(testDbPath), state.runId);
+    const blockRow = results.find((r) => r.policyId === "p_history");
+    expect(blockRow).toBeDefined();
+    expect(blockRow!.passed).toBe(false);
+    expect((blockRow!.details as { source?: string }).source).toBe("turn-boundary");
+    cleanupTranscriptFile(sid, cwd);
   });
 });
 

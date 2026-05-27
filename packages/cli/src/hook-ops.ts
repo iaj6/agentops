@@ -32,6 +32,7 @@ import {
   PolicySeverity,
   generateSummary,
   evaluatePreToolPolicies,
+  evaluateBudgetPolicies,
   type Action,
   type Metrics,
   type PolicyViolation,
@@ -84,11 +85,22 @@ export interface CheckPolicyArgs {
   readonly cumulativeCostUsd: number;
 }
 
+export interface CheckBudgetArgs {
+  readonly runId: string;
+  readonly cumulativeCostUsd: number;
+}
+
 export interface HookOps {
   /** Create a session + run pair for a new Claude Code session. */
   startSessionAndRun(args: StartArgs): Promise<{ runId: string; sessionId: string }>;
   /** Evaluate guard policies against a pending tool invocation. */
   checkPolicy(args: CheckPolicyArgs): Promise<PolicyDecision>;
+  /**
+   * Evaluate turn-boundary policies (CostCeiling) given the session's
+   * cumulative cost. Used by UserPromptSubmit and Stop hooks to enforce
+   * budget caps on chat-only turns that never trigger PreToolUse.
+   */
+  checkBudget(args: CheckBudgetArgs): Promise<PolicyDecision>;
   /** Record an Action against the run. */
   reportAction(runId: string, action: Action): Promise<void>;
   /** Finalize the run (artifacts + metrics + complete + summary + emit). */
@@ -271,6 +283,67 @@ class DirectOps implements HookOps {
           details: {
             source: "pre-tool",
             toolName: args.toolName,
+            severity: v.severity,
+          },
+          evaluatedAt: now,
+        });
+      }
+
+      return {
+        decision: "block",
+        reason: errors.map((v) => `[${v.policy}] ${v.message}`).join("; "),
+        violations: errors,
+        warnings,
+      };
+    }
+    return { decision: "allow", violations: [], warnings };
+  }
+
+  async checkBudget(args: CheckBudgetArgs): Promise<PolicyDecision> {
+    const db = this.db();
+    const activePolicies = listPolicies(db, { enabled: true });
+
+    const violations = evaluateBudgetPolicies(
+      { cumulativeCostUsd: args.cumulativeCostUsd },
+      activePolicies,
+    );
+
+    const errors = violations.filter((v) => v.severity === PolicySeverity.Error);
+    const warnings = violations.filter((v) => v.severity !== PolicySeverity.Error);
+
+    if (errors.length > 0) {
+      // Resolve violation names → policy IDs once; reused by the event
+      // payload (so EventCard + webhooks can cross-link) and the
+      // policy_result rows below.
+      const policyIdByName = new Map<string, string>();
+      for (const p of activePolicies) policyIdByName.set(p.name, p.id as string);
+      const policyIds = errors
+        .map((v) => policyIdByName.get(v.policy))
+        .filter((id): id is string => !!id);
+
+      insertEvent(
+        db,
+        createEvent(EventCategory.Policy, EVENT_TYPES["policy.violated"], args.runId, {
+          source: "turn-boundary",
+          violations: errors,
+          policyIds,
+        }),
+      );
+
+      // Source tag "turn-boundary" so the Policy detail page can
+      // distinguish chat-turn blocks from PreToolUse blocks.
+      const now = new Date().toISOString();
+      for (const v of errors) {
+        const policyId = policyIdByName.get(v.policy);
+        if (!policyId) continue;
+        insertPolicyResult(db, {
+          id: `pr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          runId: args.runId as string,
+          policyId,
+          passed: false,
+          message: v.message,
+          details: {
+            source: "turn-boundary",
             severity: v.severity,
           },
           evaluatedAt: now,
@@ -655,6 +728,31 @@ class SdkOps implements HookOps {
     });
     if (res.status !== 200 || !res.data.decision) {
       throw new SdkError("checkPolicy", res.status, res.data.error);
+    }
+    return {
+      decision: res.data.decision,
+      ...(res.data.reason ? { reason: res.data.reason } : {}),
+      violations: res.data.violations ?? [],
+      warnings: res.data.warnings ?? [],
+    };
+  }
+
+  async checkBudget(args: CheckBudgetArgs): Promise<PolicyDecision> {
+    // Synchronous decision, never outbox. Same drain-first pattern as
+    // checkPolicy so the server sees the latest state.
+    await this.drainOutbox();
+    const res = await this.post<{
+      decision?: "allow" | "block";
+      reason?: string;
+      violations?: PolicyViolation[];
+      warnings?: PolicyViolation[];
+      error?: string;
+    }>("/api/sdk/policy/check-budget", {
+      runId: args.runId,
+      cumulativeCostUsd: args.cumulativeCostUsd,
+    });
+    if (res.status !== 200 || !res.data.decision) {
+      throw new SdkError("checkBudget", res.status, res.data.error);
     }
     return {
       decision: res.data.decision,

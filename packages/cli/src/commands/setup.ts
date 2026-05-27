@@ -54,6 +54,14 @@ function buildHooksConfig(args: { dbPathFlag?: string; serverUrl?: string }): Ho
   const cmd = (sub: string) => `${prefix}agentops hook ${sub}${dbArg}`;
   return {
     SessionStart: [{ matcher: "", hooks: [{ type: "command", command: cmd("session-start") }] }],
+    // UserPromptSubmit closes the chat-only enforcement gap: PreToolUse
+    // only fires when Claude is about to call a tool, so analysis-only or
+    // long-conversation turns would otherwise blow CostCeiling caps
+    // without enforcement. This handler re-checks budget before each
+    // user prompt is processed.
+    UserPromptSubmit: [
+      { matcher: "", hooks: [{ type: "command", command: cmd("user-prompt-submit") }] },
+    ],
     PreToolUse: [
       {
         matcher: "Bash|Edit|Write|NotebookEdit",

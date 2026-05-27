@@ -488,6 +488,79 @@ async function finalizeSession(input: HookInput, state: HookState, dbPath?: stri
   cleanupState(input.session_id);
 }
 
+// ─── UserPromptSubmit handler (turn-boundary budget gate) ────────────────────
+//
+// Fires when the user submits a prompt, *before* Claude starts the next turn.
+// PreToolUse only catches turns that use tools; chat-only turns (analysis,
+// explanation, long pastes) can blow CostCeiling caps without ever firing
+// PreToolUse. UserPromptSubmit closes that gap by re-reading the transcript
+// and evaluating budget policies before the next turn is allowed to start.
+//
+// Block protocol matches PreToolUse: `{decision: "block", reason}` on stdout
+// + exit code 2. Claude Code surfaces the reason to the user and refuses the
+// prompt. Fail-open by default, honors AGENTOPS_FAIL_CLOSED.
+
+async function handleUserPromptSubmit(input: HookInput, dbPath?: string): Promise<void> {
+  const state = readState(input.session_id);
+  if (!state) {
+    if (isFailClosed()) {
+      emitOfflineBlock(
+        "no active session state — session-start did not complete",
+      );
+      process.exit(2);
+    }
+    if (isSdkMode(resolveOpsConfig(dbPath))) {
+      emitOfflineWarning(
+        "no session state for user prompt (session-start may have failed)",
+      );
+    }
+    process.exit(0);
+  }
+
+  const cwd = state.cwd ?? input.cwd;
+  const backend = state.backend ?? detectBackend();
+  const usage: SessionUsage = cwd
+    ? readSessionUsage(transcriptPath(cwd, input.session_id), backend)
+    : ZERO_USAGE;
+
+  const ops = createOps(opsConfigFromState(state, dbPath), input.session_id);
+
+  let decision: { decision: "allow" | "block"; reason?: string; warnings: ReadonlyArray<PolicyViolation> };
+  try {
+    decision = await ops.checkBudget({
+      runId: state.runId,
+      cumulativeCostUsd: usage.totalCostUsd,
+    });
+  } catch (err) {
+    logSdkFailure("budget check", err);
+    if (isFailClosed()) {
+      const reason = err instanceof Error ? err.message : String(err);
+      emitOfflineBlock(`budget check failed: ${reason}`);
+      process.exit(2);
+    }
+    process.exit(0);
+  }
+
+  if (decision.decision === "block") {
+    const reason = decision.reason ?? "Budget exceeded";
+    log.warn({
+      msg: "budget_blocked",
+      sessionId: state.sessionId,
+      runId: state.runId,
+      cumulativeCostUsd: usage.totalCostUsd,
+      reason,
+      claudeSessionId: input.session_id,
+    });
+    process.stdout.write(JSON.stringify({ decision: "block", reason }));
+    process.exit(2);
+  }
+
+  for (const w of decision.warnings) {
+    process.stderr.write(`[agentops warning] ${w.policy}: ${w.message}\n`);
+  }
+  process.exit(0);
+}
+
 // ─── Stop handler (fires after every Claude response) ────────────────────────
 
 async function handleStop(input: HookInput, _dbPath?: string): Promise<void> {
@@ -617,7 +690,7 @@ async function handleSubagentStop(input: HookInput, dbPath?: string): Promise<vo
 export function registerHookCommand(program: Command): void {
   const hook = program
     .command("hook")
-    .description("Handle Claude Code hook events (session-start, stop, pre-tool-use, post-tool-use, session-end, subagent-start, subagent-stop)");
+    .description("Handle Claude Code hook events (session-start, user-prompt-submit, stop, pre-tool-use, post-tool-use, session-end, subagent-start, subagent-stop)");
 
   hook
     .command("session-start")
@@ -628,6 +701,25 @@ export function registerHookCommand(program: Command): void {
       try {
         const input = JSON.parse(raw) as HookInput;
         await handleSessionStart(input, dbPath);
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          console.error(`AgentOps hook: invalid JSON input: ${error.message}`);
+        } else {
+          console.error(`AgentOps hook error: ${error}`);
+        }
+        process.exit(1);
+      }
+    });
+
+  hook
+    .command("user-prompt-submit")
+    .description("Called when the user submits a prompt (can block with exit code 2 — closes the chat-only enforcement gap)")
+    .action(async () => {
+      const dbPath = program.opts()["dbPath"] as string | undefined;
+      const raw = await readStdin();
+      try {
+        const input = JSON.parse(raw) as HookInput;
+        await handleUserPromptSubmit(input, dbPath);
       } catch (error) {
         if (error instanceof SyntaxError) {
           console.error(`AgentOps hook: invalid JSON input: ${error.message}`);
@@ -763,6 +855,7 @@ export {
   mapToolToAction as _mapToolToAction,
   finalizeSession as _finalizeSession,
   handleSessionStart as _handleSessionStart,
+  handleUserPromptSubmit as _handleUserPromptSubmit,
   handlePreToolUse as _handlePreToolUse,
   handlePostToolUse as _handlePostToolUse,
   handleStop as _handleStop,
