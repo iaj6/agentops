@@ -527,27 +527,84 @@ export function evaluatePreToolPolicies(
     }
 
     if (policy.config.type === PolicyType.CostCeiling) {
-      const config = policy.config as CostCeilingConfig;
-      const cost = context?.cumulativeCostUsd ?? 0;
-      // Validate inputs to avoid silent enforcement bypass. A NaN or negative
-      // cost (from a malformed transcript) would otherwise compare false here
-      // and let the action through; a non-positive ceiling is a misconfig
-      // that should fail closed.
-      if (!Number.isFinite(cost) || cost < 0 || !Number.isFinite(config.maxUsd) || config.maxUsd <= 0) {
-        violations.push({
-          policy: policy.name,
-          message: `Cost ceiling check failed: invalid cost ($${String(cost)}) or maxUsd ($${String(config.maxUsd)}). Failing closed.`,
-          severity: policy.severity,
-        });
-      } else if (cost >= config.maxUsd) {
-        violations.push({
-          policy: policy.name,
-          message: `Cost ceiling reached: $${cost.toFixed(2)} spent, limit is $${config.maxUsd.toFixed(2)}`,
-          severity: policy.severity,
-        });
-      }
+      const v = evaluateCostCeilingViolation(
+        policy,
+        policy.config as CostCeilingConfig,
+        context?.cumulativeCostUsd ?? 0,
+      );
+      if (v) violations.push(v);
     }
   }
 
+  return violations;
+}
+
+// ─── Turn-boundary policy evaluation ────────────────────────────────────────
+//
+// Pre-tool enforcement only fires when Claude is about to call a tool. Chat-
+// only turns (long explanations, document analysis, no Edit/Bash) accumulate
+// cost but never trigger PreToolUse — meaning cumulative budgets can be
+// blown without enforcement.
+//
+// evaluateBudgetPolicies fills that gap. It's called from UserPromptSubmit
+// (before the next user message is processed) and Stop (after each Claude
+// response) to enforce budget caps regardless of whether the turn uses tools.
+//
+// Today only CostCeiling qualifies as a turn-boundary policy. Other policies
+// that depend purely on cumulative state (e.g. session-wide file-count caps
+// at completion) can be added here without changing callers.
+
+// Validate inputs to avoid silent enforcement bypass. A NaN or negative
+// cost (from a malformed transcript) would otherwise compare false and
+// let the action through; a non-positive ceiling is a misconfig that
+// should fail closed. Shared between evaluatePreToolPolicies and
+// evaluateBudgetPolicies so the violation message format never drifts.
+function evaluateCostCeilingViolation(
+  policy: Policy & { enabled: boolean },
+  config: CostCeilingConfig,
+  cost: number,
+): PolicyViolation | null {
+  if (
+    !Number.isFinite(cost) ||
+    cost < 0 ||
+    !Number.isFinite(config.maxUsd) ||
+    config.maxUsd <= 0
+  ) {
+    return {
+      policy: policy.name,
+      message: `Cost ceiling check failed: invalid cost ($${String(cost)}) or maxUsd ($${String(config.maxUsd)}). Failing closed.`,
+      severity: policy.severity,
+    };
+  }
+  if (cost >= config.maxUsd) {
+    return {
+      policy: policy.name,
+      message: `Cost ceiling reached: $${cost.toFixed(2)} spent, limit is $${config.maxUsd.toFixed(2)}`,
+      severity: policy.severity,
+    };
+  }
+  return null;
+}
+
+export interface BudgetCheckContext {
+  readonly cumulativeCostUsd: number;
+}
+
+export function evaluateBudgetPolicies(
+  context: BudgetCheckContext,
+  activePolicies: ReadonlyArray<Policy & { enabled: boolean }>,
+): PolicyViolation[] {
+  const violations: PolicyViolation[] = [];
+  for (const policy of activePolicies) {
+    if (!policy.enabled) continue;
+    if (policy.config.type === PolicyType.CostCeiling) {
+      const v = evaluateCostCeilingViolation(
+        policy,
+        policy.config as CostCeilingConfig,
+        context.cumulativeCostUsd,
+      );
+      if (v) violations.push(v);
+    }
+  }
   return violations;
 }

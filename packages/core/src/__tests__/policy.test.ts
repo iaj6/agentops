@@ -6,6 +6,7 @@ import {
   PolicyMode,
   getPolicyMode,
   runHasMutations,
+  evaluateBudgetPolicies,
 } from "../policy.js";
 import type { Policy } from "../policy.js";
 import type { Run, Action } from "../types.js";
@@ -657,5 +658,98 @@ describe("runHasMutations", () => {
       actions: [makeAction([], [{ command: "npm test", exitCode: 0, stdout: "", stderr: "", timestamp: "2025-01-01T00:00:00.000Z" }])],
     });
     expect(runHasMutations(run)).toBe(true);
+  });
+});
+
+describe("evaluateBudgetPolicies", () => {
+  const ceilingPolicy: Policy & { enabled: boolean } = {
+    id: createPolicyId("p_ceil"),
+    name: "Session cost ceiling ($5)",
+    type: PolicyType.CostCeiling,
+    config: { type: PolicyType.CostCeiling, maxUsd: 5 },
+    severity: PolicySeverity.Error,
+    enabled: true,
+  };
+
+  it("returns no violations when policy list is empty", () => {
+    expect(evaluateBudgetPolicies({ cumulativeCostUsd: 100 }, [])).toEqual([]);
+  });
+
+  it("returns no violations when cost is below the ceiling", () => {
+    expect(
+      evaluateBudgetPolicies({ cumulativeCostUsd: 2.5 }, [ceilingPolicy]),
+    ).toEqual([]);
+  });
+
+  it("returns a violation when cost meets the ceiling", () => {
+    const v = evaluateBudgetPolicies({ cumulativeCostUsd: 5 }, [ceilingPolicy]);
+    expect(v).toHaveLength(1);
+    expect(v[0]!.policy).toBe("Session cost ceiling ($5)");
+    expect(v[0]!.message).toContain("$5.00");
+    expect(v[0]!.severity).toBe(PolicySeverity.Error);
+  });
+
+  it("returns a violation when cost exceeds the ceiling", () => {
+    const v = evaluateBudgetPolicies({ cumulativeCostUsd: 7.42 }, [ceilingPolicy]);
+    expect(v).toHaveLength(1);
+    expect(v[0]!.message).toContain("$7.42");
+    expect(v[0]!.message).toContain("$5.00");
+  });
+
+  it("returns one violation per breached ceiling when multiple are active", () => {
+    const lower: Policy & { enabled: boolean } = {
+      ...ceilingPolicy,
+      id: createPolicyId("p_ceil_lower"),
+      name: "Soft ceiling ($1)",
+      config: { type: PolicyType.CostCeiling, maxUsd: 1 },
+    };
+    // Cost $3: lower ($1) is breached, upper ($5) is not.
+    const v = evaluateBudgetPolicies({ cumulativeCostUsd: 3 }, [lower, ceilingPolicy]);
+    expect(v).toHaveLength(1);
+    expect(v[0]!.policy).toBe("Soft ceiling ($1)");
+  });
+
+  it("ignores non-CostCeiling policies", () => {
+    const pathPolicy: Policy & { enabled: boolean } = {
+      id: createPolicyId("p_path"),
+      name: "No .env",
+      type: PolicyType.PathRestriction,
+      config: { type: PolicyType.PathRestriction, blockedPaths: [".env"] },
+      severity: PolicySeverity.Error,
+      enabled: true,
+    };
+    expect(
+      evaluateBudgetPolicies({ cumulativeCostUsd: 100 }, [pathPolicy]),
+    ).toEqual([]);
+  });
+
+  it("ignores disabled CostCeiling policies", () => {
+    const disabled = { ...ceilingPolicy, enabled: false };
+    expect(
+      evaluateBudgetPolicies({ cumulativeCostUsd: 100 }, [disabled]),
+    ).toEqual([]);
+  });
+
+  it("fails closed on NaN cost", () => {
+    const v = evaluateBudgetPolicies({ cumulativeCostUsd: NaN }, [ceilingPolicy]);
+    expect(v).toHaveLength(1);
+    expect(v[0]!.message).toContain("invalid");
+    expect(v[0]!.message).toContain("Failing closed");
+  });
+
+  it("fails closed on negative cost", () => {
+    const v = evaluateBudgetPolicies({ cumulativeCostUsd: -1 }, [ceilingPolicy]);
+    expect(v).toHaveLength(1);
+    expect(v[0]!.message).toContain("invalid");
+  });
+
+  it("fails closed on non-positive maxUsd", () => {
+    const broken: Policy & { enabled: boolean } = {
+      ...ceilingPolicy,
+      config: { type: PolicyType.CostCeiling, maxUsd: 0 },
+    };
+    const v = evaluateBudgetPolicies({ cumulativeCostUsd: 1 }, [broken]);
+    expect(v).toHaveLength(1);
+    expect(v[0]!.message).toContain("invalid");
   });
 });

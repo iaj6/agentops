@@ -73,6 +73,7 @@ export type {
   ToolInvocation,
   GuardContext,
   PolicyViolation,
+  BudgetCheckContext,
 } from "./policy.js";
 
 export {
@@ -83,6 +84,7 @@ export {
   getPolicyMode,
   runHasMutations,
   evaluatePreToolPolicies,
+  evaluateBudgetPolicies,
 } from "./policy.js";
 
 // Scoring
