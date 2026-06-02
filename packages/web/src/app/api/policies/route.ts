@@ -3,12 +3,16 @@ import { listPolicies, insertPolicy, getPolicyStats } from "@agentops/db";
 import { createPolicyId, PolicyType, PolicySeverity } from "@agentops/core";
 import { db } from "@/lib/db";
 import { randomUUID } from "node:crypto";
-import { getRequestUser } from "@/lib/auth";
+import { requireUser, requireAdmin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Listing policy config requires authentication; any member may view.
+  const user = await requireUser(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     const database = db();
     const policies = listPolicies(database);
@@ -29,6 +33,10 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  // Creating a policy mutates the safety control plane — admin only.
+  const user = await requireAdmin(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     const body = await request.json();
 
@@ -81,8 +89,7 @@ export async function POST(request: NextRequest) {
       createdAt: new Date().toISOString(),
     });
 
-    const me = await getRequestUser(request);
-    recordAudit(request, me?.id ?? null, AUDIT_ACTIONS.POLICY_CREATED, {
+    recordAudit(request, user.id, AUDIT_ACTIONS.POLICY_CREATED, {
       targetType: "policy",
       targetId: id as string,
       metadata: { name, type, severity },

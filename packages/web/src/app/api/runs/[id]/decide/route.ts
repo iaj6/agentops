@@ -9,6 +9,7 @@ import {
 } from "@agentops/core";
 import { getRun, updateRun, insertEvent } from "@agentops/db";
 import { db } from "@/lib/db";
+import { requireUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -16,10 +17,18 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const user = await requireUser(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     const { id } = await params;
     const run = getRun(db(), createRunId(id));
     if (!run) {
+      return NextResponse.json({ error: "Run not found" }, { status: 404 });
+    }
+    // Members may only decide on their own runs; admins on any. Respond 404
+    // (not 403) on non-owner so we don't leak which run IDs exist.
+    if (user.role !== "admin" && run.userId !== user.id) {
       return NextResponse.json({ error: "Run not found" }, { status: 404 });
     }
 
@@ -32,7 +41,9 @@ export async function POST(
 
     const decision = body.decision as string | undefined;
     const reason = body.reason as string | undefined;
-    const actor = body.actor as string | undefined;
+    // The actor is always the authenticated user — never a caller-supplied
+    // value, which would let the requester forge the decision audit trail.
+    const actor = user.email;
 
     if (!decision || typeof decision !== "string") {
       return NextResponse.json(
@@ -44,13 +55,6 @@ export async function POST(
     if (!reason || typeof reason !== "string") {
       return NextResponse.json(
         { error: "reason is required and must be a string" },
-        { status: 400 },
-      );
-    }
-
-    if (!actor || typeof actor !== "string") {
-      return NextResponse.json(
-        { error: "actor is required and must be a string" },
         { status: 400 },
       );
     }

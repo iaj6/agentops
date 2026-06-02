@@ -1,7 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { requireAdmin } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  const user = await requireAdmin(request);
+  if (user instanceof NextResponse) return user;
+
   const apiKey = process.env.ANTHROPIC_ADMIN_API_KEY;
   if (!apiKey) {
     return NextResponse.json(

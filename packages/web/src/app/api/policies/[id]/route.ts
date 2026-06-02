@@ -2,15 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPolicy, updatePolicy, deletePolicy, getPolicyStats } from "@agentops/db";
 import { createPolicyId } from "@agentops/core";
 import { db } from "@/lib/db";
-import { getRequestUser } from "@/lib/auth";
+import { requireUser, requireAdmin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  // Reading policy config requires authentication; any member may view
+  // (the dashboard surfaces policies to members read-only). Mutations below
+  // are admin-only.
+  const user = await requireUser(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     const { id } = await params;
     const database = db();
@@ -35,6 +41,9 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const user = await requireAdmin(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     const { id } = await params;
     const database = db();
@@ -55,7 +64,6 @@ export async function PATCH(
 
     updatePolicy(database, policyId, updates);
 
-    const me = await getRequestUser(request);
     // A PATCH that toggles `enabled` is the dashboard's
     // toggle-switch click; emit a distinct action so the audit page
     // surfaces it cleanly. Other PATCHes are general edits.
@@ -63,7 +71,7 @@ export async function PATCH(
       Object.keys(updates).length === 1 && "enabled" in updates;
     recordAudit(
       request,
-      me?.id ?? null,
+      user.id,
       isOnlyToggle ? AUDIT_ACTIONS.POLICY_TOGGLED : AUDIT_ACTIONS.POLICY_UPDATED,
       {
         targetType: "policy",
@@ -89,6 +97,9 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const user = await requireAdmin(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     const { id } = await params;
     const database = db();
@@ -118,8 +129,7 @@ export async function PUT(
 
     updatePolicy(database, policyId, { name, config, severity, enabled });
 
-    const me = await getRequestUser(request);
-    recordAudit(request, me?.id ?? null, AUDIT_ACTIONS.POLICY_UPDATED, {
+    recordAudit(request, user.id, AUDIT_ACTIONS.POLICY_UPDATED, {
       targetType: "policy",
       targetId: policyId as string,
       metadata: { name, severity, fullReplace: true },
@@ -140,6 +150,9 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const user = await requireAdmin(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     const { id } = await params;
     const database = db();
@@ -151,8 +164,7 @@ export async function DELETE(
     }
 
     deletePolicy(database, policyId);
-    const me = await getRequestUser(request);
-    recordAudit(request, me?.id ?? null, AUDIT_ACTIONS.POLICY_DELETED, {
+    recordAudit(request, user.id, AUDIT_ACTIONS.POLICY_DELETED, {
       targetType: "policy",
       targetId: policyId as string,
       metadata: { name: existing.name, type: existing.type },

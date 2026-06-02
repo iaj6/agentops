@@ -46,12 +46,18 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** GET /api/runs/search?meta=1 — returns filter options (repos, branches) */
+/** POST /api/runs/search — returns filter options (repos, branches) */
 export async function POST(request: NextRequest) {
+  const user = await requireUser(request);
+  if (user instanceof NextResponse) return user;
+
   try {
     const database = db();
-    const repos = getDistinctRepos(database);
-    const branches = getDistinctBranches(database);
+    // Scope the filter options to what the caller can actually see: members
+    // only get repos/branches from their own runs, matching the scoped GET.
+    const scope = resolveViewScope(user, request.nextUrl.searchParams);
+    const repos = getDistinctRepos(database, scope.userId);
+    const branches = getDistinctBranches(database, scope.userId);
 
     return NextResponse.json({ repos, branches });
   } catch (error) {

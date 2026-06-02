@@ -266,21 +266,17 @@ export function countRuns(db: AgentOpsDb, filters: SearchRunsFilters): number {
   return row?.total ?? 0;
 }
 
-export function getDistinctRepos(db: AgentOpsDb): string[] {
-  const rows = db
-    .selectDistinct({ repo: runs.repo })
-    .from(runs)
-    .orderBy(asc(runs.repo))
-    .all();
+export function getDistinctRepos(db: AgentOpsDb, userId?: string): string[] {
+  let query = db.selectDistinct({ repo: runs.repo }).from(runs).$dynamic();
+  if (userId) query = query.where(eq(runs.userId, userId));
+  const rows = query.orderBy(asc(runs.repo)).all();
   return rows.map((r) => r.repo);
 }
 
-export function getDistinctBranches(db: AgentOpsDb): string[] {
-  const rows = db
-    .selectDistinct({ branch: runs.branch })
-    .from(runs)
-    .orderBy(asc(runs.branch))
-    .all();
+export function getDistinctBranches(db: AgentOpsDb, userId?: string): string[] {
+  let query = db.selectDistinct({ branch: runs.branch }).from(runs).$dynamic();
+  if (userId) query = query.where(eq(runs.userId, userId));
+  const rows = query.orderBy(asc(runs.branch)).all();
   return rows.map((r) => r.branch);
 }
 
