@@ -15,7 +15,8 @@
     "postbuild": "mkdir -p .next/standalone/packages/web/.next && cp -r .next/static .next/standalone/packages/web/.next/static && (cp -r public .next/standalone/packages/web/public 2>/dev/null || true)",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "next": "16.1.6",
@@ -25,6 +26,7 @@
     "@agentops/db": "*"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
