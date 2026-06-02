@@ -420,6 +420,20 @@ describe("getDistinctRepos", () => {
   it("returns empty array when no runs exist", () => {
     expect(getDistinctRepos(db)).toEqual([]);
   });
+
+  it("scopes to a single user's runs when a userId is given", () => {
+    insertRun(db, makeRun("run_1", {
+      userId: "user_a",
+      environment: { repo: "a/repo", branch: "main", permissions: [], sandbox: { enabled: false, isolationLevel: "none" } },
+    }));
+    insertRun(db, makeRun("run_2", {
+      userId: "user_b",
+      environment: { repo: "b/repo", branch: "main", permissions: [], sandbox: { enabled: false, isolationLevel: "none" } },
+    }));
+
+    expect(getDistinctRepos(db, "user_a")).toEqual(["a/repo"]);
+    expect(getDistinctRepos(db)).toEqual(["a/repo", "b/repo"]);
+  });
 });
 
 describe("getDistinctBranches", () => {
@@ -446,5 +460,19 @@ describe("getDistinctBranches", () => {
 
   it("returns empty array when no runs exist", () => {
     expect(getDistinctBranches(db)).toEqual([]);
+  });
+
+  it("scopes to a single user's runs when a userId is given", () => {
+    insertRun(db, makeRun("run_1", {
+      userId: "user_a",
+      environment: { repo: "test/repo", branch: "feat-a", permissions: [], sandbox: { enabled: false, isolationLevel: "none" } },
+    }));
+    insertRun(db, makeRun("run_2", {
+      userId: "user_b",
+      environment: { repo: "test/repo", branch: "feat-b", permissions: [], sandbox: { enabled: false, isolationLevel: "none" } },
+    }));
+
+    expect(getDistinctBranches(db, "user_a")).toEqual(["feat-a"]);
+    expect(getDistinctBranches(db)).toEqual(["feat-a", "feat-b"]);
   });
 });

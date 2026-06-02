@@ -1,20 +1,27 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import type { GitHubPR, GitHubIssue, GitHubCheck } from "@agentops/core";
 
 function ghAvailable(): boolean {
   try {
-    execSync("gh --version", { stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync("gh", ["--version"], { stdio: ["pipe", "pipe", "pipe"] });
     return true;
   } catch {
     return false;
   }
 }
 
-function gh(args: string): string {
+// Run `gh` with an argv array — NEVER a shell string. Passing arguments as a
+// vector means values like PR bodies, branch names, and titles can contain
+// shell metacharacters ($(), backticks, quotes, newlines) without any risk of
+// command injection: there is no shell to interpret them. Bodies/payloads that
+// could be large or contain anything are fed via stdin (`input`), paired with
+// gh's `--body-file -` / `--input -` flags, so they never touch argv at all.
+function gh(args: readonly string[], input?: string): string {
   try {
-    return execSync(`gh ${args}`, {
+    return execFileSync("gh", args as string[], {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
+      ...(input !== undefined ? { input } : {}),
     }).trim();
   } catch {
     return "";
@@ -28,10 +35,15 @@ function gh(args: string): string {
 export function getLinkedPR(branch?: string): GitHubPR | null {
   if (!ghAvailable()) return null;
 
-  const branchArg = branch ? ` --head "${branch}"` : "";
-  const raw = gh(
-    `pr list --state all${branchArg} --json number,title,url,state,headRefName,baseRefName,additions,deletions,changedFiles --limit 1`,
+  const args = ["pr", "list", "--state", "all"];
+  if (branch) args.push("--head", branch);
+  args.push(
+    "--json",
+    "number,title,url,state,headRefName,baseRefName,additions,deletions,changedFiles",
+    "--limit",
+    "1",
   );
+  const raw = gh(args);
   if (!raw) return null;
 
   let items: unknown[];
@@ -75,9 +87,13 @@ function mapPRState(state: string): "open" | "closed" | "merged" {
 export function getIssue(issueNumber: number): GitHubIssue | null {
   if (!ghAvailable()) return null;
 
-  const raw = gh(
-    `issue view ${issueNumber} --json number,title,url,state,labels`,
-  );
+  const raw = gh([
+    "issue",
+    "view",
+    String(issueNumber),
+    "--json",
+    "number,title,url,state,labels",
+  ]);
   if (!raw) return null;
 
   let data: Record<string, unknown>;
@@ -112,11 +128,15 @@ export function createPR(
 ): GitHubPR | null {
   if (!ghAvailable()) return null;
 
-  const baseArg = base ? ` --base "${base}"` : "";
-  // Create the PR and capture JSON output
-  const raw = gh(
-    `pr create --title "${title.replace(/"/g, '\\"')}" --body "${body.replace(/"/g, '\\"').replace(/\n/g, "\\n")}"${baseArg} --json number,title,url,state,headRefName,baseRefName,additions,deletions,changedFiles`,
+  // Title is passed as a single argv element (no shell interpretation); the
+  // body is piped via stdin with `--body-file -` so it can contain anything.
+  const args = ["pr", "create", "--title", title, "--body-file", "-"];
+  if (base) args.push("--base", base);
+  args.push(
+    "--json",
+    "number,title,url,state,headRefName,baseRefName,additions,deletions,changedFiles",
   );
+  const raw = gh(args, body);
   if (!raw) return null;
 
   // gh pr create might not return JSON; fall back to fetching the PR
@@ -150,8 +170,12 @@ export function createPR(
 export function addPRComment(prNumber: number, body: string): boolean {
   if (!ghAvailable()) return false;
 
+  // Comment body is piped via stdin (`--body-file -`); it commonly embeds
+  // agent-recorded data (file paths, command strings, policy messages) that
+  // must never be evaluated by a shell.
   const result = gh(
-    `pr comment ${prNumber} --body "${body.replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`,
+    ["pr", "comment", String(prNumber), "--body-file", "-"],
+    body,
   );
   return result !== "";
 }
@@ -169,16 +193,23 @@ export function createCheckRun(
   if (!ghAvailable()) return null;
 
   // gh doesn't have a direct check-run create, use the API
-  const conclusionArg = conclusion ? `,"conclusion":"${conclusion}"` : "";
-  const urlArg = detailsUrl
-    ? `,"details_url":"${detailsUrl}"`
-    : "";
   const headSha = getHeadSha();
   if (!headSha) return null;
 
-  const payload = `{"name":"${name}","head_sha":"${headSha}","status":"${status}"${conclusionArg}${urlArg}}`;
-  const raw = gh(
-    `api repos/{owner}/{repo}/check-runs --method POST --input - <<< '${payload}'`,
+  // Build the payload as a real object and serialize with JSON.stringify, then
+  // pipe it via stdin (`--input -`). No string interpolation, no heredoc, no
+  // shell — so name/conclusion/detailsUrl can't break out.
+  const payload: Record<string, unknown> = {
+    name,
+    head_sha: headSha,
+    status,
+  };
+  if (conclusion) payload.conclusion = conclusion;
+  if (detailsUrl) payload.details_url = detailsUrl;
+
+  gh(
+    ["api", "repos/{owner}/{repo}/check-runs", "--method", "POST", "--input", "-"],
+    JSON.stringify(payload),
   );
 
   // Even if the API call fails, return the intended check object
@@ -192,7 +223,7 @@ export function createCheckRun(
 
 function getHeadSha(): string {
   try {
-    return execSync("git rev-parse HEAD", {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();

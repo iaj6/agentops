@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { listRuns } from "@agentops/db";
 import { db } from "@/lib/db";
+import { requireUser, resolveViewScope } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -10,9 +11,18 @@ export const dynamic = "force-dynamic";
 // AgentOps has captured locally from Claude Code hook transcripts,
 // so the page is useful even without the Admin API.
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const user = await requireUser(request);
+  if (user instanceof NextResponse) return user;
+
   try {
-    const runs = listRuns(db(), { limit: 5000 });
+    // Members see only their own usage; admins see the team total unless
+    // they opt into ?view=mine / ?userId=<id>.
+    const scope = resolveViewScope(user, request.nextUrl.searchParams);
+    const runs = listRuns(db(), {
+      limit: 5000,
+      ...(scope.userId ? { userId: scope.userId } : {}),
+    });
 
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
