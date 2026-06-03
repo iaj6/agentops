@@ -89,7 +89,16 @@ export class AgentOpsClient {
       throw new AgentOpsError(message, response.status);
     }
 
-    return (await response.json()) as T;
+    let parsed: unknown;
+    try {
+      parsed = await response.json();
+    } catch {
+      throw new AgentOpsError("Invalid JSON response from server", response.status);
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new AgentOpsError("Unexpected response shape from server", response.status);
+    }
+    return parsed as T;
   }
 
   async createSession(

@@ -67,7 +67,7 @@ export async function POST(
       updatedAt: updated.updatedAt,
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ runId: run.id, artifactId: artifact.id });
   } catch (error) {
     return internalError(request, error, "sdk/runs/[id]/artifacts");
   }

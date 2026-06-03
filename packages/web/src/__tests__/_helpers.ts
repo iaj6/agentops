@@ -69,11 +69,12 @@ export function authedRequest(
 // Same but unauthenticated.
 export function anonRequest(
   url: string,
-  init: { method?: string; body?: unknown; requestId?: string } = {},
+  init: { method?: string; body?: unknown; requestId?: string; headers?: Record<string, string> } = {},
 ): NextRequest {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "x-request-id": init.requestId ?? "test-req-id",
+    ...(init.headers ?? {}),
   };
   return new NextRequest(url, {
     method: init.method ?? "POST",

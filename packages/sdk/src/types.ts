@@ -1,7 +1,5 @@
 import type {
-  Run,
   RunId,
-  Session,
   SessionId,
   Action,
   Artifact,
@@ -9,6 +7,9 @@ import type {
   Agent,
   Environment,
   Goal,
+  ScoreCard,
+  MergeRecommendation,
+  SessionSummary,
 } from "@agentops/core";
 
 // ─── Client Configuration ───────────────────────────────────────────────────
@@ -54,9 +55,11 @@ export interface ReportMetricsRequest {
 }
 
 export interface CheckPolicyRequest {
-  readonly type: string;
-  readonly path?: string;
-  readonly description?: string;
+  readonly toolName: string;
+  readonly toolInput?: Record<string, unknown>;
+  readonly cumulativeCostUsd?: number;
+  readonly branch?: string;
+  readonly editedFiles?: ReadonlyArray<string>;
 }
 
 export interface CompleteRunRequest {
@@ -68,13 +71,19 @@ export interface FailRunRequest {
 }
 
 // ─── Response Types ─────────────────────────────────────────────────────────
+//
+// These mirror EXACTLY what the inbound /api/sdk/* route handlers return.
+// Keep them in lockstep with those routes (see sdk-contract.test.ts, which
+// drives the real handlers and asserts the shapes match).
 
 export interface CreateSessionResponse {
-  readonly session: Session;
+  readonly sessionId: SessionId;
+  readonly status: string;
 }
 
 export interface StartRunResponse {
-  readonly run: Run;
+  readonly runId: RunId;
+  readonly status: string;
 }
 
 export interface ReportActionResponse {
@@ -91,23 +100,31 @@ export interface ReportMetricsResponse {
   readonly runId: RunId;
 }
 
+export interface PolicyViolation {
+  readonly policy: string;
+  readonly message: string;
+  readonly severity?: string;
+}
+
 export interface CheckPolicyResponse {
-  readonly permit: boolean;
-  readonly violations: ReadonlyArray<{
-    readonly policy: string;
-    readonly message: string;
-  }>;
+  readonly decision: "allow" | "block";
+  readonly reason?: string;
+  readonly violations: ReadonlyArray<PolicyViolation>;
+  readonly warnings: ReadonlyArray<PolicyViolation>;
 }
 
 export interface HeartbeatResponse {
-  readonly sessionId: SessionId;
-  readonly status: string;
+  readonly ok: true;
+  readonly commands: ReadonlyArray<unknown>;
 }
 
 export interface CompleteRunResponse {
-  readonly run: Run;
+  readonly runId: RunId;
+  readonly score: ScoreCard;
+  readonly recommendation: MergeRecommendation;
+  readonly summary: SessionSummary;
 }
 
 export interface FailRunResponse {
-  readonly run: Run;
+  readonly ok: true;
 }

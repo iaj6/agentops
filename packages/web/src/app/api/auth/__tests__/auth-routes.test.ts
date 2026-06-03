@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { NextRequest } from "next/server";
 import {
   insertUser,
   createAuthSession,
@@ -36,12 +37,21 @@ import { POST as deviceInitRoute } from "@/app/api/auth/device/route";
 import { POST as deviceTokenRoute } from "@/app/api/auth/device/token/route";
 import { POST as deviceApproveRoute } from "@/app/api/auth/device/approve/route";
 import { POST as inviteUserRoute } from "@/app/api/users/route";
+import {
+  loginAccountLimiter,
+  loginIpLimiter,
+  devicePollLimiter,
+} from "@/lib/rate-limit";
 
 let db: AgentOpsDb;
 
 beforeEach(() => {
   db = makeMemoryDb();
   setTestDb(db);
+  // Rate limiters are process-global singletons — reset between cases.
+  loginAccountLimiter.clear();
+  loginIpLimiter.clear();
+  devicePollLimiter.clear();
 });
 
 // Helper: extract the Set-Cookie value for the session cookie.
@@ -70,7 +80,6 @@ function cookieRequest(
   };
   // Use NextRequest directly so cookies flow.
   // (NextRequest reads from the request's headers.)
-  const { NextRequest } = require("next/server");
   return new NextRequest(url, {
     method: init.method ?? "POST",
     headers,
@@ -161,6 +170,66 @@ describe("POST /api/auth/login", () => {
     const res = await loginRoute(req);
     expect(res.status).toBe(200);
     expect(res.headers.get("set-cookie") ?? "").not.toMatch(/;\s*Secure/i);
+  });
+});
+
+// ─── POST /api/auth/login rate limiting (#16) ─────────────────────────────
+
+describe("POST /api/auth/login rate limiting", () => {
+  const attempt = (email: string, password: string) =>
+    loginRoute(
+      anonRequest("http://localhost/api/auth/login", { body: { email, password } }),
+    );
+
+  it("429s after 5 failed attempts for the same account", async () => {
+    insertUser(db, { email: "victim@example.com", password: "correct-horse" });
+    for (let i = 0; i < 5; i++) {
+      expect((await attempt("victim@example.com", "wrong")).status).toBe(401);
+    }
+    const res = await attempt("victim@example.com", "wrong");
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBeTruthy();
+  });
+
+  it("blocks the password check itself once locked out (still 429 with the right password)", async () => {
+    insertUser(db, { email: "locked@example.com", password: "correct-horse" });
+    for (let i = 0; i < 5; i++) await attempt("locked@example.com", "wrong");
+    // Even the correct password is refused while the lockout window is open.
+    expect((await attempt("locked@example.com", "correct-horse")).status).toBe(429);
+  });
+
+  it("a successful login resets the failure counter", async () => {
+    insertUser(db, { email: "ok@example.com", password: "correct-horse" });
+    for (let i = 0; i < 4; i++) await attempt("ok@example.com", "wrong");
+    expect((await attempt("ok@example.com", "correct-horse")).status).toBe(200);
+    // Counter cleared — a fresh wrong attempt is a plain 401, not 429.
+    expect((await attempt("ok@example.com", "wrong")).status).toBe(401);
+  });
+
+  const attemptFrom = (ip: string, email: string) =>
+    loginRoute(
+      anonRequest("http://localhost/api/auth/login", {
+        body: { email, password: "wrong" },
+        headers: { "x-forwarded-for": ip },
+      }),
+    );
+
+  it("per-IP backstop: 30 failures across different emails from one IP → 429 (credential stuffing)", async () => {
+    // Distinct emails so the per-account limiter (5) never trips; only the
+    // per-IP limiter (30) should fire.
+    for (let i = 0; i < 30; i++) {
+      expect((await attemptFrom("9.9.9.9", `stuff${i}@example.com`)).status).toBe(401);
+    }
+    expect((await attemptFrom("9.9.9.9", "stuff-final@example.com")).status).toBe(429);
+  });
+
+  it("lockout is keyed per-IP: a different source IP is unaffected", async () => {
+    insertUser(db, { email: "shared@example.com", password: "correct-horse" });
+    // Lock the account from IP A.
+    for (let i = 0; i < 5; i++) await attemptFrom("1.1.1.1", "shared@example.com");
+    expect((await attemptFrom("1.1.1.1", "shared@example.com")).status).toBe(429);
+    // Same account from a different IP is not locked (no global lockout DoS).
+    expect((await attemptFrom("2.2.2.2", "shared@example.com")).status).toBe(401);
   });
 });
 
@@ -368,6 +437,25 @@ describe("POST /api/auth/device/token (poll)", () => {
     expect(res.status).toBe(400);
     const body = (await jsonOf(res)) as { error?: string };
     expect(body.error).toBe("authorization_pending");
+  });
+
+  it("slow_down when a pending code is polled faster than the interval", async () => {
+    const { device_code } = await newDeviceCode();
+    const poll = () =>
+      deviceTokenRoute(
+        anonRequest("http://localhost/api/auth/device/token", {
+          body: {
+            grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+            device_code,
+          },
+        }),
+      );
+    // First poll is allowed (returns the pending state).
+    const first = (await jsonOf(await poll())) as { error?: string };
+    expect(first.error).toBe("authorization_pending");
+    // A second poll within the 5s interval is throttled.
+    const second = (await jsonOf(await poll())) as { error?: string };
+    expect(second.error).toBe("slow_down");
   });
 
   it("unsupported_grant_type on bad grant", async () => {

@@ -185,7 +185,9 @@ export async function POST(request: NextRequest) {
       });
     }
     void checkBudgetThreshold(run.userId ?? null, body, run);
-    return NextResponse.json({ decision: "allow", warnings });
+    // Always include `violations` (empty on allow) so the response shape is
+    // consistent with the block path and the declared SDK CheckPolicyResponse.
+    return NextResponse.json({ decision: "allow", violations: [], warnings });
   } catch (error) {
     return internalError(request, error, "sdk/policy/check");
   }

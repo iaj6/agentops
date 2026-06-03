@@ -4,6 +4,7 @@ import {
   consumeApprovedDeviceCode,
 } from "@agentops/db";
 import { db } from "@/lib/db";
+import { devicePollLimiter } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,16 @@ export async function POST(req: NextRequest) {
     return oauthError("expired_token");
   }
   if (code.status === "denied") return oauthError("access_denied");
-  if (code.status === "pending") return oauthError("authorization_pending");
+  if (code.status === "pending") {
+    // Enforce the advertised polling interval server-side, but only while
+    // pending — a client polling faster than `interval` gets `slow_down` and
+    // must back off (RFC 8628 §3.5). The approved/consumed/denied paths below
+    // resolve immediately and are never throttled.
+    if (devicePollLimiter.tooSoon(body.device_code)) {
+      return oauthError("slow_down");
+    }
+    return oauthError("authorization_pending");
+  }
   if (code.status === "consumed") {
     // Already retrieved by an earlier successful poll.
     return oauthError("invalid_grant");
