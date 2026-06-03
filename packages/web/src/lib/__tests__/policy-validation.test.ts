@@ -24,9 +24,23 @@ describe("validatePolicyConfigForWrite", () => {
     expect(validatePolicyConfigForWrite({ type: "secretDetection" })).toBeTruthy();
   });
 
-  it("ignores non-secretDetection configs (other validation lives elsewhere)", () => {
+  it("ignores configs without specific validation (e.g. costCeiling)", () => {
     expect(validatePolicyConfigForWrite({ type: "costCeiling", maxUsd: 10 })).toBeNull();
     expect(validatePolicyConfigForWrite(null)).toBeNull();
     expect(validatePolicyConfigForWrite("nope")).toBeNull();
+  });
+
+  it("rejects fileLimitCount with maxFiles < 1 (blocks every new-file edit)", () => {
+    expect(validatePolicyConfigForWrite({ type: "fileLimitCount", maxFiles: 0 })).toBeTruthy();
+    expect(validatePolicyConfigForWrite({ type: "fileLimitCount", maxFiles: -3 })).toBeTruthy();
+    expect(validatePolicyConfigForWrite({ type: "fileLimitCount", maxFiles: 2.5 })).toBeTruthy();
+    expect(validatePolicyConfigForWrite({ type: "fileLimitCount", maxFiles: 50 })).toBeNull();
+  });
+
+  it("rejects a toolRestriction with neither allowedTools nor blockedTools", () => {
+    expect(validatePolicyConfigForWrite({ type: "toolRestriction" })).toBeTruthy();
+    expect(validatePolicyConfigForWrite({ type: "toolRestriction", allowedTools: [], blockedTools: [] })).toBeTruthy();
+    expect(validatePolicyConfigForWrite({ type: "toolRestriction", blockedTools: ["Write"] })).toBeNull();
+    expect(validatePolicyConfigForWrite({ type: "toolRestriction", allowedTools: ["Read"] })).toBeNull();
   });
 });

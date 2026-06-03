@@ -84,7 +84,11 @@ export default async function SettingsPage() {
                 AgentOps uses a local SQLite database to store run data.
               </p>
               <div className="rounded bg-surface-2 p-3 font-mono text-xs text-muted">
-                {process.env.AGENTOPS_DB_PATH ?? "~/.agentops/agentops.db"}
+                {/* The configured path can reveal host filesystem layout — show
+                    the real value to admins only; members see the default. */}
+                {role === "admin"
+                  ? (process.env.AGENTOPS_DB_PATH ?? "~/.agentops/agentops.db")
+                  : "~/.agentops/agentops.db"}
               </div>
             </div>
 

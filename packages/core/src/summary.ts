@@ -104,13 +104,20 @@ function categorizeFiles(run: Run): SessionSummary["filesChanged"] {
       seen.add(edit.path);
 
       const diff = edit.diff;
-      if (diff.startsWith("+") && !diff.includes("-")) {
-        // All additions, no removals => likely a new file
+      if (/^--- \/dev\/null/m.test(diff) || /^new file mode/m.test(diff)) {
+        // Unified/git diff for a brand-new file (old side is /dev/null).
+        created.push(edit.path);
+      } else if (/^\+\+\+ \/dev\/null/m.test(diff) || /^deleted file mode/m.test(diff)) {
+        // Unified/git diff for a removed file (new side is /dev/null).
+        deleted.push(edit.path);
+      } else if (diff.startsWith("+") && !diff.includes("-")) {
+        // Simple all-additions snippet (no headers) => likely a new file.
         created.push(edit.path);
       } else if (diff.startsWith("-") && !diff.includes("+")) {
-        // All removals, no additions => likely a deletion
+        // Simple all-removals snippet => likely a deletion.
         deleted.push(edit.path);
       } else {
+        // Mixed +/- (or empty diff, as the hook/CLI producers emit) => modified.
         modified.push(edit.path);
       }
     }

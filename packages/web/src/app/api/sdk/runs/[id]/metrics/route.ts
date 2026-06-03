@@ -60,11 +60,21 @@ export async function POST(
       }
     }
 
-    if (body.tokenUsage !== undefined && typeof body.tokenUsage !== "object") {
-      return NextResponse.json(
-        { error: "tokenUsage must be an object" },
-        { status: 400 },
-      );
+    if (body.tokenUsage !== undefined) {
+      const tu = body.tokenUsage;
+      const ok =
+        tu !== null &&
+        typeof tu === "object" &&
+        (["input", "output", "total"] as const).every((k) => {
+          const n = (tu as Record<string, unknown>)[k];
+          return typeof n === "number" && Number.isFinite(n) && n >= 0;
+        });
+      if (!ok) {
+        return NextResponse.json(
+          { error: "tokenUsage must be an object with finite, non-negative input/output/total" },
+          { status: 400 },
+        );
+      }
     }
 
     const tokenUsage = (body.tokenUsage as Record<string, unknown>) ?? {

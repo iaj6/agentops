@@ -21,5 +21,23 @@ export function validatePolicyConfigForWrite(config: unknown): string | null {
     }
   }
 
+  if (cfg.type === "fileLimitCount") {
+    const max = (cfg as { maxFiles?: unknown }).maxFiles;
+    // maxFiles <= 0 would block every new-file edit — an operator footgun.
+    if (typeof max !== "number" || !Number.isInteger(max) || max < 1) {
+      return "fileLimitCount config requires `maxFiles` to be an integer >= 1";
+    }
+  }
+
+  if (cfg.type === "toolRestriction") {
+    const c = cfg as { allowedTools?: unknown; blockedTools?: unknown };
+    const nonEmpty = (v: unknown): boolean => Array.isArray(v) && v.length > 0;
+    // With neither list a ToolRestriction silently passes everything, giving
+    // false confidence that a constraint is in force.
+    if (!nonEmpty(c.allowedTools) && !nonEmpty(c.blockedTools)) {
+      return "toolRestriction config requires a non-empty `allowedTools` or `blockedTools` list";
+    }
+  }
+
   return null;
 }

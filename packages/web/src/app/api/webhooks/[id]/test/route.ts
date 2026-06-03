@@ -35,15 +35,18 @@ export async function POST(
     payload: {
       test: true,
       message: "AgentOps webhook test ping",
-      sentBy: user.email,
+      // Data minimization: identify the sender by id, not email — the payload
+      // goes to a receiver-controlled external URL.
+      sentBy: user.id,
     },
     timestamp: new Date().toISOString(),
   };
 
   // Wait for the delivery to complete so the response can return the
   // resulting status — test pings are user-driven, the user wants a
-  // synchronous "did it work" answer.
-  await dispatchWebhookEvent(db(), testEvent);
+  // synchronous "did it work" answer. Use a zero retry delay so a flaky
+  // receiver can't make this request hang for the full ~30s retry window.
+  await dispatchWebhookEvent(db(), testEvent, { retryDelayMs: 0 });
 
   recordAudit(req, user.id, AUDIT_ACTIONS.WEBHOOK_TEST_SENT, {
     targetType: "webhook",

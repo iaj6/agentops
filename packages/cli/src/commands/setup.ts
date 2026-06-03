@@ -42,7 +42,27 @@ function resolveServerForSetup(serverFlag?: string): string | null {
   return null;
 }
 
+// The server URL is interpolated into a shell command string written to
+// Claude Code's settings.json. Validate it's a well-formed http(s) URL with no
+// whitespace or shell metacharacters so it can't break out of / inject into
+// that command (a valid URL never needs those characters).
+function validateServerUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`--server must be a valid URL (got: ${url})`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`--server must be an http(s) URL (got: ${url})`);
+  }
+  if (/[\s'"`$;&|<>(){}\\]/.test(url)) {
+    throw new Error(`--server URL contains unsafe characters (got: ${url})`);
+  }
+}
+
 function buildHooksConfig(args: { dbPathFlag?: string; serverUrl?: string }): HooksConfig {
+  if (args.serverUrl) validateServerUrl(args.serverUrl);
   const dbArg = args.dbPathFlag ? ` --db-path ${args.dbPathFlag}` : "";
   // When a dashboard is configured, prefix the hook command with the env
   // var so AgentOps stays in SDK mode even if the user's shell environment

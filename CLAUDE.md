@@ -38,7 +38,7 @@ npm run db:studio      # Open Drizzle Studio for visual DB inspection
 # Dogfooding workflow (via CLI)
 agentops init              # Bootstrap DB (first time)
 agentops init --seed       # Bootstrap with sample data
-Great,      # Reset DB to empty
+agentops init --clean      # Reset DB to empty
 agentops serve             # Start dashboard at localhost:3000
 agentops serve --port 8080 # Start on custom port
 agentops wrap "command"    # Wrap a command with real-time event streaming

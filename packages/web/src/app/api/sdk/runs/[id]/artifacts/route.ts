@@ -25,32 +25,17 @@ export async function POST(
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    if (body.diffs !== undefined && !Array.isArray(body.diffs)) {
-      return NextResponse.json(
-        { error: "diffs must be an array" },
-        { status: 400 },
-      );
-    }
-
-    if (body.logs !== undefined && !Array.isArray(body.logs)) {
-      return NextResponse.json(
-        { error: "logs must be an array" },
-        { status: 400 },
-      );
-    }
-
-    if (body.testOutputs !== undefined && !Array.isArray(body.testOutputs)) {
-      return NextResponse.json(
-        { error: "testOutputs must be an array" },
-        { status: 400 },
-      );
-    }
-
-    if (body.reports !== undefined && !Array.isArray(body.reports)) {
-      return NextResponse.json(
-        { error: "reports must be an array" },
-        { status: 400 },
-      );
+    // Each artifact field must be an array of STRINGS — a non-string element
+    // (e.g. an object) is persisted and later crashes the dashboard's
+    // DiffViewer (.split on a non-string) or React rendering.
+    for (const name of ["diffs", "logs", "testOutputs", "reports"] as const) {
+      const value = body[name];
+      if (value !== undefined && (!Array.isArray(value) || value.some((el) => typeof el !== "string"))) {
+        return NextResponse.json(
+          { error: `${name} must be an array of strings` },
+          { status: 400 },
+        );
+      }
     }
 
     const artifact: Artifact = {

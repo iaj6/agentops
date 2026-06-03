@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, chmodSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, chmodSync, statSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import {
@@ -321,14 +321,12 @@ async function handlePreToolUse(input: HookInput, dbPath?: string): Promise<void
       );
       process.exit(2);
     }
-    // No session state, fail-open. Warn loudly when SDK mode was attempted
-    // so the operator knows enforcement isn't running (otherwise the only
-    // hint is the stderr line from session-start, which can scroll away).
-    if (isSdkMode(resolveOpsConfig(dbPath))) {
-      emitOfflineWarning(
-        `no session state for tool ${input.tool_name ?? "?"} (session-start may have failed)`,
-      );
-    }
+    // No session state, fail-open. Warn loudly in BOTH sdk and local mode so
+    // the operator knows enforcement isn't running for this tool call — the
+    // only other hint is session-start's stderr line, which can scroll away.
+    emitOfflineWarning(
+      `no session state for tool ${input.tool_name ?? "?"} (session-start may have failed; policy enforcement is OFF)`,
+    );
     process.exit(0);
   }
 
@@ -669,10 +667,15 @@ async function handleSubagentStop(input: HookInput, dbPath?: string): Promise<vo
     const resolved = resolve(input.agent_transcript_path);
     if (resolved.startsWith(claudeProjectsRoot + sep)) {
       try {
-        if (existsSync(resolved)) {
-          const stat = statSync(resolved);
-          if (stat.size <= MAX_TRANSCRIPT_BYTES) {
-            const raw = readFileSync(resolved, "utf-8");
+        // Canonicalize symlinks (realpathSync throws on a missing path, which
+        // the surrounding catch handles) and re-check containment so a symlink
+        // inside ~/.claude/projects/ can't redirect the read outside it. Also
+        // require a regular file.
+        const realPath = realpathSync(resolved);
+        if (realPath.startsWith(claudeProjectsRoot + sep)) {
+          const stat = statSync(realPath);
+          if (stat.isFile() && stat.size <= MAX_TRANSCRIPT_BYTES) {
+            const raw = readFileSync(realPath, "utf-8");
             for (const line of raw.split("\n")) {
               if (line.trim().length === 0) continue;
               try {

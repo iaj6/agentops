@@ -69,6 +69,27 @@ describe("assignRun", () => {
     // Original is unchanged (immutable)
     expect(session.currentRunId).toBeNull();
   });
+
+  it("archives a previously-current run instead of dropping it", () => {
+    const session = activateSession(createSession("agent_1"));
+    const first = createRunId("run_1");
+    const second = createRunId("run_2");
+    const afterFirst = assignRun(session, first);
+    const afterSecond = assignRun(afterFirst, second);
+
+    expect(afterSecond.currentRunId).toBe(second);
+    expect(afterSecond.completedRunIds).toContain(first); // not lost
+  });
+
+  it("does not duplicate when the same run is re-assigned", () => {
+    const session = activateSession(createSession("agent_1"));
+    const runId = createRunId("run_1");
+    const once = assignRun(session, runId);
+    const again = assignRun(once, runId);
+
+    expect(again.currentRunId).toBe(runId);
+    expect(again.completedRunIds).not.toContain(runId);
+  });
 });
 
 describe("completeSessionRun", () => {

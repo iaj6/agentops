@@ -73,7 +73,8 @@ export function computeBudgetState(
     // Defense in depth: the API layer rejects negative/non-finite costs, but
     // clamp here too so a bad legacy row can't deflate period spend and
     // suppress a budget breach. Treat negatives / NaN / Infinity as 0.
-    const c = r.metrics?.costUsd ?? 0;
+    // (metrics is a required field on RunCostPoint — no optional chaining.)
+    const c = r.metrics.costUsd ?? 0;
     return acc + (Number.isFinite(c) && c > 0 ? c : 0);
   }, 0);
   const pct =

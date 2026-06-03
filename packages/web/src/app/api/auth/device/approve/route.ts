@@ -6,7 +6,7 @@ import {
   issueApiToken,
 } from "@agentops/db";
 import { db } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireUser, checkSameOrigin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +23,8 @@ interface ApproveBody {
 }
 
 export async function POST(req: NextRequest) {
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const user = await requireUser(req);
   if (user instanceof NextResponse) return user;
 

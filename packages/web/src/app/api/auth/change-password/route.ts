@@ -5,7 +5,7 @@ import {
   setUserPassword,
 } from "@agentops/db";
 import { db } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireUser, checkSameOrigin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,8 @@ interface ChangePasswordBody {
 }
 
 export async function POST(req: NextRequest) {
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const user = await requireUser(req);
   if (user instanceof NextResponse) return user;
 
@@ -36,9 +38,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (body.newPassword.length < 8) {
+  // NIST 800-63B favors length over composition rules; require 12+ chars.
+  if (body.newPassword.length < 12) {
     return NextResponse.json(
-      { error: "Password must be at least 8 characters" },
+      { error: "Password must be at least 12 characters" },
       { status: 400 },
     );
   }

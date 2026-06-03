@@ -59,6 +59,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate-if-present: don't break minimal clients, but reject wrong-typed
+    // values that would corrupt persisted records (environment.branch feeds a
+    // dedicated DB column; goal.structured is read by summary/scoring).
+    if (environment.branch !== undefined && typeof environment.branch !== "string") {
+      return NextResponse.json(
+        { error: "environment.branch must be a string" },
+        { status: 400 },
+      );
+    }
+    if (goal.structured !== undefined && (typeof goal.structured !== "object" || goal.structured === null)) {
+      return NextResponse.json(
+        { error: "goal.structured must be an object" },
+        { status: 400 },
+      );
+    }
+
     const baseRun = startRun(createRun(goal, environment));
     // Tag the run with the authenticated user so the dashboard can scope
     // by owner. Both insertRun and rowToRun round-trip this field.
@@ -75,6 +91,9 @@ export async function POST(request: NextRequest) {
         const updated = assignRun(session, run.id);
         updateSession(db(), updated.id, {
           currentRunId: updated.currentRunId,
+          // Persist the archived prior run too — assignRun moves any existing
+          // currentRunId into completedRunIds, which is otherwise lost here.
+          completedRunIds: updated.completedRunIds,
           updatedAt: updated.updatedAt,
         });
       }

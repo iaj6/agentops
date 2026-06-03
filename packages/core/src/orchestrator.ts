@@ -194,6 +194,9 @@ export function startJobExecution(
       const assigned = assignRun(session, runId);
       db.updateSession(assigned.id, {
         currentRunId: assigned.currentRunId,
+        // Persist the archived prior run too — assignRun moves any existing
+        // currentRunId into completedRunIds, which is otherwise lost here.
+        completedRunIds: assigned.completedRunIds,
         updatedAt: assigned.updatedAt,
       });
     }
