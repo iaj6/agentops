@@ -47,9 +47,18 @@ export function activateSession(session: Session): Session {
 }
 
 export function assignRun(session: Session, runId: RunId): Session {
+  // Preserve history: if a different run is already current, archive it to
+  // completedRunIds before assigning the new one rather than silently
+  // dropping it (this path is reachable via the web SDK startRun route).
+  const prev = session.currentRunId;
+  const completedRunIds =
+    prev && prev !== runId
+      ? [...session.completedRunIds, prev]
+      : [...session.completedRunIds];
   return {
     ...session,
     currentRunId: runId,
+    completedRunIds,
     updatedAt: now(),
   };
 }

@@ -344,6 +344,29 @@ describe("POST /api/auth/change-password", () => {
     expect(res.status).toBe(400);
   });
 
+  it("400 when new password is 11 chars (enforces the 12-char floor)", async () => {
+    const user = insertUser(db, { email: "a@example.com", password: "current12345" });
+    const session = createAuthSession(db, user.id);
+    const req = cookieRequest("http://localhost/api/auth/change-password", {
+      cookie: session.id,
+      body: { currentPassword: "current12345", newPassword: "elevenchars" }, // 11
+    });
+    const res = await changePasswordRoute(req);
+    expect(res.status).toBe(400);
+  });
+
+  it("403 on a cross-origin request (CSRF guard)", async () => {
+    const user = insertUser(db, { email: "a@example.com", password: "current12345" });
+    const session = createAuthSession(db, user.id);
+    const req = cookieRequest("http://localhost/api/auth/change-password", {
+      cookie: session.id,
+      headers: { Origin: "https://attacker.example", Host: "localhost:3000" },
+      body: { currentPassword: "current12345", newPassword: "newpassword12345" },
+    });
+    const res = await changePasswordRoute(req);
+    expect(res.status).toBe(403);
+  });
+
   it("401 if current password is wrong", async () => {
     const user = insertUser(db, { email: "a@example.com", password: "actual" });
     const session = createAuthSession(db, user.id);
@@ -375,13 +398,13 @@ describe("POST /api/auth/change-password", () => {
     const session = createAuthSession(db, user.id);
     const req = cookieRequest("http://localhost/api/auth/change-password", {
       cookie: session.id,
-      body: { currentPassword: "oldpass1234", newPassword: "newpass1234" },
+      body: { currentPassword: "oldpass1234", newPassword: "newpassword12345" },
     });
     const res = await changePasswordRoute(req);
     expect(res.status).toBe(200);
 
     const after = getUserWithPasswordByEmail(db, "a@example.com")!;
-    expect(verifyPassword("newpass1234", after.passwordHash)).toBe(true);
+    expect(verifyPassword("newpassword12345", after.passwordHash)).toBe(true);
     expect(verifyPassword("oldpass1234", after.passwordHash)).toBe(false);
     expect(after.user.mustChangePassword).toBe(false);
   });

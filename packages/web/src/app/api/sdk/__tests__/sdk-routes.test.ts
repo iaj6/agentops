@@ -940,3 +940,85 @@ describe("POST /api/sdk/policy/evaluate-budget", () => {
     expect(body.decision).toBe("allow");
   });
 });
+
+// ─── Ingress payload validation (#17) ─────────────────────────────────────
+
+describe("SDK ingress payload validation", () => {
+  it("artifacts: rejects a non-string array element (would crash the UI)", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest(`http://localhost/api/sdk/runs/${runId}/artifacts`, {
+      token: alice.token,
+      body: { diffs: ["ok", { not: "a string" }] },
+    });
+    const res = await reportArtifactRoute(req, withParams({ id: runId }));
+    expect(res.status).toBe(400);
+  });
+
+  it("metrics: rejects tokenUsage with a non-numeric field", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest(`http://localhost/api/sdk/runs/${runId}/metrics`, {
+      token: alice.token,
+      body: { tokenUsage: { input: 10, output: "lots", total: 10 } },
+    });
+    const res = await reportMetricsRoute(req, withParams({ id: runId }));
+    expect(res.status).toBe(400);
+  });
+
+  it("actions: rejects a non-ISO timestamp", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest(`http://localhost/api/sdk/runs/${runId}/actions`, {
+      token: alice.token,
+      body: { id: "a1", timestamp: "not-a-date" },
+    });
+    const res = await reportActionRoute(req, withParams({ id: runId }));
+    expect(res.status).toBe(400);
+  });
+
+  it("runs: rejects a non-string environment.branch", async () => {
+    const req = authedRequest("http://localhost/api/sdk/runs", {
+      token: alice.token,
+      body: {
+        goal: { humanReadable: "x" },
+        environment: { repo: "acme/api", branch: 123 },
+      },
+    });
+    const res = await createRunRoute(req);
+    expect(res.status).toBe(400);
+  });
+
+  it("runs: still accepts a minimal valid payload (no structured/sandbox)", async () => {
+    const req = authedRequest("http://localhost/api/sdk/runs", {
+      token: alice.token,
+      body: { goal: { humanReadable: "x" }, environment: { repo: "acme/api", branch: "main" } },
+    });
+    const res = await createRunRoute(req);
+    expect(res.status).toBe(201);
+  });
+});
+
+// ─── Session run-history persistence (#19) ────────────────────────────────
+
+describe("assigning a second run to a session archives the first", () => {
+  it("persists the prior run into completedRunIds (not just in memory)", async () => {
+    const { sessionId } = seedSession(alice);
+    const body = () => ({
+      goal: { humanReadable: "x", structured: { type: "t", description: "t", parameters: {} } },
+      environment: { repo: "acme/api", branch: "main", permissions: [], sandbox: { enabled: false, isolationLevel: "none" } },
+      sessionId,
+    });
+    const res1 = await createRunRoute(
+      authedRequest("http://localhost/api/sdk/runs", { token: alice.token, body: body() }),
+    );
+    const run1 = (await jsonOf(res1)) as { runId: string };
+    const res2 = await createRunRoute(
+      authedRequest("http://localhost/api/sdk/runs", { token: alice.token, body: body() }),
+    );
+    const run2 = (await jsonOf(res2)) as { runId: string };
+
+    const { getSession } = await import("@agentops/db");
+    const { createSessionId } = await import("@agentops/core");
+    const session = getSession(db, createSessionId(sessionId))!;
+    expect(session.currentRunId).toBe(run2.runId);
+    expect(session.completedRunIds).toContain(run1.runId); // archived, not dropped
+  });
+});

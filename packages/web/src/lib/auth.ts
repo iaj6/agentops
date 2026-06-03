@@ -118,6 +118,35 @@ export async function requireBearerUser(
   return user;
 }
 
+/**
+ * Defense-in-depth CSRF guard for cookie-authenticated, state-changing routes.
+ * SameSite=Lax already blocks cross-site POSTs in modern browsers; this adds a
+ * belt-and-suspenders Origin check. Returns a 403 ONLY when an Origin header is
+ * present and its host matches neither Host nor X-Forwarded-Host. Bearer/SDK
+ * callers (and same-origin navigations) typically omit Origin and pass through,
+ * as do test requests with no host headers.
+ */
+export function checkSameOrigin(req: NextRequest): NextResponse | null {
+  const origin = req.headers.get("origin");
+  if (!origin) return null;
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    return forbidden("Invalid Origin header", req);
+  }
+  // We've already returned for Origin-absent requests, so an Origin is present
+  // here. Require it to match Host (or X-Forwarded-Host); if neither header is
+  // present we can't prove same-origin, so reject rather than allow.
+  const allowed = new Set(
+    [req.headers.get("host"), req.headers.get("x-forwarded-host")].filter(
+      (h): h is string => !!h,
+    ),
+  );
+  if (allowed.has(originHost)) return null;
+  return forbidden("Cross-origin request blocked", req);
+}
+
 export async function requireAdmin(
   req: NextRequest,
 ): Promise<User | NextResponse> {

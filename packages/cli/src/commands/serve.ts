@@ -19,6 +19,14 @@ export function registerServeCommand(program: Command): void {
       const port = opts.port;
       const host = opts.host;
 
+      // Validate the port before spawning so an invalid value fails fast with
+      // a clear message instead of a confusing URL or a thrown RangeError.
+      const portNum = Number(port);
+      if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+        console.error(`Invalid --port "${port}": must be an integer in 1-65535.`);
+        process.exit(1);
+      }
+
       // Find the web package wherever it's installed
       const require = createRequire(import.meta.url);
       let webPkgDir: string;

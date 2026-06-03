@@ -125,6 +125,11 @@ export async function PATCH(
   }
 
   updateWebhook(db(), id, updates);
+  recordAudit(req, user.id, AUDIT_ACTIONS.WEBHOOK_UPDATED, {
+    targetType: "webhook",
+    targetId: id,
+    metadata: { fields: Object.keys(updates) },
+  });
   const updated = getWebhook(db(), id);
   if (!updated) {
     return NextResponse.json({ error: "Webhook not found" }, { status: 404 });

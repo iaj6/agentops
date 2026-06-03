@@ -22,8 +22,8 @@ export function ChangePasswordForm({
     e.preventDefault();
     setError(null);
 
-    if (newPassword.length < 8) {
-      setError("New password must be at least 8 characters");
+    if (newPassword.length < 12) {
+      setError("New password must be at least 12 characters");
       return;
     }
     if (newPassword !== confirm) {
@@ -94,10 +94,10 @@ export function ChangePasswordForm({
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
           required
-          minLength={8}
+          minLength={12}
           className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
         />
-        <p className="mt-1 text-xs text-muted">At least 8 characters.</p>
+        <p className="mt-1 text-xs text-muted">At least 12 characters.</p>
       </div>
 
       <div>
@@ -110,7 +110,7 @@ export function ChangePasswordForm({
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
           required
-          minLength={8}
+          minLength={12}
           className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
         />
       </div>

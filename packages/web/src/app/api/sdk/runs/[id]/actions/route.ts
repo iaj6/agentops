@@ -52,6 +52,17 @@ export async function POST(
       );
     }
 
+    // A non-ISO timestamp would persist and yield NaN durations downstream.
+    if (
+      body.timestamp !== undefined &&
+      (typeof body.timestamp !== "string" || Number.isNaN(Date.parse(body.timestamp)))
+    ) {
+      return NextResponse.json(
+        { error: "timestamp must be an ISO date string" },
+        { status: 400 },
+      );
+    }
+
     const action: Action = {
       id: createActionId(body.id as string ?? `action_${Date.now()}`),
       toolCalls: (body.toolCalls as Action["toolCalls"]) ?? [],

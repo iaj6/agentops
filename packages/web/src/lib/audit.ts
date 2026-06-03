@@ -20,6 +20,7 @@ export const AUDIT_ACTIONS = {
   POLICY_DELETED: "policy.deleted",
   POLICY_TOGGLED: "policy.toggled",
   WEBHOOK_CREATED: "webhook.created",
+  WEBHOOK_UPDATED: "webhook.updated",
   WEBHOOK_DELETED: "webhook.deleted",
   WEBHOOK_TEST_SENT: "webhook.test_sent",
   BUDGET_SET: "budget.set",

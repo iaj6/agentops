@@ -376,7 +376,7 @@ describe("handleUserPromptSubmit (DirectOps mode)", () => {
 // ─── handlePreToolUse ──────────────────────────────────────────────────────
 
 describe("handlePreToolUse (DirectOps mode)", () => {
-  it("no state file → exits 0 silently", async () => {
+  it("no state file → exits 0 but warns on stderr in local mode (#18)", async () => {
     const sid = freshSessionId(); // not started
     const result = await runHook(() =>
       _handlePreToolUse(
@@ -391,6 +391,9 @@ describe("handlePreToolUse (DirectOps mode)", () => {
     );
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("");
+    // Fail-open no longer means silent: the operator is warned even in local
+    // mode that enforcement isn't running for this tool call.
+    expect(result.stderr).toContain("ENFORCEMENT OFFLINE");
   });
 
   it("allow path: no policies → exits 0 with no stdout", async () => {

@@ -372,6 +372,54 @@ describe("generateSummary", () => {
   });
 
   describe("file categorization", () => {
+    it("categorizes a unified/git diff for a NEW file as created (not modified)", () => {
+      // A real new-file unified diff has a `--- /dev/null` header AND `+` lines;
+      // the old prefix heuristic mislabeled it 'modified'.
+      const run = makeRun({
+        actions: [
+          {
+            id: createActionId("a1"),
+            toolCalls: [],
+            fileEdits: [
+              {
+                path: "src/added.ts",
+                diff: "--- /dev/null\n+++ b/src/added.ts\n@@ -0,0 +1,2 @@\n+export const x = 1;\n+export const y = 2;",
+                timestamp: "2025-06-01T10:00:01.000Z",
+              },
+            ],
+            commands: [],
+            timestamp: "2025-06-01T10:00:01.000Z",
+          },
+        ],
+      });
+      const summary = generateSummary(run);
+      expect(summary.filesChanged.created).toContain("src/added.ts");
+      expect(summary.filesChanged.modified).toHaveLength(0);
+    });
+
+    it("categorizes a unified diff for a DELETED file as deleted", () => {
+      const run = makeRun({
+        actions: [
+          {
+            id: createActionId("a1"),
+            toolCalls: [],
+            fileEdits: [
+              {
+                path: "src/gone.ts",
+                diff: "--- a/src/gone.ts\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-export const x = 1;\n-export const y = 2;",
+                timestamp: "2025-06-01T10:00:01.000Z",
+              },
+            ],
+            commands: [],
+            timestamp: "2025-06-01T10:00:01.000Z",
+          },
+        ],
+      });
+      const summary = generateSummary(run);
+      expect(summary.filesChanged.deleted).toContain("src/gone.ts");
+      expect(summary.filesChanged.modified).toHaveLength(0);
+    });
+
     it("categorizes created files (additions only)", () => {
       const run = makeRun({
         actions: [

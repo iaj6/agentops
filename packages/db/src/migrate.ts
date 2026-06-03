@@ -1,6 +1,22 @@
 import type Database from "better-sqlite3";
 
 /**
+ * Run an additive `ALTER TABLE ... ADD COLUMN`, tolerating only the expected
+ * "duplicate column name" error when the migration is re-run. Any other error
+ * (I/O, lock, permission) is a real failure and is re-thrown loudly rather
+ * than silently swallowed — otherwise a missing column surfaces much later as
+ * a confusing "no such column" at query time.
+ */
+function addColumnIfMissing(sqlite: Database.Database, sql: string): void {
+  try {
+    sqlite.exec(sql);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/duplicate column name/i.test(msg)) throw err;
+  }
+}
+
+/**
  * Programmatic schema migration. Creates tables if they don't exist.
  * Uses the schema definitions to generate CREATE TABLE IF NOT EXISTS statements.
  */
@@ -66,19 +82,9 @@ export function migrate(sqlite: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_run_metrics_run_id ON run_metrics(run_id);
   `);
 
-  // Add github column to existing runs tables (safe to run multiple times)
-  try {
-    sqlite.exec(`ALTER TABLE runs ADD COLUMN github TEXT`);
-  } catch {
-    // Column already exists - ignore
-  }
-
-  // Add summary column to existing runs tables (safe to run multiple times)
-  try {
-    sqlite.exec(`ALTER TABLE runs ADD COLUMN summary TEXT`);
-  } catch {
-    // Column already exists - ignore
-  }
+  // Add github + summary columns to existing runs tables (safe to re-run).
+  addColumnIfMissing(sqlite, `ALTER TABLE runs ADD COLUMN github TEXT`);
+  addColumnIfMissing(sqlite, `ALTER TABLE runs ADD COLUMN summary TEXT`);
 
   // ─── Orchestration tables ──────────────────────────────────────────────────
 
@@ -289,33 +295,14 @@ export function migrate(sqlite: Database.Database): void {
 
   // Add pending_raw_token column to existing device_codes tables (safe to
   // run multiple times). Forward-additive migration for any pre-2.3 DBs.
-  try {
-    sqlite.exec(`ALTER TABLE device_codes ADD COLUMN pending_raw_token TEXT`);
-  } catch {
-    // Column already exists - ignore
-  }
+  addColumnIfMissing(sqlite, `ALTER TABLE device_codes ADD COLUMN pending_raw_token TEXT`);
 
   // Add user_id column to runs/sessions for Phase 3 SDK scoping. Existing
   // rows get NULL — they remain visible but unattributed (admin can still
-  // see them; member views filter them out).
-  try {
-    sqlite.exec(`ALTER TABLE runs ADD COLUMN user_id TEXT`);
-  } catch {
-    // Column already exists - ignore
-  }
-  try {
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_runs_user_id ON runs(user_id)`);
-  } catch {
-    // Index already exists - ignore
-  }
-  try {
-    sqlite.exec(`ALTER TABLE sessions ADD COLUMN user_id TEXT`);
-  } catch {
-    // Column already exists - ignore
-  }
-  try {
-    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`);
-  } catch {
-    // Index already exists - ignore
-  }
+  // see them; member views filter them out). The indexes use IF NOT EXISTS
+  // so they're already idempotent and need no error handling.
+  addColumnIfMissing(sqlite, `ALTER TABLE runs ADD COLUMN user_id TEXT`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_runs_user_id ON runs(user_id)`);
+  addColumnIfMissing(sqlite, `ALTER TABLE sessions ADD COLUMN user_id TEXT`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`);
 }

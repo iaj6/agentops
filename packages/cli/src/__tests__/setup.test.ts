@@ -106,6 +106,16 @@ describe("agentops setup", () => {
     expect(hooks.SubagentStop![0]!.hooks[0]!.command).toBe(prefix + "agentops hook subagent-stop");
   });
 
+  it.each([
+    "https://x; rm -rf /",
+    "https://x`whoami`",
+    "http://x$(id)",
+    "not-a-url",
+    "ftp://example.com",
+  ])("rejects an unsafe / invalid --server URL %s", (badUrl) => {
+    expect(() => runSetup(["--server", badUrl], tmpDir)).toThrow();
+  });
+
   it("merges with existing settings without overwriting them", () => {
     const claudeDir = resolve(tmpDir, ".claude");
     mkdirSync(claudeDir, { recursive: true });
