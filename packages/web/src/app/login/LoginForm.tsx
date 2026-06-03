@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { safeNextPath } from "@/lib/safe-redirect";
 
 export function LoginForm({ next }: { next: string }) {
   const router = useRouter();
@@ -36,9 +37,11 @@ export function LoginForm({ next }: { next: string }) {
       const data = (await res.json()) as {
         user: { mustChangePassword: boolean };
       };
+      // Never redirect to an attacker-controlled absolute URL.
+      const dest = safeNextPath(next);
       const target = data.user.mustChangePassword
-        ? `/change-password?next=${encodeURIComponent(next)}`
-        : next;
+        ? `/change-password?next=${encodeURIComponent(dest)}`
+        : dest;
       router.push(target);
       router.refresh();
     } catch (err) {

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { randomUUID } from "node:crypto";
 import { requireUser, requireAdmin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
+import { validatePolicyConfigForWrite } from "@/lib/policy-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +69,11 @@ export async function POST(request: NextRequest) {
         { error: "testEnforcement policy type is no longer supported — hooks cannot observe test results from command output" },
         { status: 400 },
       );
+    }
+
+    const configError = validatePolicyConfigForWrite(config);
+    if (configError) {
+      return NextResponse.json({ error: configError }, { status: 400 });
     }
 
     if (!severity || typeof severity !== "string") {

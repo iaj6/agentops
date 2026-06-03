@@ -4,6 +4,7 @@ import { createPolicyId } from "@agentops/core";
 import { db } from "@/lib/db";
 import { requireUser, requireAdmin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
+import { validatePolicyConfigForWrite } from "@/lib/policy-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,13 @@ export async function PATCH(
     if (body.config !== undefined) updates.config = body.config;
     if (body.severity !== undefined) updates.severity = body.severity;
     if (body.enabled !== undefined) updates.enabled = body.enabled;
+
+    if (body.config !== undefined) {
+      const configError = validatePolicyConfigForWrite(body.config);
+      if (configError) {
+        return NextResponse.json({ error: configError }, { status: 400 });
+      }
+    }
 
     updatePolicy(database, policyId, updates);
 
@@ -125,6 +133,11 @@ export async function PUT(
         { error: "testEnforcement policy type is no longer supported — hooks cannot observe test results from command output" },
         { status: 400 },
       );
+    }
+
+    const configError = validatePolicyConfigForWrite(config);
+    if (configError) {
+      return NextResponse.json({ error: configError }, { status: 400 });
     }
 
     updatePolicy(database, policyId, { name, config, severity, enabled });

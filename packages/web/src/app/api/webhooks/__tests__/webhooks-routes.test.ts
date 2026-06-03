@@ -36,6 +36,13 @@ vi.mock("@/lib/db", () => ({
 const fetchStub = vi.fn(async () => new Response("ok", { status: 200 }));
 vi.stubGlobal("fetch", fetchStub);
 
+// The test-ping route dispatches through the SSRF guard, which resolves the
+// host via DNS. Mock it so the "https://r/h" fixture resolves to a public
+// address and the test stays hermetic.
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn(async () => [{ address: "93.184.216.34", family: 4 }]),
+}));
+
 // Routes must be imported AFTER vi.mock.
 import { GET as listRoute, POST as createRoute } from "@/app/api/webhooks/route";
 import {
@@ -126,6 +133,24 @@ describe("POST /api/webhooks", () => {
       authedRequest("http://localhost/api/webhooks", {
         token,
         body: { url: "https://r/h", events: ["something.else"] },
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it.each([
+    "http://localhost/h",
+    "http://127.0.0.1/h",
+    "http://169.254.169.254/latest/meta-data/",
+    "http://10.0.0.5/h",
+    "https://192.168.1.1/h",
+    "http://[::1]/h",
+  ])("rejects SSRF-prone url %s", async (url) => {
+    const { token } = createUser(db, { email: "a@x", role: "admin" });
+    const res = await createRoute(
+      authedRequest("http://localhost/api/webhooks", {
+        token,
+        body: { url, events: ["policy.violated"] },
       }),
     );
     expect(res.status).toBe(400);
@@ -258,6 +283,47 @@ describe("PATCH /api/webhooks/[id]", () => {
     );
     expect(res.status).toBe(200);
     expect(getWebhook(db, "wh_t")!.enabled).toBe(false);
+  });
+
+  it("never echoes the signing secret in the response (redacts to secretLast4)", async () => {
+    const { token } = createUser(db, { email: "a@x", role: "admin" });
+    insertWebhook(db, {
+      id: "wh_redact",
+      url: "https://r/h",
+      secret: "whsec_supersecretvalue",
+      events: ["policy.violated"],
+    });
+    const res = await patchRoute(
+      authedRequest("http://localhost/api/webhooks/wh_redact", {
+        token,
+        method: "PATCH",
+        body: { description: "updated" },
+      }),
+      withParams({ id: "wh_redact" }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await jsonOf(res)) as { secret?: string; secretLast4?: string };
+    expect(body.secret).toBeUndefined();
+    expect(body.secretLast4).toBe("alue");
+  });
+
+  it("rejects an SSRF-prone url on update", async () => {
+    const { token } = createUser(db, { email: "a@x", role: "admin" });
+    insertWebhook(db, {
+      id: "wh_ssrf",
+      url: "https://r/h",
+      secret: "x",
+      events: ["policy.violated"],
+    });
+    const res = await patchRoute(
+      authedRequest("http://localhost/api/webhooks/wh_ssrf", {
+        token,
+        method: "PATCH",
+        body: { url: "http://169.254.169.254/latest/meta-data/" },
+      }),
+      withParams({ id: "wh_ssrf" }),
+    );
+    expect(res.status).toBe(400);
   });
 
   it("rejects unknown event types in update", async () => {

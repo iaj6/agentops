@@ -57,10 +57,15 @@ export async function POST(req: NextRequest) {
   res.cookies.set(SESSION_COOKIE_NAME, session.id, {
     httpOnly: true,
     sameSite: "lax",
-    // secure only when actually served over HTTPS. The dashboard self-host
-    // commonly runs on http://localhost or behind a reverse proxy that
-    // terminates TLS; let the proxy / deployment decide.
-    secure: req.url.startsWith("https://"),
+    // Mark Secure in production (the dashboard is served over HTTPS there,
+    // typically behind a TLS-terminating reverse proxy that forwards plain
+    // HTTP to Next — so req.url alone reads "http://" and would wrongly drop
+    // the flag). Honor x-forwarded-proto as well, and keep the req.url check
+    // for any direct-HTTPS setup. Dev over http://localhost stays non-Secure.
+    secure:
+      process.env.NODE_ENV === "production" ||
+      req.headers.get("x-forwarded-proto") === "https" ||
+      req.url.startsWith("https://"),
     path: "/",
     expires: new Date(session.expiresAt),
   });

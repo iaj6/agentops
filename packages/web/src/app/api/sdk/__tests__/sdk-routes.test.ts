@@ -303,6 +303,22 @@ describe("POST /api/sdk/runs/[id]/metrics", () => {
     const res = await reportMetricsRoute(req, withParams({ id: runId }));
     expect(res.status).toBe(400);
   });
+
+  it.each([
+    { field: "costUsd", value: -5 },
+    { field: "costUsd", value: Infinity },
+    { field: "wallTimeMs", value: -1 },
+    { field: "flakeRate", value: 1.5 },
+    { field: "flakeRate", value: -0.1 },
+  ])("400 on out-of-range $field=$value (budget-poisoning guard)", async ({ field, value }) => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest(`http://localhost/api/sdk/runs/${runId}/metrics`, {
+      token: alice.token,
+      body: { [field]: value },
+    });
+    const res = await reportMetricsRoute(req, withParams({ id: runId }));
+    expect(res.status).toBe(400);
+  });
 });
 
 // ─── POST /api/sdk/runs/[id]/complete ─────────────────────────────────────

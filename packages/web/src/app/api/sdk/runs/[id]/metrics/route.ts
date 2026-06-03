@@ -29,25 +29,35 @@ export async function POST(
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    if (body.costUsd !== undefined && typeof body.costUsd !== "number") {
-      return NextResponse.json(
-        { error: "costUsd must be a number" },
-        { status: 400 },
-      );
+    // Range-validate the numeric metrics, not just their type. Negative or
+    // non-finite values would otherwise be persisted and silently corrupt
+    // cost/budget aggregation (a negative costUsd lowers period spend and
+    // suppresses budget.warning/breached alerts).
+    if (body.costUsd !== undefined) {
+      if (typeof body.costUsd !== "number" || !Number.isFinite(body.costUsd) || body.costUsd < 0) {
+        return NextResponse.json(
+          { error: "costUsd must be a finite number >= 0" },
+          { status: 400 },
+        );
+      }
     }
 
-    if (body.wallTimeMs !== undefined && typeof body.wallTimeMs !== "number") {
-      return NextResponse.json(
-        { error: "wallTimeMs must be a number" },
-        { status: 400 },
-      );
+    if (body.wallTimeMs !== undefined) {
+      if (typeof body.wallTimeMs !== "number" || !Number.isFinite(body.wallTimeMs) || body.wallTimeMs < 0) {
+        return NextResponse.json(
+          { error: "wallTimeMs must be a finite number >= 0" },
+          { status: 400 },
+        );
+      }
     }
 
-    if (body.flakeRate !== undefined && typeof body.flakeRate !== "number") {
-      return NextResponse.json(
-        { error: "flakeRate must be a number" },
-        { status: 400 },
-      );
+    if (body.flakeRate !== undefined) {
+      if (typeof body.flakeRate !== "number" || !Number.isFinite(body.flakeRate) || body.flakeRate < 0 || body.flakeRate > 1) {
+        return NextResponse.json(
+          { error: "flakeRate must be a number between 0 and 1" },
+          { status: 400 },
+        );
+      }
     }
 
     if (body.tokenUsage !== undefined && typeof body.tokenUsage !== "object") {

@@ -86,6 +86,8 @@ export {
   evaluatePreToolPolicies,
   evaluateBudgetPolicies,
   evaluateBudgetWarnings,
+  compileRegexPatterns,
+  findInvalidRegexPatterns,
   DEFAULT_BUDGET_WARN_AT_PCT,
 } from "./policy.js";
 

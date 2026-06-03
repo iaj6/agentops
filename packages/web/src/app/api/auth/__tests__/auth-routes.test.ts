@@ -141,6 +141,27 @@ describe("POST /api/auth/login", () => {
     const res = await loginRoute(req);
     expect(res.status).toBe(200);
   });
+
+  it("sets a Secure session cookie behind a TLS-terminating proxy (x-forwarded-proto=https)", async () => {
+    insertUser(db, { email: "proxy@example.com", password: "hunter2" });
+    const req = cookieRequest("http://localhost/api/auth/login", {
+      body: { email: "proxy@example.com", password: "hunter2" },
+      headers: { "x-forwarded-proto": "https" },
+    });
+    const res = await loginRoute(req);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie")).toMatch(/;\s*Secure/i);
+  });
+
+  it("omits Secure for plain-http dev (no proxy, not production)", async () => {
+    insertUser(db, { email: "dev@example.com", password: "hunter2" });
+    const req = cookieRequest("http://localhost/api/auth/login", {
+      body: { email: "dev@example.com", password: "hunter2" },
+    });
+    const res = await loginRoute(req);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie") ?? "").not.toMatch(/;\s*Secure/i);
+  });
 });
 
 // ─── POST /api/auth/logout ────────────────────────────────────────────────

@@ -12,6 +12,16 @@ import {
   signPayload,
 } from "@/lib/webhook-dispatcher";
 
+// The dispatcher's SSRF guard resolves the target host before fetching. Mock
+// DNS so test hostnames (receiver.example, a, b) resolve to a public address
+// and the tests stay hermetic (no real network). Individual tests can override
+// the mock to exercise the rebinding-block path.
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn(async () => [{ address: "93.184.216.34", family: 4 }]),
+}));
+import { lookup } from "node:dns/promises";
+const mockLookup = vi.mocked(lookup);
+
 function setupDb(): AgentOpsDb {
   return getDb(":memory:");
 }
@@ -257,5 +267,27 @@ describe("dispatchWebhookEvent", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(listWebhookDeliveries(db, "wh_1")).toHaveLength(1);
     expect(listWebhookDeliveries(db, "wh_2")).toHaveLength(1);
+  });
+
+  it("blocks delivery (no fetch) when the host resolves to a private address", async () => {
+    insertWebhook(db, {
+      id: "wh_rebind",
+      url: "https://rebind.example/hook",
+      secret: "x",
+      events: ["policy.violated"],
+    });
+    // DNS now points the previously-clean host at the cloud metadata IP.
+    mockLookup.mockResolvedValue([{ address: "169.254.169.254", family: 4 }] as never);
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    await dispatchWebhookEvent(db, EVENT, {
+      fetch: fetchMock as unknown as typeof fetch,
+      delay: async () => {},
+      retryDelayMs: 0,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const deliveries = listWebhookDeliveries(db, "wh_rebind");
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]!.status).toBe("failed");
+    expect(deliveries[0]!.errorMessage).toContain("SSRF");
   });
 });

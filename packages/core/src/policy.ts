@@ -205,8 +205,49 @@ function evaluateRiskyOpFlag(run: Run, policy: Policy, config: RiskyOpFlagConfig
   };
 }
 
+/**
+ * Compile regex patterns, silently dropping any that don't compile. Used at
+ * evaluation time so one malformed pattern can't throw and abort the whole
+ * policy run (which would 500 the SDK route and, in the local hook's
+ * fail-open default, silently disable enforcement). Write-time validation
+ * (`findInvalidRegexPatterns`) keeps bad patterns from being persisted in the
+ * first place, so a skip here only ever affects pre-validation legacy rows.
+ */
+export function compileRegexPatterns(
+  patterns: ReadonlyArray<string>,
+): Array<{ source: string; re: RegExp }> {
+  const compiled: Array<{ source: string; re: RegExp }> = [];
+  for (const p of patterns) {
+    try {
+      compiled.push({ source: p, re: new RegExp(p) });
+    } catch {
+      // Invalid pattern — skip. Prevented at write time; see above.
+    }
+  }
+  return compiled;
+}
+
+/**
+ * Return the patterns that fail to compile (empty = all valid). The API layer
+ * calls this when a SecretDetection policy is created/updated and rejects the
+ * request with 400 if anything is invalid.
+ */
+export function findInvalidRegexPatterns(
+  patterns: ReadonlyArray<string>,
+): string[] {
+  const invalid: string[] = [];
+  for (const p of patterns) {
+    try {
+      new RegExp(p);
+    } catch {
+      invalid.push(p);
+    }
+  }
+  return invalid;
+}
+
 function evaluateSecretDetection(run: Run, policy: Policy, config: SecretDetectionConfig): PolicyResult {
-  const compiledPatterns = config.patterns.map((p) => ({ source: p, re: new RegExp(p) }));
+  const compiledPatterns = compileRegexPatterns(config.patterns);
   const matched: string[] = [];
 
   for (const action of run.actions) {
@@ -472,9 +513,8 @@ export function evaluatePreToolPolicies(
       if (content) {
         const config = policy.config as SecretDetectionConfig;
         const matched: string[] = [];
-        for (const pattern of config.patterns) {
-          const re = new RegExp(pattern);
-          if (re.test(content)) matched.push(pattern);
+        for (const { source, re } of compileRegexPatterns(config.patterns)) {
+          if (re.test(content)) matched.push(source);
         }
         if (matched.length > 0) {
           // Surface that a pattern matched, but never echo the matched
