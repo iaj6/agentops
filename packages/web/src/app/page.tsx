@@ -33,6 +33,10 @@ export default async function HomePage() {
   if (!user) redirect("/login?next=/");
 
   const database = db();
+  // This is a server component: render runs once per request, so a request
+  // timestamp here is intentional and safe. (react-hooks/purity assumes a
+  // client component that re-renders.)
+  // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
   const weekAgo = now - WEEK_MS;
   const monthAgo = now - MONTH_MS;

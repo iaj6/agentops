@@ -203,13 +203,6 @@ describe("requireOwnedRun", () => {
     return run.id as string;
   }
 
-  function tokenFor(email: string, role: "admin" | "member" = "member"): string {
-    insertUser(db, { email: "first@example.com", password: "p" }); // bump role default away
-    const user = insertUser(db, { email, password: "p", role });
-    const { raw } = issueApiToken(db, { userId: user.id, name: "t" });
-    return raw;
-  }
-
   it("401 on missing bearer", async () => {
     const req = anonRequest("http://localhost/", { method: "GET" });
     const r = await requireOwnedRun(req, "nonexistent");

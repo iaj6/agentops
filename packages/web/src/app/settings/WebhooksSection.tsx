@@ -64,8 +64,25 @@ export function WebhooksSection() {
     setLoading(false);
   }
 
+  // Initial load, inlined with a cancelled-guard so the setState calls are
+  // clearly deferred behind the await (react-hooks/set-state-in-effect flags
+  // synchronous setState). Subsequent refreshes still go through loadList().
   useEffect(() => {
-    loadList();
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch("/api/webhooks");
+      if (cancelled) return;
+      if (res.status === 401 || res.status === 403) {
+        setForbidden(true);
+        setLoading(false);
+        return;
+      }
+      if (res.ok) setWebhooks(await res.json());
+      if (!cancelled) setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function loadDetail(id: string) {

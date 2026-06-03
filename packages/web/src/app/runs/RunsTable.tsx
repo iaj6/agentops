@@ -3,8 +3,6 @@
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import type { Run } from "@agentops/core";
-import { StatusBadge } from "@/components/StatusBadge";
-import { TimeAgo } from "@/components/TimeAgo";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { SearchBar } from "@/components/SearchBar";
 import { FilterPanel, type Filters, emptyFilters } from "@/components/FilterPanel";
@@ -13,15 +11,6 @@ import { SessionSummaryCard, RunFallbackCard } from "@/components/SessionSummary
 import type { UserSummary } from "@/components/UserChip";
 import { UserFilter } from "@/components/UserFilter";
 import { useRuns, type RunWithSummary } from "@/hooks/useRuns";
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainSec = seconds % 60;
-  return `${minutes}m ${remainSec}s`;
-}
 
 type SortField = "status" | "duration" | "created" | "score";
 type SortDir = "asc" | "desc";
@@ -133,7 +122,7 @@ export function RunsTable({
     } finally {
       setLoading(false);
     }
-  }, [query, filters, sortBy, sortDir, page, pageSize, hasActiveSearch]);
+  }, [query, filters, sortBy, sortDir, page, pageSize, hasActiveSearch, searchParams]);
 
   // Debounced fetch + URL sync
   useEffect(() => {

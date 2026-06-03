@@ -41,7 +41,7 @@ export function EventLog({ initialEvents }: { initialEvents: AgentEvent[] }) {
   const [paused, setPaused] = useState(false);
   const [displayLimit, setDisplayLimit] = useState(MAX_DISPLAY);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
+  const [autoScroll] = useState(true);
 
   // Load the user roster once for the filter dropdown. Failing silently
   // is fine — the dropdown just stays empty, and the All-users default
