@@ -7,6 +7,7 @@ import {
 import { db } from "@/lib/db";
 import { SESSION_COOKIE_NAME } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
+import { clientIp, loginAccountLimiter, loginIpLimiter } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -30,15 +31,42 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Rate-limit failed sign-ins. Key by (ip + email) so a brute-force against
+  // one account is blocked without locking the victim out globally, plus a
+  // looser per-IP cap to bound credential stuffing. Check before verifying so
+  // a locked-out caller never reaches the (deliberately expensive) scrypt hash.
+  const ip = clientIp(req);
+  const acctKey = `${ip}|${body.email.toLowerCase()}`;
+  const limited = [
+    loginAccountLimiter.status(acctKey),
+    loginIpLimiter.status(ip),
+  ].find((s) => s.limited);
+  if (limited) {
+    return NextResponse.json(
+      { error: "Too many failed sign-in attempts. Try again later." },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } },
+    );
+  }
+  const recordFailure = (): void => {
+    loginAccountLimiter.recordFailure(acctKey);
+    loginIpLimiter.recordFailure(ip);
+  };
+
   // Generic 401 for both unknown user and wrong password — don't leak
   // which accounts exist.
   const found = getUserWithPasswordByEmail(db(), body.email);
   if (!found) {
+    recordFailure();
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
   if (!verifyPassword(body.password, found.passwordHash)) {
+    recordFailure();
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
+
+  // Successful auth clears the failure counters for this account + IP.
+  loginAccountLimiter.reset(acctKey);
+  loginIpLimiter.reset(ip);
 
   const session = createAuthSession(db(), found.user.id);
   recordAudit(req, found.user.id, AUDIT_ACTIONS.USER_LOGIN, {

@@ -4,8 +4,6 @@ import {
   createSessionId,
   createAgentId,
   AgentRole,
-  RunStatus,
-  SessionStatus,
 } from "@agentops/core";
 import { AgentOpsClient, AgentOpsError, createClient } from "../client.js";
 import { PolicyMiddleware, createMiddleware } from "../middleware.js";
@@ -20,6 +18,10 @@ import type {
   CompleteRunResponse,
   FailRunResponse,
 } from "../types.js";
+
+// These mocked response bodies mirror what the real /api/sdk/* handlers
+// return (verified independently by the web package's sdk-contract.test.ts,
+// which drives the actual handlers). Keep them in lockstep with the routes.
 
 const mockFetch = vi.fn();
 
@@ -70,33 +72,17 @@ describe("AgentOpsClient", () => {
   });
 
   describe("createSession", () => {
-    it("posts to /api/sdk/sessions and returns session", async () => {
+    it("posts to /api/sdk/sessions and returns { sessionId, status }", async () => {
       const responseBody: CreateSessionResponse = {
-        session: {
-          id: testSessionId,
-          status: SessionStatus.Provisioning,
-          agentId: createAgentId("agent-1"),
-          currentRunId: null,
-          completedRunIds: [],
-          resourceUsage: {
-            memoryMb: 0,
-            cpuPercent: 0,
-            tokensBudgetRemaining: 0,
-            costBudgetRemaining: 0,
-          },
-          metadata: {},
-          startedAt: "2025-01-01T00:00:00.000Z",
-          lastHeartbeatAt: "2025-01-01T00:00:00.000Z",
-          terminatedAt: null,
-          createdAt: "2025-01-01T00:00:00.000Z",
-          updatedAt: "2025-01-01T00:00:00.000Z",
-        },
+        sessionId: testSessionId,
+        status: "provisioning",
       };
-      mockFetch.mockResolvedValueOnce(jsonResponse(responseBody));
+      mockFetch.mockResolvedValueOnce(jsonResponse(responseBody, 201));
 
       const result = await client.createSession({ agentId: "agent-1" });
 
-      expect(result.session.id).toBe(testSessionId);
+      expect(result.sessionId).toBe(testSessionId);
+      expect(result.status).toBe("provisioning");
       expect(mockFetch).toHaveBeenCalledWith(
         `${BASE_URL}/api/sdk/sessions`,
         expect.objectContaining({
@@ -112,63 +98,20 @@ describe("AgentOpsClient", () => {
   });
 
   describe("startRun", () => {
-    it("posts to /api/sdk/runs and returns run", async () => {
+    it("posts to /api/sdk/runs and returns { runId, status }", async () => {
       const responseBody: StartRunResponse = {
-        run: {
-          id: testRunId,
-          status: RunStatus.Running,
-          goal: {
-            humanReadable: "Fix bug",
-            structured: {
-              type: "bugfix",
-              description: "Fix bug",
-              parameters: {},
-            },
-          },
-          agents: [
-            {
-              id: createAgentId("agent-1"),
-              model: "claude-opus-4-6",
-              role: AgentRole.Implementer,
-            },
-          ],
-          environment: {
-            repo: "acme/backend",
-            branch: "fix",
-            permissions: ["read", "write"],
-            sandbox: { enabled: true, isolationLevel: "container" },
-          },
-          actions: [],
-          artifacts: [],
-          metrics: {
-            tokenUsage: { input: 0, output: 0, total: 0 },
-            wallTimeMs: 0,
-            costUsd: 0,
-            flakeRate: 0,
-          },
-          evaluations: [],
-          decisions: [],
-          createdAt: "2025-01-01T00:00:00.000Z",
-          updatedAt: "2025-01-01T00:00:00.000Z",
-        },
+        runId: testRunId,
+        status: "running",
       };
-      mockFetch.mockResolvedValueOnce(jsonResponse(responseBody));
+      mockFetch.mockResolvedValueOnce(jsonResponse(responseBody, 201));
 
       const result = await client.startRun({
         goal: {
           humanReadable: "Fix bug",
-          structured: {
-            type: "bugfix",
-            description: "Fix bug",
-            parameters: {},
-          },
+          structured: { type: "bugfix", description: "Fix bug", parameters: {} },
         },
         agents: [
-          {
-            id: createAgentId("agent-1"),
-            model: "claude-opus-4-6",
-            role: AgentRole.Implementer,
-          },
+          { id: createAgentId("agent-1"), model: "claude-opus-4-6", role: AgentRole.Implementer },
         ],
         environment: {
           repo: "acme/backend",
@@ -178,13 +121,13 @@ describe("AgentOpsClient", () => {
         },
       });
 
-      expect(result.run.id).toBe(testRunId);
-      expect(result.run.status).toBe(RunStatus.Running);
+      expect(result.runId).toBe(testRunId);
+      expect(result.status).toBe("running");
     });
   });
 
   describe("reportAction", () => {
-    it("posts action to /api/sdk/runs/:id/actions", async () => {
+    it("posts action and returns { runId, actionId }", async () => {
       const responseBody: ReportActionResponse = {
         runId: testRunId,
         actionId: "action_1",
@@ -198,6 +141,7 @@ describe("AgentOpsClient", () => {
       });
 
       expect(result.actionId).toBe("action_1");
+      expect(result.runId).toBe(testRunId);
       expect(mockFetch).toHaveBeenCalledWith(
         `${BASE_URL}/api/sdk/runs/${testRunId}/actions`,
         expect.objectContaining({ method: "POST" }),
@@ -206,23 +150,21 @@ describe("AgentOpsClient", () => {
   });
 
   describe("reportArtifact", () => {
-    it("posts artifact to /api/sdk/runs/:id/artifacts", async () => {
+    it("posts artifact and returns { runId, artifactId }", async () => {
       const responseBody: ReportArtifactResponse = {
         runId: testRunId,
         artifactId: "artifact_1",
       };
       mockFetch.mockResolvedValueOnce(jsonResponse(responseBody));
 
-      const result = await client.reportArtifact(testRunId, {
-        logs: ["build output log"],
-      });
+      const result = await client.reportArtifact(testRunId, { logs: ["build output log"] });
 
       expect(result.artifactId).toBe("artifact_1");
     });
   });
 
   describe("reportMetrics", () => {
-    it("posts metrics to /api/sdk/runs/:id/metrics", async () => {
+    it("posts metrics and returns { runId }", async () => {
       const responseBody: ReportMetricsResponse = { runId: testRunId };
       mockFetch.mockResolvedValueOnce(jsonResponse(responseBody));
 
@@ -236,59 +178,58 @@ describe("AgentOpsClient", () => {
   });
 
   describe("checkPolicy", () => {
-    it("posts to /api/sdk/policy/check and returns permit result", async () => {
+    it("posts toolName/toolInput and returns a decision", async () => {
       const responseBody: CheckPolicyResponse = {
-        permit: true,
+        decision: "allow",
         violations: [],
+        warnings: [],
       };
       mockFetch.mockResolvedValueOnce(jsonResponse(responseBody));
 
       const result = await client.checkPolicy(testRunId, {
-        type: "FileEdit",
-        path: "src/config.ts",
+        toolName: "Edit",
+        toolInput: { file_path: "src/config.ts" },
       });
 
-      expect(result.permit).toBe(true);
+      expect(result.decision).toBe("allow");
       expect(result.violations).toHaveLength(0);
 
-      const sentBody = JSON.parse(
-        mockFetch.mock.calls[0]![1].body as string,
-      );
+      const sentBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string);
       expect(sentBody.runId).toBe(testRunId);
-      expect(sentBody.type).toBe("FileEdit");
+      expect(sentBody.toolName).toBe("Edit");
+      expect(sentBody.toolInput).toEqual({ file_path: "src/config.ts" });
     });
 
-    it("returns violations when policy denies", async () => {
+    it("returns violations when policy blocks", async () => {
       const responseBody: CheckPolicyResponse = {
-        permit: false,
-        violations: [
-          { policy: "PathRestriction", message: "Path not allowed" },
-        ],
+        decision: "block",
+        reason: "[PathRestriction] Path not allowed",
+        violations: [{ policy: "PathRestriction", message: "Path not allowed", severity: "error" }],
+        warnings: [],
       };
       mockFetch.mockResolvedValueOnce(jsonResponse(responseBody));
 
       const result = await client.checkPolicy(testRunId, {
-        type: "FileEdit",
-        path: "secrets/keys.json",
+        toolName: "Write",
+        toolInput: { file_path: "secrets/keys.json" },
       });
 
-      expect(result.permit).toBe(false);
+      expect(result.decision).toBe("block");
+      expect(result.reason).toContain("PathRestriction");
       expect(result.violations).toHaveLength(1);
       expect(result.violations[0]!.policy).toBe("PathRestriction");
     });
   });
 
   describe("heartbeat", () => {
-    it("posts to /api/sdk/sessions/:id/heartbeat", async () => {
-      const responseBody: HeartbeatResponse = {
-        sessionId: testSessionId,
-        status: "active",
-      };
+    it("posts to /api/sdk/sessions/:id/heartbeat and returns { ok, commands }", async () => {
+      const responseBody: HeartbeatResponse = { ok: true, commands: [] };
       mockFetch.mockResolvedValueOnce(jsonResponse(responseBody));
 
       const result = await client.heartbeat(testSessionId);
 
-      expect(result.sessionId).toBe(testSessionId);
+      expect(result.ok).toBe(true);
+      expect(result.commands).toEqual([]);
       expect(mockFetch).toHaveBeenCalledWith(
         `${BASE_URL}/api/sdk/sessions/${testSessionId}/heartbeat`,
         expect.objectContaining({ method: "POST" }),
@@ -297,246 +238,139 @@ describe("AgentOpsClient", () => {
   });
 
   describe("completeRun", () => {
-    it("posts to /api/sdk/runs/:id/complete", async () => {
-      const responseBody: CompleteRunResponse = {
-        run: {
-          id: testRunId,
-          status: RunStatus.Completed,
-          goal: {
-            humanReadable: "Fix bug",
-            structured: {
-              type: "bugfix",
-              description: "Fix bug",
-              parameters: {},
-            },
-          },
-          agents: [],
-          environment: {
-            repo: "acme/backend",
-            branch: "fix",
-            permissions: [],
-            sandbox: { enabled: false, isolationLevel: "none" },
-          },
-          actions: [],
-          artifacts: [],
-          metrics: {
-            tokenUsage: { input: 0, output: 0, total: 0 },
-            wallTimeMs: 0,
-            costUsd: 0,
-            flakeRate: 0,
-          },
-          evaluations: [],
-          decisions: [],
-          createdAt: "2025-01-01T00:00:00.000Z",
-          updatedAt: "2025-01-01T00:00:00.000Z",
-        },
-      };
+    it("posts to /api/sdk/runs/:id/complete and returns { runId, score, ... }", async () => {
+      // Full score/summary shapes are verified by sdk-contract.test.ts against
+      // the real handler; here we only exercise client plumbing + return.
+      const responseBody = { runId: testRunId } as unknown as CompleteRunResponse;
       mockFetch.mockResolvedValueOnce(jsonResponse(responseBody));
 
       const result = await client.completeRun(testRunId);
-
-      expect(result.run.status).toBe(RunStatus.Completed);
+      expect(result.runId).toBe(testRunId);
     });
 
     it("sends result when provided", async () => {
-      const responseBody: CompleteRunResponse = {
-        run: {
-          id: testRunId,
-          status: RunStatus.Completed,
-          goal: {
-            humanReadable: "Fix bug",
-            structured: {
-              type: "bugfix",
-              description: "Fix bug",
-              parameters: {},
-            },
-          },
-          agents: [],
-          environment: {
-            repo: "acme/backend",
-            branch: "fix",
-            permissions: [],
-            sandbox: { enabled: false, isolationLevel: "none" },
-          },
-          actions: [],
-          artifacts: [],
-          metrics: {
-            tokenUsage: { input: 0, output: 0, total: 0 },
-            wallTimeMs: 0,
-            costUsd: 0,
-            flakeRate: 0,
-          },
-          evaluations: [],
-          decisions: [],
-          createdAt: "2025-01-01T00:00:00.000Z",
-          updatedAt: "2025-01-01T00:00:00.000Z",
-        },
-      };
-      mockFetch.mockResolvedValueOnce(jsonResponse(responseBody));
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ runId: testRunId } as unknown as CompleteRunResponse),
+      );
 
       await client.completeRun(testRunId, { result: "Bug fixed successfully" });
 
-      const sentBody = JSON.parse(
-        mockFetch.mock.calls[0]![1].body as string,
-      );
+      const sentBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string);
       expect(sentBody.result).toBe("Bug fixed successfully");
     });
   });
 
   describe("failRun", () => {
-    it("posts to /api/sdk/runs/:id/fail", async () => {
-      const responseBody: FailRunResponse = {
-        run: {
-          id: testRunId,
-          status: RunStatus.Failed,
-          goal: {
-            humanReadable: "Fix bug",
-            structured: {
-              type: "bugfix",
-              description: "Fix bug",
-              parameters: {},
-            },
-          },
-          agents: [],
-          environment: {
-            repo: "acme/backend",
-            branch: "fix",
-            permissions: [],
-            sandbox: { enabled: false, isolationLevel: "none" },
-          },
-          actions: [],
-          artifacts: [],
-          metrics: {
-            tokenUsage: { input: 0, output: 0, total: 0 },
-            wallTimeMs: 0,
-            costUsd: 0,
-            flakeRate: 0,
-          },
-          evaluations: [],
-          decisions: [],
-          createdAt: "2025-01-01T00:00:00.000Z",
-          updatedAt: "2025-01-01T00:00:00.000Z",
-        },
-      };
+    it("posts to /api/sdk/runs/:id/fail and returns { ok }", async () => {
+      const responseBody: FailRunResponse = { ok: true };
       mockFetch.mockResolvedValueOnce(jsonResponse(responseBody));
 
       const result = await client.failRun(testRunId, "Compilation failed");
 
-      expect(result.run.status).toBe(RunStatus.Failed);
-      const sentBody = JSON.parse(
-        mockFetch.mock.calls[0]![1].body as string,
-      );
+      expect(result.ok).toBe(true);
+      const sentBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string);
       expect(sentBody.error).toBe("Compilation failed");
     });
   });
 
   describe("error handling", () => {
     it("throws AgentOpsError on server error with message", async () => {
-      mockFetch.mockResolvedValueOnce(
-        errorResponse(500, "Internal server error"),
-      );
-
-      await expect(
-        client.createSession({ agentId: "agent-1" }),
-      ).rejects.toThrow(AgentOpsError);
+      mockFetch.mockResolvedValueOnce(errorResponse(500, "Internal server error"));
+      await expect(client.createSession({ agentId: "agent-1" })).rejects.toThrow(AgentOpsError);
 
       try {
-        mockFetch.mockResolvedValueOnce(
-          errorResponse(500, "Internal server error"),
-        );
+        mockFetch.mockResolvedValueOnce(errorResponse(500, "Internal server error"));
         await client.createSession({ agentId: "agent-1" });
       } catch (e) {
         expect(e).toBeInstanceOf(AgentOpsError);
-        const err = e as AgentOpsError;
-        expect(err.statusCode).toBe(500);
-        expect(err.message).toBe("Internal server error");
+        expect((e as AgentOpsError).statusCode).toBe(500);
+        expect((e as AgentOpsError).message).toBe("Internal server error");
       }
     });
 
     it("throws AgentOpsError on 404", async () => {
       mockFetch.mockResolvedValueOnce(errorResponse(404, "Not found"));
-
       try {
         await client.heartbeat(testSessionId);
       } catch (e) {
-        expect(e).toBeInstanceOf(AgentOpsError);
-        const err = e as AgentOpsError;
-        expect(err.statusCode).toBe(404);
+        expect((e as AgentOpsError).statusCode).toBe(404);
       }
     });
 
     it("throws AgentOpsError on network failure", async () => {
       mockFetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
-
-      await expect(
-        client.createSession({ agentId: "agent-1" }),
-      ).rejects.toThrow(AgentOpsError);
+      await expect(client.createSession({ agentId: "agent-1" })).rejects.toThrow(AgentOpsError);
     });
 
     it("handles non-JSON error responses gracefully", async () => {
-      const response = {
+      mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 502,
         json: () => Promise.reject(new Error("not JSON")),
         headers: new Headers(),
-      } as unknown as Response;
-      mockFetch.mockResolvedValueOnce(response);
-
+      } as unknown as Response);
       try {
         await client.createSession({ agentId: "agent-1" });
       } catch (e) {
-        expect(e).toBeInstanceOf(AgentOpsError);
-        const err = e as AgentOpsError;
-        expect(err.statusCode).toBe(502);
-        expect(err.message).toBe("HTTP 502");
+        expect((e as AgentOpsError).statusCode).toBe(502);
+        expect((e as AgentOpsError).message).toBe("HTTP 502");
       }
+    });
+
+    it("throws AgentOpsError when a 200 body is not valid JSON", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new Error("not JSON")),
+        headers: new Headers(),
+      } as unknown as Response);
+      await expect(client.createSession({ agentId: "agent-1" })).rejects.toThrow(AgentOpsError);
+    });
+
+    it("throws AgentOpsError when a 200 body is not an object", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse("just a string" as unknown as CreateSessionResponse));
+      await expect(client.createSession({ agentId: "agent-1" })).rejects.toThrow(
+        /Unexpected response shape/,
+      );
+    });
+
+    it("throws AgentOpsError when a 200 body is a top-level array", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse([] as unknown as CreateSessionResponse));
+      await expect(client.createSession({ agentId: "agent-1" })).rejects.toThrow(
+        /Unexpected response shape/,
+      );
     });
   });
 
   describe("authentication", () => {
     it("includes Authorization header when apiKey is set", async () => {
       mockFetch.mockResolvedValueOnce(
-        jsonResponse({ session: {} } as CreateSessionResponse),
+        jsonResponse<CreateSessionResponse>({ sessionId: testSessionId, status: "active" }),
       );
-
       await client.createSession({ agentId: "agent-1" });
-
-      const headers = mockFetch.mock.calls[0]![1].headers as Record<
-        string,
-        string
-      >;
+      const headers = mockFetch.mock.calls[0]![1].headers as Record<string, string>;
       expect(headers["Authorization"]).toBe(`Bearer ${API_KEY}`);
     });
 
     it("omits Authorization header when apiKey is not set", async () => {
       const noAuthClient = new AgentOpsClient({ baseUrl: BASE_URL });
       mockFetch.mockResolvedValueOnce(
-        jsonResponse({ session: {} } as CreateSessionResponse),
+        jsonResponse<CreateSessionResponse>({ sessionId: testSessionId, status: "active" }),
       );
-
       await noAuthClient.createSession({ agentId: "agent-1" });
-
-      const headers = mockFetch.mock.calls[0]![1].headers as Record<
-        string,
-        string
-      >;
+      const headers = mockFetch.mock.calls[0]![1].headers as Record<string, string>;
       expect(headers["Authorization"]).toBeUndefined();
     });
   });
 
   describe("base URL handling", () => {
     it("strips trailing slashes from base URL", async () => {
-      const trailingSlashClient = new AgentOpsClient({
-        baseUrl: "http://localhost:3000///",
-      });
+      const trailingSlashClient = new AgentOpsClient({ baseUrl: "http://localhost:3000///" });
       mockFetch.mockResolvedValueOnce(
-        jsonResponse({ session: {} } as CreateSessionResponse),
+        jsonResponse<CreateSessionResponse>({ sessionId: testSessionId, status: "active" }),
       );
-
       await trailingSlashClient.createSession({ agentId: "agent-1" });
-
-      const url = mockFetch.mock.calls[0]![0] as string;
-      expect(url).toBe("http://localhost:3000/api/sdk/sessions");
+      expect(mockFetch.mock.calls[0]![0] as string).toBe("http://localhost:3000/api/sdk/sessions");
     });
   });
 });
@@ -551,32 +385,17 @@ describe("PolicyMiddleware", () => {
   });
 
   describe("checkAndReport", () => {
-    it("checks policy and reports action when permitted", async () => {
-      const policyResponse: CheckPolicyResponse = {
-        permit: true,
-        violations: [],
-      };
-      const actionResponse: ReportActionResponse = {
-        runId: testRunId,
-        actionId: "action_1",
-      };
-
+    it("checks policy and reports action when allowed", async () => {
+      const policyResponse: CheckPolicyResponse = { decision: "allow", violations: [], warnings: [] };
+      const actionResponse: ReportActionResponse = { runId: testRunId, actionId: "action_1" };
       mockFetch
         .mockResolvedValueOnce(jsonResponse(policyResponse))
         .mockResolvedValueOnce(jsonResponse(actionResponse));
 
       const result = await middleware.checkAndReport(
         testRunId,
-        { type: "FileEdit", path: "src/config.ts" },
-        {
-          fileEdits: [
-            {
-              path: "src/config.ts",
-              diff: "+line",
-              timestamp: "2025-01-01T00:00:00.000Z",
-            },
-          ],
-        },
+        { toolName: "Edit", toolInput: { file_path: "src/config.ts" } },
+        { fileEdits: [{ path: "src/config.ts", diff: "+line", timestamp: "2025-01-01T00:00:00.000Z" }] },
       );
 
       expect(result.policyCheck.permitted).toBe(true);
@@ -585,28 +404,18 @@ describe("PolicyMiddleware", () => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
-    it("checks policy and skips action when denied", async () => {
+    it("checks policy and skips action when blocked", async () => {
       const policyResponse: CheckPolicyResponse = {
-        permit: false,
-        violations: [
-          { policy: "PathRestriction", message: "Not allowed" },
-        ],
+        decision: "block",
+        violations: [{ policy: "PathRestriction", message: "Not allowed" }],
+        warnings: [],
       };
-
       mockFetch.mockResolvedValueOnce(jsonResponse(policyResponse));
 
       const result = await middleware.checkAndReport(
         testRunId,
-        { type: "FileEdit", path: "secrets/keys.json" },
-        {
-          fileEdits: [
-            {
-              path: "secrets/keys.json",
-              diff: "+secret",
-              timestamp: "2025-01-01T00:00:00.000Z",
-            },
-          ],
-        },
+        { toolName: "Write", toolInput: { file_path: "secrets/keys.json" } },
+        { fileEdits: [{ path: "secrets/keys.json", diff: "+secret", timestamp: "2025-01-01T00:00:00.000Z" }] },
       );
 
       expect(result.policyCheck.permitted).toBe(false);
@@ -617,16 +426,13 @@ describe("PolicyMiddleware", () => {
   });
 
   describe("check", () => {
-    it("returns policy check result", async () => {
-      const policyResponse: CheckPolicyResponse = {
-        permit: true,
-        violations: [],
-      };
+    it("returns permitted=true for an allow decision", async () => {
+      const policyResponse: CheckPolicyResponse = { decision: "allow", violations: [], warnings: [] };
       mockFetch.mockResolvedValueOnce(jsonResponse(policyResponse));
 
       const result = await middleware.check(testRunId, {
-        type: "FileEdit",
-        path: "src/app.ts",
+        toolName: "Edit",
+        toolInput: { file_path: "src/app.ts" },
       });
 
       expect(result.permitted).toBe(true);

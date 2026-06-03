@@ -74,7 +74,7 @@ export async function POST(
     );
     insertEvent(db(), event);
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ runId: run.id, actionId: action.id });
   } catch (error) {
     return internalError(request, error, "sdk/runs/[id]/actions");
   }

@@ -19,6 +19,7 @@ export type {
   ReportMetricsResponse,
   CheckPolicyRequest,
   CheckPolicyResponse,
+  PolicyViolation,
   HeartbeatResponse,
   CompleteRunRequest,
   CompleteRunResponse,

@@ -33,11 +33,11 @@ export class PolicyMiddleware {
     const policyResponse = await this.client.checkPolicy(runId, policyRequest);
 
     const policyCheck: PolicyCheckResult = {
-      permitted: policyResponse.permit,
+      permitted: policyResponse.decision === "allow",
       violations: policyResponse.violations,
     };
 
-    if (!policyResponse.permit) {
+    if (policyResponse.decision !== "allow") {
       return { policyCheck, action: null };
     }
 
@@ -51,7 +51,7 @@ export class PolicyMiddleware {
   ): Promise<PolicyCheckResult> {
     const response = await this.client.checkPolicy(runId, request);
     return {
-      permitted: response.permit,
+      permitted: response.decision === "allow",
       violations: response.violations,
     };
   }

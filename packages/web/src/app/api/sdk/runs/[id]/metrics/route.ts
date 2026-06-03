@@ -129,7 +129,7 @@ export async function POST(
       insertEvent(db(), event);
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ runId: run.id });
   } catch (error) {
     return internalError(request, error, "sdk/runs/[id]/metrics");
   }
