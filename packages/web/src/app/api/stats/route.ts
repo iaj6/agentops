@@ -7,6 +7,7 @@ import {
 import { isStaleRun, isStaleSession } from "@agentops/core";
 import { db } from "@/lib/db";
 import { requireUser, resolveViewScope } from "@/lib/auth";
+import { resolveOwnedSourceIds } from "@/lib/event-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -81,11 +82,15 @@ export async function GET(request: NextRequest) {
     const sessActive = activeAll.length - sessStale;
     const sessTerminated = allSessions.filter((s) => s.status === "terminated").length;
 
-    // Events
+    // Events. Scope to the selected user's own runs/sessions (same contract
+    // as /api/events/list) so the 24h/1h tallies narrow with the UserFilter
+    // instead of leaking team-wide counts above a single-user view.
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
-    const eventsLast24h = countEvents(d, { since: oneDayAgo });
-    const eventsLastHour = countEvents(d, { since: oneHourAgo });
+    const sourceIds = resolveOwnedSourceIds(scope.userId);
+    const eventScope = sourceIds ? { sourceIds } : {};
+    const eventsLast24h = countEvents(d, { since: oneDayAgo, ...eventScope });
+    const eventsLastHour = countEvents(d, { since: oneHourAgo, ...eventScope });
 
     return NextResponse.json({
       runs: {

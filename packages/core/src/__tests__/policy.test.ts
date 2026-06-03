@@ -319,6 +319,25 @@ describe("PolicyEngine", () => {
       expect(results[0]!.message).toContain("No secrets detected");
     });
 
+    it("does not throw when a pattern is an invalid regex — skips it, keeps valid ones", () => {
+      const badPolicy: Policy = {
+        ...policy,
+        config: {
+          type: PolicyType.SecretDetection,
+          // "([unterminated" is not a valid regex; it must be skipped rather
+          // than thrown (a throw would 500 the SDK route / fail the run). A
+          // benign custom pattern stands in for a real secret regex here.
+          patterns: ["FAKE_TOKEN_[0-9]{4}", "([unterminated"],
+        },
+      };
+      const run = makeRun({
+        actions: [makeAction([{ path: "src/config.ts", diff: "+const t = 'FAKE_TOKEN_1234';", timestamp: "2025-01-01T00:00:00.000Z" }])],
+      });
+      expect(() => engine.evaluate(run, [badPolicy])).not.toThrow();
+      // The valid pattern still matches; the malformed one is skipped.
+      expect(engine.evaluate(run, [badPolicy])[0]!.passed).toBe(false);
+    });
+
     it("fails when AWS key pattern found in diff", () => {
       const run = makeRun({
         actions: [makeAction([{ path: "src/config.ts", diff: "+const key = 'AKIAIOSFODNN7EXAMPLE';", timestamp: "2025-01-01T00:00:00.000Z" }])],

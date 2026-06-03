@@ -62,6 +62,22 @@ describe("computeBudgetState", () => {
     expect(state.pct).toBe(25);
   });
 
+  it("clamps negative/non-finite costs to 0 so they can't deflate spend or mask a breach", () => {
+    // A negative-cost run alongside a real breach must not pull `spent` back
+    // under budget and suppress the breached status.
+    const state = computeBudgetState(
+      budget,
+      [
+        run("2026-05-20T00:00:00Z", 100), // genuine breach
+        run("2026-05-21T00:00:00Z", -90), // poison attempt → clamped to 0
+        run("2026-05-22T00:00:00Z", Infinity), // non-finite → clamped to 0
+      ],
+      now,
+    );
+    expect(state.spent).toBe(100);
+    expect(state.status).toBe("breached");
+  });
+
   it("warning when at or above warn threshold but under budget", () => {
     const state = computeBudgetState(
       budget,

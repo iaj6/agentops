@@ -17,6 +17,7 @@ import {
   type Webhook,
 } from "@agentops/db";
 import { log } from "@/lib/log";
+import { assertResolvesToPublic } from "@/lib/ssrf";
 
 export interface WebhookEvent {
   readonly id: string;
@@ -52,6 +53,8 @@ interface AttemptResult {
   readonly ok: boolean;
   readonly status: number | null;
   readonly error: string | null;
+  /** Set when the SSRF guard refused the target — a hard fail, never retried. */
+  readonly blocked?: boolean;
 }
 
 async function attempt(
@@ -61,6 +64,14 @@ async function attempt(
   event: WebhookEvent,
   fetchImpl: typeof fetch,
 ): Promise<AttemptResult> {
+  // Re-validate + re-resolve the target on every attempt (DNS-rebinding-aware
+  // SSRF guard): a host that passed registration could now point at a private
+  // address. Blocked targets are recorded as a failed delivery, never fetched.
+  const guard = await assertResolvesToPublic(url);
+  if (!guard.ok) {
+    return { ok: false, status: null, error: `blocked by SSRF guard: ${guard.reason}`, blocked: true };
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -123,6 +134,8 @@ async function deliverOne(
       deps.fetch,
     );
     if (lastResult.ok) break;
+    // SSRF-blocked targets are a hard policy fail — retrying won't help.
+    if (lastResult.blocked) break;
     const status = lastResult.status;
     // 4xx (except 429) is the receiver's fault — don't retry.
     if (status !== null && !isRetryable(status)) break;

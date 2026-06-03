@@ -379,47 +379,54 @@ export function deleteOldRuns(
   db: AgentOpsDb,
   olderThanISO: string,
 ): DeleteOldRunsResult {
-  // 1. Snapshot the IDs first so child deletes can target them precisely.
-  const stale = db
-    .select({ id: runs.id })
-    .from(runs)
-    .where(lt(runs.createdAt, olderThanISO))
-    .all() as Array<{ id: string }>;
-  const ids = stale.map((r) => r.id);
-  if (ids.length === 0) {
-    return { runs: 0, policyResults: 0, runMetrics: 0, events: 0, runIds: [] };
-  }
+  // The whole prune runs in a single transaction so it's all-or-nothing:
+  // policy_results / run_metrics have a runId FK to runs with no ON DELETE
+  // CASCADE, and we delete children-first, parent-last. A crash between the
+  // child and parent deletes would otherwise leave orphaned-from-the-parent
+  // rows. better-sqlite3 transactions are synchronous.
+  return db.transaction((tx) => {
+    // 1. Snapshot the IDs first so child deletes can target them precisely.
+    const stale = tx
+      .select({ id: runs.id })
+      .from(runs)
+      .where(lt(runs.createdAt, olderThanISO))
+      .all() as Array<{ id: string }>;
+    const ids = stale.map((r) => r.id);
+    if (ids.length === 0) {
+      return { runs: 0, policyResults: 0, runMetrics: 0, events: 0, runIds: [] };
+    }
 
-  // 2. Delete dependent rows. Drizzle's .run() returns a result with a
-  //    `changes` count via better-sqlite3.
-  const prResult = db
-    .delete(policyResults)
-    .where(inArray(policyResults.runId, ids))
-    .run() as { changes?: number };
-  const rmResult = db
-    .delete(runMetrics)
-    .where(inArray(runMetrics.runId, ids))
-    .run() as { changes?: number };
-  // Events aren't FK-bound but their sourceId references the run; drop
-  // them too so the events feed doesn't carry orphaned references.
-  const evResult = db
-    .delete(events)
-    .where(inArray(events.sourceId, ids))
-    .run() as { changes?: number };
+    // 2. Delete dependent rows. Drizzle's .run() returns a result with a
+    //    `changes` count via better-sqlite3.
+    const prResult = tx
+      .delete(policyResults)
+      .where(inArray(policyResults.runId, ids))
+      .run() as { changes?: number };
+    const rmResult = tx
+      .delete(runMetrics)
+      .where(inArray(runMetrics.runId, ids))
+      .run() as { changes?: number };
+    // Events aren't FK-bound but their sourceId references the run; drop
+    // them too so the events feed doesn't carry orphaned references.
+    const evResult = tx
+      .delete(events)
+      .where(inArray(events.sourceId, ids))
+      .run() as { changes?: number };
 
-  // 3. Now the runs themselves.
-  const runResult = db
-    .delete(runs)
-    .where(inArray(runs.id, ids))
-    .run() as { changes?: number };
+    // 3. Now the runs themselves.
+    const runResult = tx
+      .delete(runs)
+      .where(inArray(runs.id, ids))
+      .run() as { changes?: number };
 
-  return {
-    runs: runResult.changes ?? ids.length,
-    policyResults: prResult.changes ?? 0,
-    runMetrics: rmResult.changes ?? 0,
-    events: evResult.changes ?? 0,
-    runIds: ids,
-  };
+    return {
+      runs: runResult.changes ?? ids.length,
+      policyResults: prResult.changes ?? 0,
+      runMetrics: rmResult.changes ?? 0,
+      events: evResult.changes ?? 0,
+      runIds: ids,
+    };
+  });
 }
 
 /** Count runs older than the cutoff (used for dry-run preview). */

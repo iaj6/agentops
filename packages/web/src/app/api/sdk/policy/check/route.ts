@@ -65,6 +65,16 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
+  // Range-validate the running cost so a negative/non-finite value can't
+  // deflate the budget period spend and suppress threshold alerts.
+  if (body.cumulativeCostUsd !== undefined) {
+    if (typeof body.cumulativeCostUsd !== "number" || !Number.isFinite(body.cumulativeCostUsd) || body.cumulativeCostUsd < 0) {
+      return NextResponse.json(
+        { error: "cumulativeCostUsd must be a finite number >= 0" },
+        { status: 400 },
+      );
+    }
+  }
 
   const ownership = await requireOwnedRun(request, body.runId);
   if (ownership instanceof NextResponse) return ownership;

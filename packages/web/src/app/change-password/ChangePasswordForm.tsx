@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { safeNextPath } from "@/lib/safe-redirect";
 
 export function ChangePasswordForm({
   next,
@@ -48,7 +49,7 @@ export function ChangePasswordForm({
         return;
       }
 
-      router.push(next);
+      router.push(safeNextPath(next));
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error");

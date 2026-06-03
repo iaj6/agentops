@@ -8,6 +8,7 @@ import {
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
+import { validateOutboundUrl } from "@/lib/ssrf";
 
 export const dynamic = "force-dynamic";
 
@@ -78,16 +79,12 @@ export async function PATCH(
         { status: 400 },
       );
     }
-    try {
-      const parsed = new URL(body.url);
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        return NextResponse.json(
-          { error: "url must be http:// or https://" },
-          { status: 400 },
-        );
-      }
-    } catch {
-      return NextResponse.json({ error: "url is not a valid URL" }, { status: 400 });
+    const urlCheck = validateOutboundUrl(body.url);
+    if (!urlCheck.ok) {
+      return NextResponse.json(
+        { error: `Invalid webhook url: ${urlCheck.reason}` },
+        { status: 400 },
+      );
     }
     updates.url = body.url;
   }
@@ -129,7 +126,16 @@ export async function PATCH(
 
   updateWebhook(db(), id, updates);
   const updated = getWebhook(db(), id);
-  return NextResponse.json(updated);
+  if (!updated) {
+    return NextResponse.json({ error: "Webhook not found" }, { status: 404 });
+  }
+  // Never echo the signing secret back — mirror the GET handler. The full
+  // secret is exposed exactly once, in the POST (create) response.
+  const last4 =
+    updated.secret.length >= 4 ? updated.secret.slice(-4) : updated.secret;
+  const { secret: _ignored, ...rest } = updated;
+  void _ignored;
+  return NextResponse.json({ ...rest, secretLast4: last4 });
 }
 
 export async function DELETE(
