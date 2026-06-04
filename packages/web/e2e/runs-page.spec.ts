@@ -95,11 +95,19 @@ test.describe("/runs — admin fleet overview", () => {
     // we assert allTextContents() rather than visibility — that proves
     // the admin can pivot the view to any teammate (fleet scope), even
     // without opening the dropdown.
-    const userFilter = page.locator("select").first();
+    const userFilter = page.locator('select[aria-label="Filter by user"]');
     await expect(userFilter).toBeVisible();
 
+    // The user list loads asynchronously (UserFilter fetches /api/users in an
+    // effect, then appends one <option> per user). Wait for it to populate
+    // before reading options — otherwise we race the fetch and see only the
+    // static "Everyone" / "Just me" entries.
+    await expect(
+      userFilter.locator("option", { hasText: "Sarah Chen" }),
+    ).toBeAttached();
+
     const optionTexts = await userFilter.locator("option").allTextContents();
-    // demo-seed creates these names; if they ever change, update here.
+    // Seeded by e2e/global-setup; if those names change, update here too.
     for (const name of ["Sarah Chen", "Marcus Johnson", "Priya Patel"]) {
       expect(optionTexts).toContain(name);
     }
