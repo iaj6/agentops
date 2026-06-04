@@ -6,10 +6,9 @@ import tseslint from "typescript-eslint";
 // without drowning previously-unlinted code in style nits. The web package has
 // its own Next.js / React config.
 //
-// NOTE: `typescript-eslint` is resolved via npm-workspace hoisting — it's a
-// transitive dependency of packages/web's `eslint-config-next`, not declared
-// directly here. If web's lint toolchain is ever removed, declare `eslint` +
-// `typescript-eslint` as root devDependencies so `npm run lint` keeps working.
+// `eslint` and `typescript-eslint` are declared as root devDependencies (see
+// the repo-root package.json), so this config resolves them reliably and is
+// not coupled to the web package's lint toolchain.
 export default tseslint.config(
   { ignores: ["dist/**", "**/*.js", "**/*.mjs", "**/*.cjs"] },
   ...tseslint.configs.recommended,
