@@ -1,9 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// Playwright config for the AgentOps dashboard. Run against the local
-// Next.js dev server — Playwright starts it automatically (reuses one
-// already running on :3000 if you've got it open in another terminal).
+// Playwright config for the AgentOps dashboard. Runs against a PRODUCTION
+// build (next start), NOT `next dev`: the Turbopack dev server compiles
+// chunks on demand, which races with Playwright navigation and produces
+// flaky "Failed to load chunk" errors. A production build serves stable,
+// pre-compiled chunks.
 //
+// The app must be built first (CI does this; locally run it once):
+//   npm run build                      # builds @agentops/* deps + web
 //   npm run test:e2e --workspace=packages/web
 
 export default defineConfig({
@@ -40,7 +44,8 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "npm run dev",
+    // Production server (requires a prior `npm run build`). Not `next dev`.
+    command: "npm run start",
     url: "http://localhost:3000",
     reuseExistingServer: !process.env["CI"],
     timeout: 120_000,
