@@ -31,9 +31,9 @@ function InviteResult({
             Created account for {user.email}
           </p>
           <p className="mt-1 text-xs text-muted">
-            Share this one-time password with them out of band. They'll be
+            Share this one-time password with them out of band. They&apos;ll be
             prompted to change it on first sign-in. This is the only time
-            it's shown.
+            it&apos;s shown.
           </p>
           <div className="mt-2 rounded bg-surface-2 p-2 font-mono text-sm text-foreground select-all">
             {password}

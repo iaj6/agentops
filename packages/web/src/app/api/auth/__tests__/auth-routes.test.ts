@@ -3,7 +3,6 @@ import { NextRequest } from "next/server";
 import {
   insertUser,
   createAuthSession,
-  getUserByEmail,
   getUserWithPasswordByEmail,
   verifyPassword,
   type AgentOpsDb,
@@ -118,7 +117,7 @@ describe("POST /api/auth/login", () => {
   });
 
   it("200 with set-cookie + user body on valid credentials", async () => {
-    const user = insertUser(db, {
+    insertUser(db, {
       email: "alice@example.com",
       password: "hunter2",
       role: "admin",

@@ -448,7 +448,7 @@ describe("POST /api/sdk/sessions/[id]/terminate", () => {
     });
     const res = await terminateSessionRoute(req, withParams({ id: sessionId }));
     expect(res.status).toBe(200);
-    const { getSession, createSessionId } = await import("@agentops/db");
+    const { getSession } = await import("@agentops/db");
     const { createSessionId: csid } = await import("@agentops/core");
     const s = getSession(db, csid(sessionId))!;
     expect(s.status).toBe("terminated");

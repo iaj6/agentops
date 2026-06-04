@@ -33,11 +33,13 @@ function CompletedRunsTable({
   onAggregate?: (a: { costUsd: number; tokens: number; runsLoaded: number }) => void;
 }) {
   const [runs, setRuns] = useState<Map<string, Run>>(new Map());
-  const [loading, setLoading] = useState(true);
+  // Lazy initial value instead of setting it synchronously in the effect
+  // (react-hooks/set-state-in-effect): only "loading" when there are runs to
+  // fetch. setLoading(false) still fires after the fetch completes.
+  const [loading, setLoading] = useState(() => runIds.length > 0);
 
   useEffect(() => {
     if (runIds.length === 0) {
-      setLoading(false);
       return;
     }
 

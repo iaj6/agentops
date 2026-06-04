@@ -16,6 +16,26 @@ type SortDir = "asc" | "desc";
 
 const ALL_STATUSES = Object.values(SessionStatus);
 
+// Module-scope so the component reference is stable across renders
+// (react-hooks/static-components). sortBy/sortDir are passed as props rather
+// than captured from the parent closure.
+function SortIcon({
+  field,
+  sortBy,
+  sortDir,
+}: {
+  field: SortField;
+  sortBy: SortField;
+  sortDir: SortDir;
+}) {
+  if (sortBy !== field) return null;
+  return (
+    <span className="ml-1 text-accent">
+      {sortDir === "asc" ? "↑" : "↓"}
+    </span>
+  );
+}
+
 export function SessionsTable({
   sessions: initialSessions,
   users = [],
@@ -132,15 +152,6 @@ export function SessionsTable({
     }
   }
 
-  function SortIcon({ field }: { field: SortField }) {
-    if (sortBy !== field) return null;
-    return (
-      <span className="ml-1 text-accent">
-        {sortDir === "asc" ? "\u2191" : "\u2193"}
-      </span>
-    );
-  }
-
   if (loading && sessions.length === 0) {
     return (
       <div className="py-8 text-center text-sm text-muted">
@@ -201,14 +212,14 @@ export function SessionsTable({
                 onClick={() => handleSort("status")}
               >
                 Status
-                <SortIcon field="status" />
+                <SortIcon field="status" sortBy={sortBy} sortDir={sortDir} />
               </th>
               <th
                 className="cursor-pointer select-none px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted hover:text-foreground"
                 onClick={() => handleSort("agent")}
               >
                 Agent
-                <SortIcon field="agent" />
+                <SortIcon field="agent" sortBy={sortBy} sortDir={sortDir} />
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted">
                 User
@@ -224,7 +235,7 @@ export function SessionsTable({
                 onClick={() => handleSort("created")}
               >
                 Created
-                <SortIcon field="created" />
+                <SortIcon field="created" sortBy={sortBy} sortDir={sortDir} />
               </th>
             </tr>
           </thead>

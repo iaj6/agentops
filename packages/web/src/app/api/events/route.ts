@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { listRuns, getRun, listEvents } from "@agentops/db";
 import { createRunId } from "@agentops/core";
-import type { Run, AgentEvent } from "@agentops/core";
+import type { Run } from "@agentops/core";
 import { db } from "@/lib/db";
 import { requireUser, resolveViewScope } from "@/lib/auth";
 import { resolveOwnedSourceIds } from "@/lib/event-scope";

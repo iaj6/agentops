@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { NextRequest } from "next/server";
 import {
   insertUser,
   createAuthSession,
@@ -56,7 +57,6 @@ function cookieRequest(
     "x-request-id": "test-req-id",
     ...(init.cookie ? { Cookie: `${SESSION_COOKIE_NAME}=${init.cookie}` } : {}),
   };
-  const { NextRequest } = require("next/server");
   return new NextRequest(url, {
     method: init.method ?? "GET",
     headers,

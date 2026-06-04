@@ -33,6 +33,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "lint": "eslint src",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

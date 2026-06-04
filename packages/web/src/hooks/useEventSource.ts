@@ -129,6 +129,10 @@ export function useEventSource(
           MAX_DELAY_MS,
         );
         retriesRef.current += 1;
+        // Self-reference is runtime-safe: this async error handler only fires
+        // after `connect` is fully defined, so the reconnect closes over the
+        // assigned const. (react-hooks/immutability flags the textual order.)
+        // eslint-disable-next-line react-hooks/immutability
         setTimeout(connect, delay);
       }
     };

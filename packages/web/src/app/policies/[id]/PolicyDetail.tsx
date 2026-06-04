@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { PolicyType, PolicyMode, getPolicyMode } from "@agentops/core";
-import type { Policy, PolicySeverity } from "@agentops/core";
+import type { Policy } from "@agentops/core";
 import { MetricCard } from "@/components/MetricCard";
 import { toast } from "@/hooks/useToast";
 
