@@ -8,7 +8,7 @@ import {
 } from "@agentops/db";
 import { computeBudgetState } from "@agentops/core";
 import { db } from "@/lib/db";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, checkSameOrigin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +19,8 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ userId: string }> },
 ) {
+  const csrf = checkSameOrigin(request);
+  if (csrf) return csrf;
   const me = await requireAdmin(request);
   if (me instanceof NextResponse) return me;
 
@@ -94,6 +96,8 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ userId: string }> },
 ) {
+  const csrf = checkSameOrigin(request);
+  if (csrf) return csrf;
   const me = await requireAdmin(request);
   if (me instanceof NextResponse) return me;
 

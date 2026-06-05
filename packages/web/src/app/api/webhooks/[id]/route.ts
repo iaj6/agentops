@@ -6,7 +6,7 @@ import {
   updateWebhook,
 } from "@agentops/db";
 import { db } from "@/lib/db";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, checkSameOrigin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { validateOutboundUrl } from "@/lib/ssrf";
 
@@ -49,6 +49,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const user = await requireAdmin(req);
   if (user instanceof NextResponse) return user;
 
@@ -147,6 +149,8 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const user = await requireAdmin(req);
   if (user instanceof NextResponse) return user;
 

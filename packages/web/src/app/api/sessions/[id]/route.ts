@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession, updateSession } from "@agentops/db";
 import { createSessionId, terminateSession } from "@agentops/core";
 import { db } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireUser, checkSameOrigin } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +36,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const csrf = checkSameOrigin(request);
+  if (csrf) return csrf;
   const user = await requireUser(request);
   if (user instanceof NextResponse) return user;
 

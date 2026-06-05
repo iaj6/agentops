@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiTokenById, revokeApiToken } from "@agentops/db";
 import { db } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireUser, checkSameOrigin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +14,8 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const csrf = checkSameOrigin(request);
+  if (csrf) return csrf;
   const me = await requireUser(request);
   if (me instanceof NextResponse) return me;
 

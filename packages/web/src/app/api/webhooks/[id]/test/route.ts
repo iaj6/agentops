@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
 import { getWebhook } from "@agentops/db";
 import { db } from "@/lib/db";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, checkSameOrigin } from "@/lib/auth";
 import { dispatchWebhookEvent } from "@/lib/webhook-dispatcher";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
@@ -17,6 +17,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const user = await requireAdmin(req);
   if (user instanceof NextResponse) return user;
 

@@ -5,7 +5,7 @@ import {
   createAuthSession,
 } from "@agentops/db";
 import { db } from "@/lib/db";
-import { SESSION_COOKIE_NAME } from "@/lib/auth";
+import { SESSION_COOKIE_NAME, checkSameOrigin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { clientIp, loginAccountLimiter, loginIpLimiter } from "@/lib/rate-limit";
 
@@ -17,6 +17,11 @@ interface LoginBody {
 }
 
 export async function POST(req: NextRequest) {
+  // Reject cross-origin sign-ins before doing any work (defense-in-depth on
+  // top of SameSite=Lax) — also blocks login-CSRF that would pin the victim
+  // to an attacker-chosen session.
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   let body: LoginBody;
   try {
     body = (await req.json()) as LoginBody;
