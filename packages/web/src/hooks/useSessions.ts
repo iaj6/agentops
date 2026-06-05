@@ -34,6 +34,25 @@ export function useSessions(
     return `/api/sessions?${p.toString()}`;
   }
 
+  // Declared before the effects that call it (react-hooks/immutability —
+  // the polling effect references markUpdated before its declaration).
+  const markUpdated = useCallback((sessionId: string) => {
+    setRecentlyUpdated((prev) => new Set(prev).add(sessionId));
+
+    const existing = timeoutsRef.current.get(sessionId);
+    if (existing) clearTimeout(existing);
+
+    const timeout = setTimeout(() => {
+      setRecentlyUpdated((prev) => {
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+      });
+      timeoutsRef.current.delete(sessionId);
+    }, 3000);
+    timeoutsRef.current.set(sessionId, timeout);
+  }, []);
+
   // Fetch from the API when the page mounts or the view scope changes.
   // The SSR-delivered initialSessions reflects the URL at first render,
   // but useState ignores prop updates on navigation — so the fetch is
@@ -87,23 +106,6 @@ export function useSessions(
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeKey]);
-
-  const markUpdated = useCallback((sessionId: string) => {
-    setRecentlyUpdated((prev) => new Set(prev).add(sessionId));
-
-    const existing = timeoutsRef.current.get(sessionId);
-    if (existing) clearTimeout(existing);
-
-    const timeout = setTimeout(() => {
-      setRecentlyUpdated((prev) => {
-        const next = new Set(prev);
-        next.delete(sessionId);
-        return next;
-      });
-      timeoutsRef.current.delete(sessionId);
-    }, 3000);
-    timeoutsRef.current.set(sessionId, timeout);
-  }, []);
 
   // Cleanup timeouts on unmount
   useEffect(() => {

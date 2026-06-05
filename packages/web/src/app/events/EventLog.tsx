@@ -56,11 +56,21 @@ export function EventLog({ initialEvents }: { initialEvents: AgentEvent[] }) {
       .catch(() => {});
   }, []);
 
+  // The time-range cutoffs need a "now" reference. Reading the clock during
+  // render is impure (react-hooks/purity), so we hold it in state and refresh
+  // on an interval. 30s granularity is plenty for 1h–7d windows, and it's
+  // strictly less churny than the previous per-render clock read.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   // Send the time-range cutoff to the server so "X shown / Y total"
   // reflects the actual filtered population, not just the 100 events the
   // client happened to load.
   const sinceISO =
-    timeRange > 0 ? new Date(Date.now() - timeRange).toISOString() : undefined;
+    timeRange > 0 ? new Date(now - timeRange).toISOString() : undefined;
 
   const { events, loading, connected, total } = useEvents({
     category: category || undefined,
@@ -77,7 +87,7 @@ export function EventLog({ initialEvents }: { initialEvents: AgentEvent[] }) {
     if (typeFilter && !e.type.toLowerCase().includes(typeFilter.toLowerCase())) return false;
     if (sourceFilter && !e.sourceId.toLowerCase().includes(sourceFilter.toLowerCase())) return false;
     if (timeRange > 0) {
-      const cutoff = Date.now() - timeRange;
+      const cutoff = now - timeRange;
       if (new Date(e.timestamp).getTime() < cutoff) return false;
     }
     return true;
@@ -89,17 +99,24 @@ export function EventLog({ initialEvents }: { initialEvents: AgentEvent[] }) {
 
   useEffect(() => {
     if (paused) {
-      // Snapshot current events when pausing
+      // Snapshot the visible events at the moment of pausing — an intentional
+      // point-in-time capture of streaming data that can't be derived in render.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPausedEvents(filteredEvents);
       setPausedCount(0);
     }
+    // Intentionally keyed only on `paused` so the snapshot freezes; we do NOT
+    // want it re-running as filteredEvents grows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paused]);
 
-  // Track new events while paused
+  // Track new events that arrive while paused so the Resume button can show a
+  // "(N new)" badge. Effect-driven by design: it reacts to the live stream
+  // growing behind the frozen snapshot.
   useEffect(() => {
     if (paused) {
       const diff = filteredEvents.length - pausedEvents.length;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (diff > 0) setPausedCount(diff);
     }
   }, [paused, filteredEvents.length, pausedEvents.length]);

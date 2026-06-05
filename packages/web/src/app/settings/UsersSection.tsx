@@ -81,8 +81,28 @@ export function UsersSection({
     }
   }
 
+  // Initial load, inlined behind a cancelled-guard so the setState calls land
+  // after the await (react-hooks/set-state-in-effect). `loading` already inits
+  // true, so no synchronous setLoading(true) is needed. Later reloads (after an
+  // invite) still go through refresh().
   useEffect(() => {
-    refresh();
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/users");
+        if (res.ok && !cancelled) {
+          const data = (await res.json()) as { users: UserRow[] };
+          setUsers(data.users);
+        }
+      } finally {
+        // Always clear loading, mirroring refresh()'s try/finally — a rejected
+        // fetch or a throwing res.json() must not strand the spinner.
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function submitInvite(e: React.FormEvent) {

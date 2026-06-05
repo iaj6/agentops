@@ -102,11 +102,17 @@ export function AuditSection() {
   }, [actionFilter, userFilter, page]);
 
   useEffect(() => {
+    // fetchEntries shows a spinner during (re)fetch; its setEntries/setUsers/
+    // setTotal run behind the fetch await. The leading setLoading(true) is a
+    // safe, intentional loading transition, not a cascading-render bug.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchEntries();
   }, [fetchEntries]);
 
-  // Reset to page 0 whenever filters change.
+  // Reset to page 0 whenever filters change — an intentional, terminating
+  // derived-state reset (deps are complete; no render loop).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(0);
   }, [actionFilter, userFilter]);
 

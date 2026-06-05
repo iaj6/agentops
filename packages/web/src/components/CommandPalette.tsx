@@ -74,9 +74,12 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return () => clearTimeout(debounceRef.current);
   }, [query, open, searchRuns]);
 
-  // Focus input on open
+  // Focus input on open. Resetting query/results/selection when the palette
+  // opens is an intentional one-shot transition (guarded by `open`, deps
+  // complete), not a render-phase cascade.
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setQuery("");
       setResults([]);
       setSelectedIndex(0);
@@ -126,8 +129,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [open, onClose, selectedIndex, totalItems, filteredActions, results, router]);
 
-  // Reset selection when results change
+  // Reset selection when the visible item set changes — an intentional,
+  // terminating derived-state reset (deps complete; no loop).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedIndex(0);
   }, [filteredActions.length, results.length]);
 
