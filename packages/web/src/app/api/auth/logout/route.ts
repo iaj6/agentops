@@ -1,12 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { deleteAuthSession, getUserBySessionId } from "@agentops/db";
 import { db } from "@/lib/db";
-import { SESSION_COOKIE_NAME } from "@/lib/auth";
+import { SESSION_COOKIE_NAME, checkSameOrigin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   // Read the cookie off the request directly (works in route handlers and
   // in tests) rather than via next/headers cookies() which requires a
   // request scope that isn't established in unit tests.

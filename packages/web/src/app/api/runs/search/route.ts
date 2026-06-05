@@ -61,6 +61,10 @@ export async function GET(request: NextRequest) {
 }
 
 /** POST /api/runs/search — returns filter options (repos, branches) */
+// No checkSameOrigin guard here on purpose: this POST is read-only (it returns
+// distinct repos/branches and writes nothing), so it carries no CSRF risk — a
+// cross-origin page can trigger it but cannot read the response. The guard is
+// reserved for state-changing cookie-auth routes.
 export async function POST(request: NextRequest) {
   const user = await requireUser(request);
   if (user instanceof NextResponse) return user;

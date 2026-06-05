@@ -3,7 +3,7 @@ import { listPolicies, insertPolicy, getPolicyStats } from "@agentops/db";
 import { createPolicyId, PolicyType, PolicySeverity } from "@agentops/core";
 import { db } from "@/lib/db";
 import { randomUUID } from "node:crypto";
-import { requireUser, requireAdmin } from "@/lib/auth";
+import { requireUser, requireAdmin, checkSameOrigin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { validatePolicyConfigForWrite } from "@/lib/policy-validation";
 
@@ -34,6 +34,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const csrf = checkSameOrigin(request);
+  if (csrf) return csrf;
   // Creating a policy mutates the safety control plane — admin only.
   const user = await requireAdmin(request);
   if (user instanceof NextResponse) return user;

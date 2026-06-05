@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { getUserByEmail, insertUser, listUsers } from "@agentops/db";
 import { db } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requireUser, checkSameOrigin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +44,8 @@ function generateTempPassword(): string {
 // response — the admin shares it out-of-band and the new user changes it
 // on first sign-in (mustChangePassword=true).
 export async function POST(request: NextRequest) {
+  const csrf = checkSameOrigin(request);
+  if (csrf) return csrf;
   const me = await requireUser(request);
   if (me instanceof NextResponse) return me;
   if (me.role !== "admin") {

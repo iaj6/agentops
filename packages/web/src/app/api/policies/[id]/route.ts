@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPolicy, updatePolicy, deletePolicy, getPolicyStats } from "@agentops/db";
 import { createPolicyId } from "@agentops/core";
 import { db } from "@/lib/db";
-import { requireUser, requireAdmin } from "@/lib/auth";
+import { requireUser, requireAdmin, checkSameOrigin } from "@/lib/auth";
 import { AUDIT_ACTIONS, recordAudit } from "@/lib/audit";
 import { validatePolicyConfigForWrite } from "@/lib/policy-validation";
 
@@ -42,6 +42,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const csrf = checkSameOrigin(request);
+  if (csrf) return csrf;
   const user = await requireAdmin(request);
   if (user instanceof NextResponse) return user;
 
@@ -105,6 +107,8 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const csrf = checkSameOrigin(request);
+  if (csrf) return csrf;
   const user = await requireAdmin(request);
   if (user instanceof NextResponse) return user;
 
@@ -163,6 +167,8 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const csrf = checkSameOrigin(request);
+  if (csrf) return csrf;
   const user = await requireAdmin(request);
   if (user instanceof NextResponse) return user;
 
