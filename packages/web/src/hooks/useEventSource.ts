@@ -76,7 +76,12 @@ export function useEventSource(
   const retriesRef = useRef(0);
   const eventSourceRef = useRef<EventSource | null>(null);
   const onEventRef = useRef(onEvent);
-  onEventRef.current = onEvent;
+  // Keep the latest onEvent in a ref without writing it during render
+  // (react-hooks/refs). It's only read inside async SSE handlers that fire
+  // after this effect runs, so the one-tick deferral is safe.
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
 
   const connect = useCallback(() => {
     // Close any existing connection

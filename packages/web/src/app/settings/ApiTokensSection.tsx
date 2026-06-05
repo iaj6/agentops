@@ -46,8 +46,28 @@ export function ApiTokensSection({
     }
   }
 
+  // Initial load, inlined behind a cancelled-guard so the setState calls are
+  // deferred past the await (react-hooks/set-state-in-effect). `loading` is
+  // already true from useState, so no synchronous setLoading(true) is needed.
+  // Subsequent reloads still go through refresh().
   useEffect(() => {
-    refresh();
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/tokens");
+        if (res.ok && !cancelled) {
+          const data = (await res.json()) as { tokens: TokenRow[] };
+          setTokens(data.tokens);
+        }
+      } finally {
+        // Always clear loading, mirroring refresh()'s try/finally — a rejected
+        // fetch or a throwing res.json() must not strand the spinner.
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function revoke(id: string) {
