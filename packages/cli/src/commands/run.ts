@@ -9,6 +9,7 @@ import {
   PolicyEngine,
   MergeRecommendation,
   computeScore,
+  normalizeRepo,
 } from "@agentops/core";
 import type { Run } from "@agentops/core";
 import { getDb, insertRun, getRun, listRuns, updateRun, listPolicies } from "@agentops/db";
@@ -34,7 +35,9 @@ export function registerRunCommands(program: Command): void {
           structured: { type: "task", description: goal, parameters: {} },
         },
         {
-          repo: opts.repo,
+          // Canonicalize so an explicit --repo (e.g. Acme/Repo or a remote URL)
+          // buckets the same as wrap/hook/SDK-produced runs.
+          repo: normalizeRepo(opts.repo),
           branch: opts.branch,
           permissions: [],
           sandbox: { enabled: false, isolationLevel: "none" },
@@ -199,7 +202,9 @@ export function registerRunCommands(program: Command): void {
 
       const results = listRuns(db, {
         status: opts.status,
-        repo: opts.repo,
+        // Normalize the filter to match the canonical form stored on write
+        // (skip when absent so we don't turn "no filter" into an empty match).
+        repo: opts.repo ? normalizeRepo(opts.repo) : opts.repo,
         limit: parseInt(opts.limit, 10),
       });
 

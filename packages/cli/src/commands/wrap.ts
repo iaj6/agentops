@@ -15,6 +15,7 @@ import {
   computeScore,
   PolicyEngine,
   generateSummary,
+  normalizeRepo,
 } from "@agentops/core";
 import type { Run, Action, Command as CmdType, FileEdit } from "@agentops/core";
 import { getDb, insertRun, updateRun, insertEvent, listPolicies, updateRunSummary } from "@agentops/db";
@@ -39,7 +40,10 @@ export function registerWrapCommand(program: Command): void {
         const json = program.opts()["json"] as boolean | undefined;
         const db = getDb(dbPath);
 
-        const repo = opts.repo ?? getCurrentRepo();
+        // Canonicalize whether the repo came from --repo or auto-detection, so
+        // an explicit override buckets the same as everything else. getCurrentRepo
+        // already normalizes; normalizeRepo is idempotent, so this is safe.
+        const repo = normalizeRepo(opts.repo ?? getCurrentRepo());
         const branch = opts.branch ?? getCurrentBranch();
         const commandStr = args.join(" ");
         const goal = opts.goal ?? `Run: ${commandStr}`;

@@ -185,6 +185,35 @@ describe("POST /api/sdk/runs", () => {
     expect(saved!.userId).toBe(alice.user.id);
   });
 
+  it("normalizes a mixed-case / URL repo to canonical owner/name on write", async () => {
+    const req = authedRequest("http://localhost/api/sdk/runs", {
+      token: alice.token,
+      body: {
+        goal: { humanReadable: "Fix bug" },
+        environment: { repo: "git@github.com:Iaj6/AgentOps.git", branch: "main" },
+      },
+    });
+    const res = await createRunRoute(req);
+    expect(res.status).toBe(201);
+    const body = (await jsonOf(res)) as { runId?: string };
+    const { createRunId } = await import("@agentops/core");
+    const saved = getRun(db, createRunId(body.runId!));
+    // Persisted canonical form — no longer a separate bucket from "iaj6/agentops".
+    expect(saved!.environment.repo).toBe("iaj6/agentops");
+  });
+
+  it("400 when a non-empty repo normalizes to empty (degenerate value)", async () => {
+    const req = authedRequest("http://localhost/api/sdk/runs", {
+      token: alice.token,
+      body: {
+        goal: { humanReadable: "Fix bug" },
+        environment: { repo: "https://github.com/", branch: "main" },
+      },
+    });
+    const res = await createRunRoute(req);
+    expect(res.status).toBe(400);
+  });
+
   it("400 on missing goal", async () => {
     const req = authedRequest("http://localhost/api/sdk/runs", {
       token: alice.token,

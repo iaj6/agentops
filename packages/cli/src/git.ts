@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { normalizeRepo } from "@agentops/core";
 
 function git(args: string, cwd?: string): string {
   try {
@@ -27,18 +28,21 @@ function parseRemote(remote: string): string {
 
 export function getCurrentRepo(cwd?: string): string {
   // Try the common remote names in order — many repos use upstream,
-  // some use github, some have neither.
+  // some use github, some have neither. Normalize to a canonical
+  // lowercase owner/name so the same repo never fragments into multiple
+  // analytics buckets (e.g. Acme/Repo vs acme/repo).
   for (const name of ["origin", "upstream", "github"]) {
     const remote = git(`remote get-url ${name}`, cwd);
-    if (remote) return parseRemote(remote);
+    if (remote) return normalizeRepo(parseRemote(remote));
   }
   // Fall back to the basename of the repo root. Better than "unknown"
   // for local-only repos (the agentops dogfood case) — at least the
-  // dashboard rows are distinguishable.
+  // dashboard rows are distinguishable. Normalized (lowercased) too so a
+  // later remote-backed run with the same name agrees on case.
   const top = git("rev-parse --show-toplevel", cwd);
   if (top) {
     const basename = top.split("/").filter(Boolean).pop();
-    if (basename) return basename;
+    if (basename) return normalizeRepo(basename);
   }
   return "unknown";
 }

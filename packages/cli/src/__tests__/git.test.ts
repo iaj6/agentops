@@ -30,6 +30,12 @@ describe("getCurrentRepo", () => {
     expect(getCurrentRepo()).toBe("acme/backend");
   });
 
+  it("normalizes a mixed-case remote to lowercase owner/name", () => {
+    // Two case variants of the same GitHub repo must collapse to one bucket.
+    mockExecSync.mockReturnValue("git@github.com:Iaj6/AgentOps.git\n");
+    expect(getCurrentRepo()).toBe("iaj6/agentops");
+  });
+
   it("returns 'unknown' when git remote fails", () => {
     mockExecSync.mockImplementation(() => {
       throw new Error("not a git repo");
