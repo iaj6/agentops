@@ -20,6 +20,7 @@ import {
 import type { Run, Action, Command as CmdType, FileEdit } from "@agentops/core";
 import { getDb, insertRun, updateRun, insertEvent, listPolicies, updateRunSummary } from "@agentops/db";
 import { getCurrentRepo, getCurrentBranch, getWorkingTreeDiff, getChangedFiles } from "../git.js";
+import { resolveLocalUserId } from "../attribution.js";
 import { colorStatus } from "../format.js";
 
 export function registerWrapCommand(program: Command): void {
@@ -69,6 +70,9 @@ export function registerWrapCommand(program: Command): void {
           },
         );
         run = startRun(run);
+        // Attribute the run to the local user at write time (else it lands with
+        // a NULL user_id); null when attribution can't be determined.
+        run = { ...run, userId: resolveLocalUserId(db) };
         insertRun(db, run);
 
         // Emit run.started event for real-time dashboard updates
