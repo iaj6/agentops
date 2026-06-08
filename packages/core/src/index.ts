@@ -207,6 +207,9 @@ export { buildAgentTimeline } from "./agent-tree.js";
 export type { SessionSummary } from "./summary.js";
 export { generateSummary } from "./summary.js";
 
+// Repo identity normalization (attribution / analytics bucketing)
+export { normalizeRepo } from "./repo.js";
+
 // Pricing
 export type { ModelPricing, TokenUsageBlock, Backend } from "./pricing.js";
 export {

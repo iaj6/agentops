@@ -8,6 +8,7 @@ import {
   createEvent,
   EventCategory,
   EVENT_TYPES,
+  normalizeRepo,
 } from "@agentops/core";
 import { insertRun, insertEvent, getSession, updateSession } from "@agentops/db";
 import { db } from "@/lib/db";
@@ -75,7 +76,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const baseRun = startRun(createRun(goal, environment));
+    // Canonicalize the repo identity at the write boundary so SDK-supplied
+    // values bucket the same way as CLI-produced ones (lowercase owner/name);
+    // otherwise the same repo fragments across the dashboard's analytics.
+    const normalizedEnvironment: Environment = {
+      ...environment,
+      repo: normalizeRepo(environment.repo),
+    };
+    // A non-empty-but-degenerate repo (e.g. a host-only URL or a lone slash)
+    // can normalize to "". Reject rather than persist an empty bucket — the
+    // raw-value check above only guarantees the *input* was non-empty.
+    if (!normalizedEnvironment.repo) {
+      return NextResponse.json(
+        { error: "environment.repo did not resolve to a valid repository identity" },
+        { status: 400 },
+      );
+    }
+
+    const baseRun = startRun(createRun(goal, normalizedEnvironment));
     // Tag the run with the authenticated user so the dashboard can scope
     // by owner. Both insertRun and rowToRun round-trip this field.
     const run = { ...baseRun, userId: user.id };
