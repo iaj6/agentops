@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 export interface Filters {
   status: string[];
@@ -76,15 +77,35 @@ export function FilterPanel({ filters, onChange, onClear }: FilterPanelProps) {
   const [repos, setRepos] = useState<string[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
 
+  // Carry the active view scope (?view= / ?userId=) into the filter-options
+  // request so an admin viewing a specific user sees that user's repos/branches
+  // — matching the scope the runs list itself uses. Re-fetches when the scope
+  // changes. Members are always self-scoped server-side regardless.
+  const searchParams = useSearchParams();
+  const view = searchParams.get("view");
+  const userId = searchParams.get("userId");
+
   useEffect(() => {
-    fetch("/api/runs/search", { method: "POST" })
+    // Guard against a stale response: if the scope changes again before this
+    // fetch resolves, the cleanup flips `cancelled` so the late response can't
+    // clobber the newer scope's options.
+    let cancelled = false;
+    const p = new URLSearchParams();
+    if (view) p.set("view", view);
+    if (userId) p.set("userId", userId);
+    const qs = p.toString();
+    fetch(`/api/runs/search${qs ? `?${qs}` : ""}`, { method: "POST" })
       .then((res) => res.json())
       .then((data) => {
+        if (cancelled) return;
         setRepos(data.repos ?? []);
         setBranches(data.branches ?? []);
       })
       .catch(() => {});
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [view, userId]);
 
   const hasActiveFilters =
     filters.status.length > 0 ||
