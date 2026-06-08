@@ -17,6 +17,25 @@ type SortDir = "asc" | "desc";
 
 const PAGE_SIZES = [25, 50, 100];
 
+// Module-scope so it isn't re-created on every RunsTable render; sort state is
+// passed in rather than closed over (mirrors SessionsTable's SortIcon).
+function SortIcon({
+  field,
+  sortBy,
+  sortDir,
+}: {
+  field: SortField;
+  sortBy: SortField;
+  sortDir: SortDir;
+}) {
+  if (sortBy !== field) return null;
+  return (
+    <span className="ml-1 text-accent">
+      {sortDir === "asc" ? "↑" : "↓"}
+    </span>
+  );
+}
+
 export function RunsTable({
   runs: initialRuns,
   users = [],
@@ -240,15 +259,6 @@ export function RunsTable({
     setPage(1);
   }
 
-  function SortIcon({ field }: { field: SortField }) {
-    if (sortBy !== field) return null;
-    return (
-      <span className="ml-1 text-accent">
-        {sortDir === "asc" ? "\u2191" : "\u2193"}
-      </span>
-    );
-  }
-
   return (
     <div>
       {/* Command palette */}
@@ -331,7 +341,7 @@ export function RunsTable({
             }`}
           >
             {field.charAt(0).toUpperCase() + field.slice(1)}
-            <SortIcon field={field} />
+            <SortIcon field={field} sortBy={sortBy} sortDir={sortDir} />
           </button>
         ))}
       </div>
