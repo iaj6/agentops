@@ -53,6 +53,7 @@ import {
   updateRunSummary,
 } from "@agentops/db";
 import { credentialsPath } from "./credentials.js";
+import { resolveLocalUserId } from "./attribution.js";
 import { Outbox, outboxPath, type OutboxEntry } from "./outbox.js";
 
 // ─── Public types ──────────────────────────────────────────────────────────
@@ -218,6 +219,13 @@ class DirectOps implements HookOps {
     run = startRun(run);
 
     session = assignRun(session, run.id);
+
+    // Attribute at write time so local rows aren't stranded with a NULL
+    // user_id (the SDK path already attributes via bearer auth). Resolves to
+    // null when attribution can't be determined, preserving prior behavior.
+    const userId = resolveLocalUserId(db);
+    run = { ...run, userId };
+    session = { ...session, userId };
 
     insertSession(db, session);
     insertRun(db, run);

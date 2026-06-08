@@ -25,12 +25,14 @@ import {
 import {
   getDb,
   insertPolicy,
+  insertUser,
   listRuns,
   listSessions,
   getRun,
   getSession,
   getPolicyResults,
   listEvents,
+  countRunsWithoutUser,
 } from "@agentops/db";
 import {
   createPolicyId,
@@ -1073,7 +1075,9 @@ describe("AGENTOPS_FAIL_CLOSED behaviour", () => {
 // ─── userId scoping in DirectOps mode ──────────────────────────────────────
 
 describe("hook handlers and userId on inserted rows", () => {
-  it("DirectOps inserts run/session with userId = null", async () => {
+  it("DirectOps inserts run/session with userId = null when there's no user to attribute to", async () => {
+    // Empty DB + no credentials (HOME is a fresh tmpdir) → resolveLocalUserId
+    // returns null, preserving the anonymous-local-dev behavior.
     const sid = freshSessionId();
     await _handleSessionStart({ session_id: sid, cwd: "/tmp/test-cwd" }, testDbPath);
     const state = _readState(sid)!;
@@ -1087,5 +1091,28 @@ describe("hook handlers and userId on inserted rows", () => {
     const oursS = sessions.find((s) => (s.id as string) === state.sessionId);
     expect(oursS).toBeDefined();
     expect(oursS!.userId).toBeNull();
+  });
+
+  it("DirectOps attributes run/session to the sole local user (write-time fix)", async () => {
+    // One local user, still no credentials.json → the sole-user fallback
+    // attributes the row at write time rather than leaving it NULL.
+    const u = insertUser(getDb(testDbPath), {
+      email: "solo@example.com",
+      password: "pw",
+    });
+
+    const sid = freshSessionId();
+    await _handleSessionStart({ session_id: sid, cwd: "/tmp/test-cwd" }, testDbPath);
+    const state = _readState(sid)!;
+
+    const db = getDb(testDbPath);
+    const ours = listRuns(db).find((r) => (r.id as string) === state.runId);
+    expect(ours!.userId).toBe(u.id);
+    const oursS = listSessions(db).find((s) => (s.id as string) === state.sessionId);
+    expect(oursS!.userId).toBe(u.id);
+
+    // Convergence with the backfill: an attributed run is NOT counted by the
+    // same NULL-user query `cleanup --reassign-null-user` operates on.
+    expect(countRunsWithoutUser(db)).toBe(0);
   });
 });

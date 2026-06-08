@@ -12,6 +12,7 @@ import {
 } from "@agentops/core";
 import type { Run } from "@agentops/core";
 import { getDb, insertRun, getRun, listRuns, updateRun, listPolicies } from "@agentops/db";
+import { resolveLocalUserId } from "../attribution.js";
 import { table, colorStatus, colorBool } from "../format.js";
 
 export function registerRunCommands(program: Command): void {
@@ -41,6 +42,9 @@ export function registerRunCommands(program: Command): void {
         },
       );
       newRun = startRun(newRun);
+      // Attribute to the local user at write time (else NULL user_id); resolves
+      // to null when attribution can't be determined.
+      newRun = { ...newRun, userId: resolveLocalUserId(db) };
       insertRun(db, newRun);
 
       if (json) {
