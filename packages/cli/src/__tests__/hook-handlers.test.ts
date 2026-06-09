@@ -760,6 +760,38 @@ describe("handleSessionEnd", () => {
     const run = getRun(getDb(testDbPath), createRunId(state.runId))!;
     expect(run.metrics.costUsd).toBeCloseTo(15, 4);
     expect(run.metrics.tokenUsage.input).toBe(1_000_000);
+    // Backend + per-model cost are captured (no env => direct Anthropic).
+    expect(run.metrics.backend).toBe("anthropic");
+    expect(run.metrics.byModel?.["claude-opus-4-7"]).toBeCloseTo(15, 4);
+  });
+
+  it("tags the run 'bedrock' when CLAUDE_CODE_USE_BEDROCK is set", async () => {
+    const prev = process.env["CLAUDE_CODE_USE_BEDROCK"];
+    process.env["CLAUDE_CODE_USE_BEDROCK"] = "1";
+    try {
+      const sid = freshSessionId();
+      const cwd = "/tmp/test-cwd";
+      // Backend is detected and frozen into hook state at session-start.
+      await _handleSessionStart({ session_id: sid, cwd }, testDbPath);
+      const state = _readState(sid)!;
+
+      // Namespaced Bedrock model id; cost normalizes to the same parity rate.
+      writeFakeTranscript(cwd, sid, [
+        { model: "us.anthropic.claude-opus-4-7-v1:0", input: 1_000_000 },
+      ]);
+
+      await runHook(() => _handleSessionEnd({ session_id: sid, cwd }, testDbPath));
+
+      const run = getRun(getDb(testDbPath), createRunId(state.runId))!;
+      expect(run.metrics.backend).toBe("bedrock");
+      expect(run.metrics.costUsd).toBeCloseTo(15, 4);
+      expect(
+        run.metrics.byModel?.["us.anthropic.claude-opus-4-7-v1:0"],
+      ).toBeCloseTo(15, 4);
+    } finally {
+      if (prev === undefined) delete process.env["CLAUDE_CODE_USE_BEDROCK"];
+      else process.env["CLAUDE_CODE_USE_BEDROCK"] = prev;
+    }
   });
 
   it("emits run.completed event", async () => {

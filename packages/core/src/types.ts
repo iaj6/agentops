@@ -1,3 +1,5 @@
+import type { Backend } from "./pricing.js";
+
 // ─── Branded ID types ────────────────────────────────────────────────────────
 
 declare const __brand: unique symbol;
@@ -185,6 +187,14 @@ export interface Metrics {
   readonly wallTimeMs: number;
   readonly costUsd: number;
   readonly flakeRate: number;
+  // Which API backend served this run's traffic, as detected at cost-
+  // computation time (CLAUDE_CODE_USE_BEDROCK). Optional: runs recorded
+  // before backend capture landed have no value and read as unclassified.
+  readonly backend?: Backend;
+  // Per-model cost in USD, keyed by the raw model identifier from the
+  // transcript (Bedrock IDs stay namespaced, e.g. "us.anthropic.…"). Optional
+  // for the same backfill reason as backend.
+  readonly byModel?: Readonly<Record<string, number>>;
 }
 
 export interface TokenUsage {
