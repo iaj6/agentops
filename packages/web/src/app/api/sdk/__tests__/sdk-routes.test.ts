@@ -348,6 +348,50 @@ describe("POST /api/sdk/runs/[id]/metrics", () => {
     const res = await reportMetricsRoute(req, withParams({ id: runId }));
     expect(res.status).toBe(400);
   });
+
+  it("persists backend + byModel into run.metrics for segmentation", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest(`http://localhost/api/sdk/runs/${runId}/metrics`, {
+      token: alice.token,
+      body: {
+        costUsd: 2.5,
+        wallTimeMs: 5000,
+        flakeRate: 0,
+        tokenUsage: { input: 100, output: 50, total: 150 },
+        backend: "bedrock",
+        byModel: { "us.anthropic.claude-opus-4-7-v1:0": 2.5 },
+      },
+    });
+    const res = await reportMetricsRoute(req, withParams({ id: runId }));
+    expect(res.status).toBe(200);
+
+    const { createRunId } = await import("@agentops/core");
+    const run = getRun(db, createRunId(runId))!;
+    expect(run.metrics.backend).toBe("bedrock");
+    expect(run.metrics.byModel).toEqual({
+      "us.anthropic.claude-opus-4-7-v1:0": 2.5,
+    });
+  });
+
+  it("400 on an unknown backend value", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest(`http://localhost/api/sdk/runs/${runId}/metrics`, {
+      token: alice.token,
+      body: { backend: "vertex" },
+    });
+    const res = await reportMetricsRoute(req, withParams({ id: runId }));
+    expect(res.status).toBe(400);
+  });
+
+  it("400 on byModel with a negative per-model cost", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest(`http://localhost/api/sdk/runs/${runId}/metrics`, {
+      token: alice.token,
+      body: { byModel: { "claude-opus-4-7": -1 } },
+    });
+    const res = await reportMetricsRoute(req, withParams({ id: runId }));
+    expect(res.status).toBe(400);
+  });
 });
 
 // ─── POST /api/sdk/runs/[id]/complete ─────────────────────────────────────

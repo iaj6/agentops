@@ -635,6 +635,11 @@ class SdkOps implements HookOps {
         wallTimeMs: metrics.wallTimeMs,
         flakeRate: metrics.flakeRate,
         tokenUsage: metrics.tokenUsage,
+        // Forward backend + per-model cost so SDK-mode runs are tagged too;
+        // otherwise only local-mode runs get segmented and SDK runs all read
+        // as unclassified.
+        ...(metrics.backend ? { backend: metrics.backend } : {}),
+        ...(metrics.byModel ? { byModel: metrics.byModel } : {}),
       },
     );
     if (m.status !== 200) {

@@ -77,6 +77,32 @@ export async function POST(
       }
     }
 
+    if (body.backend !== undefined) {
+      if (body.backend !== "anthropic" && body.backend !== "bedrock") {
+        return NextResponse.json(
+          { error: "backend must be 'anthropic' or 'bedrock'" },
+          { status: 400 },
+        );
+      }
+    }
+
+    if (body.byModel !== undefined) {
+      const bm = body.byModel;
+      const ok =
+        bm !== null &&
+        typeof bm === "object" &&
+        !Array.isArray(bm) &&
+        Object.values(bm as Record<string, unknown>).every(
+          (v) => typeof v === "number" && Number.isFinite(v) && v >= 0,
+        );
+      if (!ok) {
+        return NextResponse.json(
+          { error: "byModel must be an object mapping model ids to finite, non-negative costs" },
+          { status: 400 },
+        );
+      }
+    }
+
     const tokenUsage = (body.tokenUsage as Record<string, unknown>) ?? {
       input: 0,
       output: 0,
@@ -86,12 +112,19 @@ export async function POST(
     const wallTimeMs = (body.wallTimeMs as number) ?? 0;
     const flakeRate = (body.flakeRate as number) ?? 0;
 
-    // Update the run's embedded metrics
+    const backend = body.backend as "anthropic" | "bedrock" | undefined;
+    const byModel = body.byModel as Record<string, number> | undefined;
+
+    // Update the run's embedded metrics. backend/byModel live only in this
+    // JSON blob (no run_metrics column yet) — nothing queries run_metrics for
+    // backend, so a column would be speculative denormalization for now.
     const metrics = {
       tokenUsage: tokenUsage as { input: number; output: number; total: number },
       wallTimeMs,
       costUsd,
       flakeRate,
+      ...(backend ? { backend } : {}),
+      ...(byModel ? { byModel } : {}),
     };
     updateRun(db(), run.id, {
       metrics,
