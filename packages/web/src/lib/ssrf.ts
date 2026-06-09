@@ -132,6 +132,36 @@ function isBlockedIpv6(ip: string): boolean {
     return isBlockedIpv4(hextetsToIpv4(g(6), g(7)));
   }
 
+  // 6to4 (2002::/16): the embedded IPv4 sits in hextets 1-2. Without decoding,
+  // an attacker smuggles a private/metadata v4 past the v6 check, e.g.
+  // 2002:a9fe:a9fe:: → 169.254.169.254 or 2002:7f00:1:: → 127.0.0.1. Decode and
+  // range-check the embedded v4, exactly like the IPv4-mapped form above (so a
+  // 6to4 wrapper of a public v4 stays allowed for consistency).
+  if (g(0) === 0x2002) {
+    return isBlockedIpv4(hextetsToIpv4(g(1), g(2)));
+  }
+  // NAT64 well-known prefix (64:ff9b::/96): the embedded IPv4 sits in the low
+  // 32 bits (hextets 6-7). Same smuggling risk, e.g. 64:ff9b::7f00:1 →
+  // 127.0.0.1. Decode and range-check the embedded v4.
+  //
+  // Known limitation: only the well-known prefix is decodable here. NAT64
+  // network-specific prefixes (RFC 6052 — a local-use 64:ff9b:1::/48 or an
+  // operator-chosen /32../96 with the v4 at a prefix-dependent offset) can't be
+  // detected generically without knowing the operator's prefix, so a wrapper of
+  // a private v4 under a custom NSP is only a risk in a deployment that actually
+  // runs such a NAT64 gateway. The pre-fetch DNS re-resolution is the backstop
+  // for hostnames; raw NSP literals under a custom prefix are not covered.
+  if (
+    g(0) === 0x0064 &&
+    g(1) === 0xff9b &&
+    g(2) === 0 &&
+    g(3) === 0 &&
+    g(4) === 0 &&
+    g(5) === 0
+  ) {
+    return isBlockedIpv4(hextetsToIpv4(g(6), g(7)));
+  }
+
   // Any remaining address with a zero leading hextet lives in the special-use
   // ::/16 space — deprecated, reserved, or a malformed IPv4-mapped variant
   // (e.g. ::ffff:0:7f00:1, 0:ffff::7f00:1) whose 0xffff marker landed off the
