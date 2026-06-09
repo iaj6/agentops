@@ -49,6 +49,16 @@ describe("isBlockedIp", () => {
     "0:ffff::7f00:1",
     "::ffff:1:7f00:1",
     "::1:0:0:0",
+    // 6to4 (2002::/16) wrapping a private/reserved v4 in hextets 1-2.
+    "2002:7f00:1::", // → 127.0.0.1
+    "2002:a9fe:a9fe::", // → 169.254.169.254 (metadata)
+    "2002:c0a8:101::", // → 192.168.1.1
+    "2002:a00:1::", // → 10.0.0.1
+    // NAT64 well-known prefix (64:ff9b::/96) wrapping a private/reserved v4.
+    "64:ff9b::7f00:1", // → 127.0.0.1, hex form
+    "64:ff9b::a9fe:a9fe", // → 169.254.169.254 (metadata)
+    "64:ff9b::c0a8:101", // → 192.168.1.1
+    "64:ff9b::127.0.0.1", // → 127.0.0.1, dotted form
   ])("blocks private/reserved IPv6 %s", (ip) => {
     expect(isBlockedIp(ip)).toBe(true);
   });
@@ -57,6 +67,9 @@ describe("isBlockedIp", () => {
     "2001:4860:4860::8888",
     "2606:4700:4700::1111",
     "::ffff:8.8.8.8", // IPv4-mapped PUBLIC address stays allowed
+    "2002:808:808::", // 6to4 wrapping PUBLIC 8.8.8.8 stays allowed
+    "64:ff9b::808:808", // NAT64 wrapping PUBLIC 8.8.8.8, hex form
+    "64:ff9b::8.8.8.8", // NAT64 wrapping PUBLIC 8.8.8.8, dotted form
   ])("allows public IPv6 %s", (ip) => {
     expect(isBlockedIp(ip)).toBe(false);
   });
@@ -79,6 +92,8 @@ describe("validateOutboundUrl (sync, no DNS)", () => {
     "http://10.0.0.5/x",
     "https://192.168.1.1/x",
     "http://[::1]/x",
+    "http://[2002:a9fe:a9fe::]/latest/meta-data/", // 6to4 → 169.254.169.254
+    "http://[64:ff9b::7f00:1]/x", // NAT64 → 127.0.0.1
     "not a url",
   ])("rejects %s", (url) => {
     expect(validateOutboundUrl(url).ok).toBe(false);
