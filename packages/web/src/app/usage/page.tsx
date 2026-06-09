@@ -26,6 +26,77 @@ interface LocalUsage {
   totalTokens: number;
   totalRuns: number;
   runsWithCost: number;
+  costByBackend?: {
+    bedrock: number;
+    anthropic: number;
+    unknown: number;
+  };
+  bedrockIsEstimate?: boolean;
+  bedrockRatesVerifiedDate?: string;
+}
+
+function BackendBreakdown({ data }: { data: LocalUsage }) {
+  const split = data.costByBackend;
+  // Only meaningful once there's captured spend to split.
+  if (!split || data.totalCost <= 0) return null;
+
+  const bedrockEstimated = !!data.bedrockIsEstimate && split.bedrock > 0;
+
+  const tiles: { label: string; value: number; hint?: string }[] = [
+    { label: "AWS Bedrock", value: split.bedrock },
+    { label: "Anthropic Direct", value: split.anthropic },
+    {
+      label: "Not yet classified",
+      value: split.unknown,
+      hint: "Runs recorded before backend tagging, or reported without a backend tag.",
+    },
+  ];
+
+  return (
+    <div className="mt-4">
+      <div className="mb-2 flex items-center gap-2">
+        <h3 className="text-[11px] font-medium uppercase tracking-wider text-[#777]">
+          By backend
+        </h3>
+        {bedrockEstimated && (
+          <span
+            title={`Bedrock token volumes and attribution are exact; dollar amounts are estimated at Anthropic-direct US rates${
+              data.bedrockRatesVerifiedDate
+                ? ` (verified ${data.bedrockRatesVerifiedDate})`
+                : ""
+            } pending AWS rate verification.`}
+            className="cursor-help rounded border border-[#3a3320] bg-[#1c1810] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#caa45a]"
+          >
+            Bedrock est.
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        {tiles.map((t) => (
+          <div
+            key={t.label}
+            title={t.hint}
+            className="rounded-lg border border-[#1d1d1d] bg-[#0d0d0d] px-3 py-2.5"
+          >
+            <p className="text-[11px] text-[#888]">{t.label}</p>
+            <p className="mt-0.5 font-mono text-sm text-[#ddd]">
+              {formatCost(t.value)}
+            </p>
+          </div>
+        ))}
+      </div>
+      {bedrockEstimated && (
+        <p className="mt-2 text-[11px] leading-relaxed text-[#666]">
+          Bedrock token volumes and attribution are exact; dollar amounts are
+          estimated at Anthropic-direct US rates
+          {data.bedrockRatesVerifiedDate
+            ? ` (verified ${data.bedrockRatesVerifiedDate})`
+            : ""}{" "}
+          pending AWS rate verification.
+        </p>
+      )}
+    </div>
+  );
 }
 
 function LocalUsageSection({ data }: { data: LocalUsage }) {
@@ -68,6 +139,7 @@ function LocalUsageSection({ data }: { data: LocalUsage }) {
           }
         />
       </div>
+      <BackendBreakdown data={data} />
     </div>
   );
 }
