@@ -1,5 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { listRuns } from "@agentops/db";
+import {
+  BEDROCK_PRICING_IS_PARITY_ESTIMATE,
+  BEDROCK_PRICING_VERIFIED_DATE,
+} from "@agentops/core";
 import { db } from "@/lib/db";
 import { requireUser, resolveViewScope } from "@/lib/auth";
 
@@ -35,6 +39,12 @@ export async function GET(request: NextRequest) {
     let outputTokens = 0;
     let runsWithCost = 0;
 
+    // Segment spend by the backend that served it. Runs recorded before
+    // backend capture landed (and any without the tag) fall into "unknown" —
+    // surfaced as "Not yet classified", never folded into Direct, which would
+    // manufacture a confident "you have no Bedrock spend".
+    const costByBackend = { bedrock: 0, anthropic: 0, unknown: 0 };
+
     for (const run of runs) {
       const cost = run.metrics.costUsd ?? 0;
       const t = run.metrics.tokenUsage;
@@ -45,6 +55,11 @@ export async function GET(request: NextRequest) {
       const created = new Date(run.createdAt);
       if (created >= thirtyDaysAgo) totalCost30d += cost;
       if (created >= sevenDaysAgo) totalCost7d += cost;
+
+      const backend = run.metrics.backend;
+      if (backend === "bedrock") costByBackend.bedrock += cost;
+      else if (backend === "anthropic") costByBackend.anthropic += cost;
+      else costByBackend.unknown += cost;
     }
 
     return NextResponse.json({
@@ -56,6 +71,11 @@ export async function GET(request: NextRequest) {
       totalTokens: inputTokens + outputTokens,
       totalRuns: runs.length,
       runsWithCost,
+      costByBackend,
+      // Bedrock $ are computed at Anthropic-parity rates today; let the UI flag
+      // them as estimated rather than presenting them as AWS-billing truth.
+      bedrockIsEstimate: BEDROCK_PRICING_IS_PARITY_ESTIMATE,
+      bedrockRatesVerifiedDate: BEDROCK_PRICING_VERIFIED_DATE,
     });
   } catch (error) {
     console.error("API error:", error);

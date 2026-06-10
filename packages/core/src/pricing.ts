@@ -67,6 +67,16 @@ export const BEDROCK_PRICING: Record<string, ModelPricing> = {
   "claude-haiku-4-5": ANTHROPIC_PRICING["claude-haiku-4-5"]!,
 };
 
+// BEDROCK_PRICING above is a parity copy of the Anthropic-direct rates, not
+// AWS's published Bedrock rates. So any Bedrock dollar figure is an estimate:
+// the token volumes and "this ran on Bedrock" attribution are exact, but the
+// $-conversion uses Anthropic list prices. The dashboard reads this flag to
+// flag Bedrock cost as approximate instead of presenting it as authoritative.
+// When real per-region Bedrock rates land in BEDROCK_PRICING, flip this to
+// false (and bump the verified date) and the dashboard caveat disappears.
+export const BEDROCK_PRICING_IS_PARITY_ESTIMATE = true;
+export const BEDROCK_PRICING_VERIFIED_DATE = "2026-05-13";
+
 export interface TokenUsageBlock {
   readonly input_tokens?: number;
   readonly output_tokens?: number;

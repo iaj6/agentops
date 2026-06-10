@@ -215,6 +215,8 @@ export type { ModelPricing, TokenUsageBlock, Backend } from "./pricing.js";
 export {
   ANTHROPIC_PRICING,
   BEDROCK_PRICING,
+  BEDROCK_PRICING_IS_PARITY_ESTIMATE,
+  BEDROCK_PRICING_VERIFIED_DATE,
   resolvePricing,
   computeCost,
   normalizeModelId,

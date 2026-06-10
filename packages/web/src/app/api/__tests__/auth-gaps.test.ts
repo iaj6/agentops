@@ -80,7 +80,12 @@ beforeEach(() => {
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 
-function makeRun(opts: { userId?: string; repo?: string; costUsd?: number }): Run {
+function makeRun(opts: {
+  userId?: string;
+  repo?: string;
+  costUsd?: number;
+  backend?: "anthropic" | "bedrock";
+}): Run {
   const r = startRun(
     createRun(
       {
@@ -99,7 +104,11 @@ function makeRun(opts: { userId?: string; repo?: string; costUsd?: number }): Ru
     ...r,
     id: createRunId(`run_${Math.random().toString(36).slice(2, 10)}`),
     userId: opts.userId,
-    metrics: { ...r.metrics, costUsd: opts.costUsd ?? 0 },
+    metrics: {
+      ...r.metrics,
+      costUsd: opts.costUsd ?? 0,
+      ...(opts.backend ? { backend: opts.backend } : {}),
+    },
   };
   insertRun(db, run);
   return run;
@@ -382,6 +391,35 @@ describe("GET /api/usage/local scoping", () => {
     const body = (await jsonOf(res)) as { totalCost: number; totalRuns: number };
     expect(body.totalCost).toBe(10);
     expect(body.totalRuns).toBe(1);
+  });
+});
+
+describe("GET /api/usage/local backend segmentation", () => {
+  it("buckets cost by backend; untagged runs stay 'unknown', never folded into direct", async () => {
+    makeRun({ userId: owner.user.id, costUsd: 10, backend: "bedrock" });
+    makeRun({ userId: owner.user.id, costUsd: 4, backend: "anthropic" });
+    makeRun({ userId: owner.user.id, costUsd: 6 }); // untagged -> unknown
+
+    const res = await usageLocalRoute(
+      authedRequest("http://localhost/api/usage/local", { method: "GET", token: owner.token }),
+    );
+    const body = (await jsonOf(res)) as {
+      totalCost: number;
+      costByBackend: { bedrock: number; anthropic: number; unknown: number };
+      bedrockIsEstimate: boolean;
+      bedrockRatesVerifiedDate: string;
+    };
+
+    expect(body.costByBackend).toEqual({ bedrock: 10, anthropic: 4, unknown: 6 });
+    // Invariant: the per-backend buckets reconcile to the headline total.
+    expect(
+      body.costByBackend.bedrock +
+        body.costByBackend.anthropic +
+        body.costByBackend.unknown,
+    ).toBe(body.totalCost);
+    // Honesty signal travels with the data so the UI can flag Bedrock $ as estimated.
+    expect(body.bedrockIsEstimate).toBe(true);
+    expect(typeof body.bedrockRatesVerifiedDate).toBe("string");
   });
 });
 

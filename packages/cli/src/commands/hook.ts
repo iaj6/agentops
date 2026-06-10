@@ -445,6 +445,11 @@ async function finalizeSession(input: HookInput, state: HookState, dbPath?: stri
     wallTimeMs,
     costUsd: usage.totalCostUsd,
     flakeRate: 0,
+    // backend + per-model cost are already computed above; persist them so the
+    // dashboard can segment spend by backend (Bedrock vs direct) instead of
+    // discarding the signal it just used to price the run.
+    backend,
+    byModel: usage.byModel,
   };
 
   let finalizeOk = true;
