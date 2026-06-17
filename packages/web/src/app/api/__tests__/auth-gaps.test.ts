@@ -63,6 +63,7 @@ import {
 } from "@/app/api/policies/[id]/route";
 import { GET as activeSessionsRoute } from "@/app/api/sessions/active/route";
 import { GET as usageLocalRoute } from "@/app/api/usage/local/route";
+import { GET as usageByUserRoute } from "@/app/api/usage/by-user/route";
 import { POST as searchMetaRoute } from "@/app/api/runs/search/route";
 
 let db: AgentOpsDb;
@@ -391,6 +392,57 @@ describe("GET /api/usage/local scoping", () => {
     const body = (await jsonOf(res)) as { totalCost: number; totalRuns: number };
     expect(body.totalCost).toBe(10);
     expect(body.totalRuns).toBe(1);
+  });
+});
+
+describe("GET /api/usage/by-user (admin team-wide backend split)", () => {
+  it("403 for a member — team-wide view is admin-only", async () => {
+    const res = await usageByUserRoute(
+      authedRequest("http://localhost/api/usage/by-user", { method: "GET", token: owner.token }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("buckets each user's spend by backend, ranks by Bedrock, surfaces unattributed runs last", async () => {
+    makeRun({ userId: owner.user.id, costUsd: 5, backend: "bedrock" });
+    makeRun({ userId: owner.user.id, costUsd: 3, backend: "anthropic" });
+    makeRun({ userId: other.user.id, costUsd: 20, backend: "bedrock" });
+    makeRun({ costUsd: 7, backend: "bedrock" }); // no userId -> Unattributed
+
+    const res = await usageByUserRoute(
+      authedRequest("http://localhost/api/usage/by-user", { method: "GET", token: admin.token }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await jsonOf(res)) as {
+      rows: Array<{
+        userId: string | null;
+        userEmail: string | null;
+        unattributed: boolean;
+        bedrock: number;
+        anthropic: number;
+        total: number;
+        runs: number;
+      }>;
+      bedrockIsEstimate: boolean;
+    };
+
+    const real = body.rows.filter((r) => !r.unattributed);
+    // 'other' ($20 Bedrock) outranks 'owner' ($5 Bedrock).
+    expect(real[0]?.userEmail).toBe(other.user.email);
+    expect(real[0]?.bedrock).toBe(20);
+    expect(real[1]?.userEmail).toBe(owner.user.email);
+    expect(real[1]?.bedrock).toBe(5);
+    expect(real[1]?.anthropic).toBe(3);
+    expect(real[1]?.total).toBe(8);
+
+    // Untagged-user runs become a single Unattributed row, never folded into a
+    // real user, always sorted to the bottom.
+    const last = body.rows[body.rows.length - 1];
+    expect(last?.unattributed).toBe(true);
+    expect(last?.userId).toBeNull();
+    expect(last?.bedrock).toBe(7);
+
+    expect(body.bedrockIsEstimate).toBe(true);
   });
 });
 
