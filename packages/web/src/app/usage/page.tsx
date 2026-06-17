@@ -283,6 +283,121 @@ function useLocalUsage(): { data: LocalUsage | null; loading: boolean } {
   return { data, loading };
 }
 
+interface ByUserRow {
+  userId: string | null;
+  userEmail: string | null;
+  userName: string | null;
+  unattributed: boolean;
+  bedrock: number;
+  anthropic: number;
+  unknown: number;
+  total: number;
+  runs: number;
+}
+
+interface ByUserUsage {
+  rows: ByUserRow[];
+  bedrockIsEstimate?: boolean;
+  bedrockRatesVerifiedDate?: string;
+}
+
+// Admin-only: /api/usage/by-user returns 403 for members, so non-admins get
+// null here and the whole section simply never renders — no role check needed
+// on the client.
+function useBedrockByUser(): { data: ByUserUsage | null; loading: boolean } {
+  const [data, setData] = useState<ByUserUsage | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    fetch("/api/usage/by-user")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: ByUserUsage | null) => setData(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+  return { data, loading };
+}
+
+function BackendByUserSection({ data }: { data: ByUserUsage }) {
+  const rows = data.rows;
+  if (rows.length === 0) return null;
+  const bedrockEstimated =
+    !!data.bedrockIsEstimate && rows.some((r) => r.bedrock > 0);
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center gap-2">
+        <h2 className="text-xs font-medium uppercase tracking-wider text-[#888]">
+          Spend by user
+        </h2>
+        {bedrockEstimated && (
+          <span
+            title={`Bedrock token volumes and attribution are exact; dollar amounts are estimated at Anthropic-direct US rates${
+              data.bedrockRatesVerifiedDate
+                ? ` (verified ${data.bedrockRatesVerifiedDate})`
+                : ""
+            } pending AWS rate verification.`}
+            className="cursor-help rounded border border-[#3a3320] bg-[#1c1810] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#caa45a]"
+          >
+            Bedrock est.
+          </span>
+        )}
+      </div>
+      <div className="overflow-hidden rounded-lg border border-[#222] bg-[#0d0d0d]">
+        <table className="w-full text-sm">
+          <thead className="border-b border-[#222] text-xs uppercase tracking-wider text-[#888]">
+            <tr>
+              <th className="px-4 py-3 text-left">User</th>
+              <th className="px-4 py-3 text-right">AWS Bedrock</th>
+              <th className="px-4 py-3 text-right">Anthropic Direct</th>
+              <th className="px-4 py-3 text-right">Not classified</th>
+              <th className="px-4 py-3 text-right">Runs</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#1a1a1a]">
+            {rows.map((row) => (
+              <tr key={row.userId ?? "unattributed"} className="hover:bg-[#141414]">
+                <td className="px-4 py-3">
+                  {row.unattributed ? (
+                    <span
+                      className="text-[#888]"
+                      title="Runs with no resolved user — pre-auth, or ambiguous local attribution."
+                    >
+                      Unattributed
+                    </span>
+                  ) : (
+                    <>
+                      <p className="text-[#ddd]">
+                        {row.userName ?? row.userEmail ?? row.userId}
+                      </p>
+                      {row.userName && row.userEmail && (
+                        <p className="font-mono text-xs text-[#666]">
+                          {row.userEmail}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right font-mono text-[#ddd]">
+                  {formatCost(row.bedrock)}
+                </td>
+                <td className="px-4 py-3 text-right font-mono text-[#aaa]">
+                  {formatCost(row.anthropic)}
+                </td>
+                <td className="px-4 py-3 text-right font-mono text-[#666]">
+                  {formatCost(row.unknown)}
+                </td>
+                <td className="px-4 py-3 text-right font-mono text-[#888]">
+                  {row.runs}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function UsagePage() {
   const { configured, loading: statusLoading } = useAdminStatus();
   const { data: costData, loading: costLoading, error: costError } =
@@ -293,6 +408,7 @@ export default function UsagePage() {
     error: analyticsError,
   } = useAdminAnalytics();
   const { data: localData, loading: localLoading } = useLocalUsage();
+  const { data: byUserData } = useBedrockByUser();
 
   return (
     <div className="p-6 space-y-6">
@@ -312,6 +428,10 @@ export default function UsagePage() {
       ) : localData ? (
         <LocalUsageSection data={localData} />
       ) : null}
+
+      {/* Per-user spend split by backend — admin-only (the route 403s for
+          members, so byUserData stays null and this never renders). */}
+      {byUserData ? <BackendByUserSection data={byUserData} /> : null}
 
       {/* Anthropic Admin API — additive when configured, otherwise a
           small note that points to the env var. */}
