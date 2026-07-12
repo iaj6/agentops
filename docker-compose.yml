@@ -77,9 +77,11 @@ services:
     depends_on:
       - dashboard
     volumes:
-      # Read-only mount of the SQLite db. Litestream reads the WAL frames
-      # but never writes back to the live database.
-      - ./agentops-data:/data:ro
+      # Read-write mount: Litestream must be able to open the database with
+      # write access — it takes the WAL checkpoint lock and maintains its own
+      # -litestream sidecar files next to the db. A :ro mount here breaks
+      # replication outright (it fails at startup, it doesn't degrade).
+      - ./agentops-data:/data
       - ./litestream.yml:/etc/litestream.yml:ro
     environment:
       AGENTOPS_S3_BUCKET: ${AGENTOPS_S3_BUCKET}

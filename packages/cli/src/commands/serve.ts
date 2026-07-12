@@ -60,9 +60,10 @@ export function registerServeCommand(program: Command): void {
       console.log(`AgentOps dashboard starting at http://${displayHost}:${port}`);
       if (host !== "127.0.0.1" && host !== "localhost") {
         console.warn(
-          `WARNING: dashboard is binding to ${host}. The API is currently unauthenticated — `
-          + `anyone with network reach can read and mutate data. Bind to 127.0.0.1 unless `
-          + `you have added auth.`,
+          `Note: dashboard is binding to ${host} and reachable from the network. `
+          + `The API requires authentication (run 'agentops login' to create the first `
+          + `admin), but traffic is plain HTTP — put it behind TLS for anything beyond `
+          + `a trusted LAN (see docker-compose.yml's caddy profile).`,
         );
       }
 

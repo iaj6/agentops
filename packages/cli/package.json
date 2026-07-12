@@ -34,6 +34,7 @@
   ],
   "scripts": {
     "prebuild": "node scripts/write-build-info.mjs",
+    "pretest": "node scripts/write-build-info.mjs",
     "build": "tsc",
     "lint": "eslint src",
     "test": "vitest run"
