@@ -217,8 +217,21 @@ export function getPolicyStats(
 export function deletePolicy(
   db: AgentOpsDb,
   id: PolicyId,
-): void {
-  db.delete(policies).where(eq(policies.id, id as string)).run();
+): { policyResults: number } {
+  // policy_results.policy_id is NOT NULL REFERENCES policies(id) with no ON
+  // DELETE CASCADE, and finalizeRun writes one result row per active policy
+  // on every completed run — so after a single run, deleting the parent row
+  // alone throws an FK constraint error and the dashboard delete 500s.
+  // Delete children-first inside a transaction (same pattern as
+  // deleteOldRuns) and report how much evaluation history went with it.
+  return db.transaction((tx) => {
+    const prResult = tx
+      .delete(policyResults)
+      .where(eq(policyResults.policyId, id as string))
+      .run() as { changes?: number };
+    tx.delete(policies).where(eq(policies.id, id as string)).run();
+    return { policyResults: prResult.changes ?? 0 };
+  });
 }
 
 export function getPolicyResultsForPolicy(

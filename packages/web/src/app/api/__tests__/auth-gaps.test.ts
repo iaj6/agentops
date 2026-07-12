@@ -626,4 +626,25 @@ describe("GET /api/policies/[id]/results scoping", () => {
       [ownerRun.id as string, otherRun.id as string].sort(),
     );
   });
+
+  it("DELETE /api/policies/[id] succeeds for an evaluated policy (regression: FK 500)", async () => {
+    // finalizeRun writes a policy_results row per active policy on every
+    // completed run; the FK from policy_results.policy_id used to make the
+    // dashboard delete 500 for any policy that had ever been evaluated.
+    seedPolicy();
+    const run = makeRun({ userId: owner.user.id });
+    seedResult("pr_fk_regression", run.id as string);
+
+    const res = await deletePolicyRoute(
+      authedRequest("http://localhost/api/policies/pol_test", {
+        method: "DELETE",
+        token: admin.token,
+      }),
+      withParams({ id: "pol_test" }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await jsonOf(res)) as { ok: boolean; deletedResults: number };
+    expect(body.ok).toBe(true);
+    expect(body.deletedResults).toBe(1);
+  });
 });

@@ -182,13 +182,13 @@ export async function DELETE(
       return NextResponse.json({ error: "Policy not found" }, { status: 404 });
     }
 
-    deletePolicy(database, policyId);
+    const { policyResults } = deletePolicy(database, policyId);
     recordAudit(request, user.id, AUDIT_ACTIONS.POLICY_DELETED, {
       targetType: "policy",
       targetId: policyId as string,
-      metadata: { name: existing.name, type: existing.type },
+      metadata: { name: existing.name, type: existing.type, policyResults },
     });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, deletedResults: policyResults });
   } catch (error) {
     console.error("API error:", error);
     return NextResponse.json(
