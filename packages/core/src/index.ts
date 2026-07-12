@@ -84,6 +84,7 @@ export {
   getPolicyMode,
   runHasMutations,
   evaluatePreToolPolicies,
+  normalizePathForPolicy,
   evaluateBudgetPolicies,
   evaluateBudgetWarnings,
   compileRegexPatterns,

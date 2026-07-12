@@ -231,10 +231,28 @@ function mapToolToAction(input: HookInput): Action {
     });
   }
 
+  // Populate `diff` with the content the tool wrote — post-hoc SecretDetection
+  // regex-tests edit.diff, so an empty string here would make that check
+  // structurally unable to match on hook-produced runs. Truncated to bound
+  // the row size (a secret past the cap is still caught by the pre-tool
+  // guard, which scans the full input).
+  const MAX_DIFF_CHARS = 10000;
+
   if ((toolName === "Edit" || toolName === "Write") && typeof toolInput["file_path"] === "string") {
+    const written =
+      toolName === "Write" ? toolInput["content"] : toolInput["new_string"];
     fileEdits.push({
       path: toolInput["file_path"] as string,
-      diff: "",
+      diff: typeof written === "string" ? written.slice(0, MAX_DIFF_CHARS) : "",
+      timestamp,
+    });
+  }
+
+  if (toolName === "NotebookEdit" && typeof toolInput["notebook_path"] === "string") {
+    const written = toolInput["new_source"];
+    fileEdits.push({
+      path: toolInput["notebook_path"] as string,
+      diff: typeof written === "string" ? written.slice(0, MAX_DIFF_CHARS) : "",
       timestamp,
     });
   }
