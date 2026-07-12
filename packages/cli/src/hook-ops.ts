@@ -544,6 +544,29 @@ class DirectOps implements HookOps {
 // stays in "running" status until an admin intervenes, which is surfaced
 // to the operator via a loud stderr warning.
 
+// Every SDK HTTP call is bounded by this timeout. Without one, a dashboard
+// that HANGS (rather than refuses the connection) stalls checkPolicy on
+// every PreToolUse until Claude Code's own hook timeout (60s default),
+// freezing the user's session once per tool call — the fail-open path only
+// helps when the request errors. Default 5s; override with the
+// AGENTOPS_SDK_TIMEOUT_MS env var (positive integer, milliseconds).
+//
+// A timeout rejects the fetch, which post() catches like any other network
+// error (status 0) — so it flows through the existing transient semantics:
+// SdkError(status 0) → outboxed for reportAction/reportArtifact/
+// reportMetrics, fail-open (or AGENTOPS_FAIL_CLOSED block) for
+// checkPolicy/checkBudget.
+const DEFAULT_SDK_TIMEOUT_MS = 5000;
+
+export function sdkTimeoutMs(): number {
+  const raw = process.env["AGENTOPS_SDK_TIMEOUT_MS"]?.trim();
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return DEFAULT_SDK_TIMEOUT_MS;
+}
+
 class SdkOps implements HookOps {
   private readonly base: string;
   private readonly token: string;
@@ -589,11 +612,15 @@ class SdkOps implements HookOps {
           Authorization: `Bearer ${this.token}`,
         },
         body: JSON.stringify(body),
+        // Bound every call so a hanging dashboard can't stall the hook
+        // (and with it, the user's Claude Code session). See sdkTimeoutMs.
+        signal: AbortSignal.timeout(sdkTimeoutMs()),
       });
       const data = (await res.json().catch(() => ({}))) as T;
       return { status: res.status, data };
     } catch (err) {
-      // Network failure surfaces as status 0 so callers treat as transient.
+      // Network failure (including timeout aborts) surfaces as status 0
+      // so callers treat it as transient.
       const message = err instanceof Error ? err.message : String(err);
       return { status: 0, data: { error: message } as unknown as T };
     }

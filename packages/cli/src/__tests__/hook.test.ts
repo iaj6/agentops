@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { Command } from "commander";
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { registerHookCommand } from "../commands/hook.js";
@@ -136,6 +136,72 @@ describe("State file management", () => {
     expect(path).toBe(join(homedir(), ".agentops", "state", ".._.._etc_passwd.json"));
     // Sanity: result must still live inside stateDir.
     expect(path.startsWith(join(homedir(), ".agentops", "state"))).toBe(true);
+  });
+});
+
+// ─── Atomic state write tests ────────────────────────────────────────────────
+//
+// writeState must be temp-file + rename (atomic on POSIX): the state file is
+// shared between SubagentStop's read-modify-write and parallel subagents'
+// PreToolUse/PostToolUse readers. A torn read would make readState return
+// null and silently skip policy enforcement for that tool call.
+
+describe("Atomic state writes", () => {
+  const testSessionId = "test-session-atomic-" + Date.now();
+
+  const state: HookState = {
+    runId: "run_atomic",
+    sessionId: "session_atomic",
+    dbPath: "/tmp/test.db",
+    startTime: "2025-01-01T00:00:00.000Z",
+    agentsSpawned: 0,
+    agentsCompleted: 0,
+    finalized: false,
+  };
+
+  afterEach(() => {
+    _cleanupState(testSessionId);
+  });
+
+  it("leaves no temp file behind after a successful write", () => {
+    _writeState(testSessionId, state);
+    const dir = join(homedir(), ".agentops", "state");
+    const leftovers = readdirSync(dir).filter(
+      (f) => f.startsWith(`${testSessionId}.json.`) && f.endsWith(".tmp"),
+    );
+    expect(leftovers).toEqual([]);
+  });
+
+  it("produces complete, valid JSON on disk", () => {
+    _writeState(testSessionId, state);
+    const raw = readFileSync(stateFilePath(testSessionId), "utf-8");
+    expect(JSON.parse(raw)).toEqual(state);
+  });
+
+  it("overwrite replaces the whole file, never mixes contents", () => {
+    // A longer first payload followed by a shorter one would leave trailing
+    // garbage under a naive truncate-less in-place write scheme.
+    const long: HookState = { ...state, cwd: "/very/long/path/".repeat(50) };
+    _writeState(testSessionId, long);
+    _writeState(testSessionId, state);
+    const raw = readFileSync(stateFilePath(testSessionId), "utf-8");
+    expect(JSON.parse(raw)).toEqual(state);
+  });
+
+  it("cleans up the temp file when the rename fails", () => {
+    // Occupy the final path with a directory so renameSync fails.
+    const finalPath = stateFilePath(testSessionId);
+    mkdirSync(finalPath, { recursive: true });
+    try {
+      expect(() => _writeState(testSessionId, state)).toThrow();
+      const dir = join(homedir(), ".agentops", "state");
+      const leftovers = readdirSync(dir).filter(
+        (f) => f.startsWith(`${testSessionId}.json.`) && f.endsWith(".tmp"),
+      );
+      expect(leftovers).toEqual([]);
+    } finally {
+      rmSync(finalPath, { recursive: true, force: true });
+    }
   });
 });
 
