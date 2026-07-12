@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, chmodSync, statSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, unlinkSync, existsSync, mkdirSync, chmodSync, statSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import {
@@ -76,12 +76,34 @@ function writeState(claudeSessionId: string, state: HookState): void {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   const path = stateFilePath(claudeSessionId);
-  writeFileSync(path, JSON.stringify(state), { encoding: "utf-8", mode: 0o600 });
-  // chmod in case the file already existed with looser perms.
+  // Atomic write: temp file in the same directory, then rename (atomic on
+  // POSIX) — same pattern as Outbox.drain in outbox.ts. The state file is
+  // shared: handleSubagentStop does a read-modify-write while parallel
+  // subagents' PreToolUse/PostToolUse hooks read it concurrently. A bare
+  // writeFileSync can expose a torn file; readState swallows the parse
+  // error and returns null, which silently skips policy enforcement for
+  // that tool call. The pid suffix keeps two concurrent hook processes
+  // from clobbering each other's temp file.
+  const tmp = `${path}.${process.pid}.tmp`;
   try {
-    chmodSync(path, 0o600);
-  } catch {
-    // Best-effort; not all filesystems support chmod.
+    writeFileSync(tmp, JSON.stringify(state), { encoding: "utf-8", mode: 0o600 });
+    // chmod in case the temp file already existed with looser perms
+    // (writeFileSync's mode only applies at creation). The rename carries
+    // the temp file's mode to the final path.
+    try {
+      chmodSync(tmp, 0o600);
+    } catch {
+      // Best-effort; not all filesystems support chmod.
+    }
+    renameSync(tmp, path);
+  } catch (err) {
+    // Don't leave a stray temp file behind on failure.
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // Ignore — the temp file may never have been created.
+    }
+    throw err;
   }
 }
 
@@ -146,15 +168,6 @@ function readHookUsage(
     );
   }
   return { usage, backend };
-}
-
-// ─── Stale state detection ───────────────────────────────────────────────────
-
-function handleStaleState(sessionId: string, state: HookState): void {
-  process.stderr.write(
-    `[agentops] Stale session detected (database was reset). Restart Claude Code to begin tracking.\n`,
-  );
-  cleanupState(sessionId);
 }
 
 // ─── Fail-closed enforcement ─────────────────────────────────────────────────
@@ -445,9 +458,15 @@ function opsConfigFromState(state: HookState, dbPath?: string) {
 async function finalizeSession(input: HookInput, state: HookState, dbPath?: string): Promise<void> {
   const ops = createOps(opsConfigFromState(state, dbPath), input.session_id);
 
-  // Compute wall time + git diff locally — both are on this machine.
-  const changedFiles = getChangedFiles();
-  const diff = getWorkingTreeDiff();
+  // Compute wall time + git diff locally — both are on this machine. Run
+  // git in the session's tracked directory (state.cwd, captured at
+  // session-start) rather than the hook subprocess's inherited cwd — the
+  // subprocess inherits wherever Claude Code was launched from, which may
+  // be a different repo entirely. Same reasoning as the cwd passed to the
+  // git lookups in handleSessionStart.
+  const gitCwd = state.cwd ?? input.cwd;
+  const changedFiles = getChangedFiles(gitCwd);
+  const diff = getWorkingTreeDiff(gitCwd);
   const wallTimeMs = Date.now() - new Date(state.startTime).getTime();
 
   // Read final cost/token usage from the local transcript.

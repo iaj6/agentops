@@ -51,24 +51,13 @@ export function getCurrentBranch(cwd?: string): string {
   return git("rev-parse --abbrev-ref HEAD", cwd) || "unknown";
 }
 
-export function getDiff(fromRef?: string, toRef?: string): string {
-  if (fromRef && toRef) {
-    return git(`diff ${fromRef} ${toRef}`);
-  }
-  if (fromRef) {
-    return git(`diff ${fromRef}`);
-  }
-  // Default: working tree diff (staged + unstaged)
-  return git("diff HEAD");
-}
-
 export interface ChangedFile {
   status: "added" | "modified" | "deleted" | "renamed" | "unknown";
   path: string;
 }
 
-export function getChangedFiles(): ChangedFile[] {
-  const output = git("status --porcelain");
+export function getChangedFiles(cwd?: string): ChangedFile[] {
+  const output = git("status --porcelain", cwd);
   if (!output) return [];
 
   return output.split("\n").filter(Boolean).map((line) => {
@@ -98,24 +87,10 @@ export function getChangedFiles(): ChangedFile[] {
   });
 }
 
-export function getCommitLog(since?: string): string {
-  const sinceArg = since ? ` --since="${since}"` : " -10";
-  return git(`log --oneline${sinceArg}`);
-}
-
 /**
- * Take a snapshot of the current working tree state for diff comparison.
- * Returns the current HEAD commit hash (or empty string if no commits).
+ * Get the diff of all changes in the working tree (staged + unstaged).
  */
-export function snapshotRef(): string {
-  return git("stash create") || git("rev-parse HEAD") || "";
-}
-
-/**
- * Get the diff of all changes in the working tree (staged + unstaged + untracked shown as new).
- */
-export function getWorkingTreeDiff(): string {
+export function getWorkingTreeDiff(cwd?: string): string {
   // Include both staged and unstaged
-  const tracked = git("diff HEAD");
-  return tracked;
+  return git("diff HEAD", cwd);
 }

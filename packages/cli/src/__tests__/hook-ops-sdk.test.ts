@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { createOps, resolveOpsConfig, isSdkMode, SdkError } from "../hook-ops.js";
+import { createOps, resolveOpsConfig, isSdkMode, SdkError, sdkTimeoutMs } from "../hook-ops.js";
 import { outboxPath } from "../outbox.js";
 import type { Action, Metrics } from "@agentops/core";
 import { createActionId } from "@agentops/core";
@@ -133,6 +133,106 @@ describe("resolveOpsConfig + createOps", () => {
     delete process.env["AGENTOPS_API_KEY"];
     const config = resolveOpsConfig();
     expect(isSdkMode(config)).toBe(false);
+  });
+});
+
+// ─── Fetch timeout ─────────────────────────────────────────────────────────
+//
+// A dashboard that HANGS (accepts the connection but never responds) must
+// not stall the hook until Claude Code's 60s hook timeout. Every SDK fetch
+// carries AbortSignal.timeout(sdkTimeoutMs()); the resulting rejection is
+// caught like any network error (status 0), so it follows the existing
+// transient semantics: outboxed for reports, thrown (→ fail-open in the
+// handlers) for synchronous policy decisions.
+
+describe("SDK fetch timeout", () => {
+  let savedTimeout: string | undefined;
+
+  beforeEach(() => {
+    savedTimeout = process.env["AGENTOPS_SDK_TIMEOUT_MS"];
+  });
+
+  afterEach(() => {
+    if (savedTimeout === undefined) delete process.env["AGENTOPS_SDK_TIMEOUT_MS"];
+    else process.env["AGENTOPS_SDK_TIMEOUT_MS"] = savedTimeout;
+  });
+
+  /** Fetch stub that never resolves — only rejects when its signal aborts. */
+  function mockHangingFetch(): ReturnType<typeof vi.fn> {
+    const fn = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          const signal = init.signal;
+          if (!signal) return; // no signal → hang forever (test would time out)
+          if (signal.aborted) reject(signal.reason);
+          else signal.addEventListener("abort", () => reject(signal.reason));
+        }),
+    );
+    vi.stubGlobal("fetch", fn);
+    return fn;
+  }
+
+  it("defaults to 5000ms, honors AGENTOPS_SDK_TIMEOUT_MS, ignores garbage", () => {
+    delete process.env["AGENTOPS_SDK_TIMEOUT_MS"];
+    expect(sdkTimeoutMs()).toBe(5000);
+    process.env["AGENTOPS_SDK_TIMEOUT_MS"] = "250";
+    expect(sdkTimeoutMs()).toBe(250);
+    process.env["AGENTOPS_SDK_TIMEOUT_MS"] = "not-a-number";
+    expect(sdkTimeoutMs()).toBe(5000);
+    process.env["AGENTOPS_SDK_TIMEOUT_MS"] = "-1";
+    expect(sdkTimeoutMs()).toBe(5000);
+  });
+
+  it("attaches an AbortSignal to every SDK fetch", async () => {
+    const fetchMock = mockFetch([{ status: 200, body: { ok: true } }]);
+    const ops = createOps(resolveOpsConfig(), "timeout-signal-session");
+
+    await ops.reportAction("run_abc", makeAction());
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("checkPolicy against a hanging server rejects with SdkError status 0 (transient)", async () => {
+    process.env["AGENTOPS_SDK_TIMEOUT_MS"] = "25";
+    mockHangingFetch();
+    const ops = createOps(resolveOpsConfig(), "timeout-hang-session");
+
+    let caught: unknown;
+    try {
+      await ops.checkPolicy({
+        runId: "run_abc",
+        toolName: "Bash",
+        toolInput: { command: "ls" },
+        cumulativeCostUsd: 0,
+      });
+      expect.unreachable("checkPolicy should have thrown");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(SdkError);
+    // Status 0 = network-shaped failure → handlers fail-open (or block
+    // under AGENTOPS_FAIL_CLOSED), exactly like a refused connection.
+    expect((caught as SdkError).status).toBe(0);
+  });
+
+  it("reportAction against a hanging server is queued in the outbox, not thrown", async () => {
+    process.env["AGENTOPS_SDK_TIMEOUT_MS"] = "25";
+    mockHangingFetch();
+    const ops = createOps(resolveOpsConfig(), "timeout-outbox-session");
+
+    const errSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    try {
+      await expect(ops.reportAction("run_abc", makeAction())).resolves.toBeUndefined();
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    const outbox = readOutbox("timeout-outbox-session");
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0]!.op).toBe("reportAction");
   });
 });
 

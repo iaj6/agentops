@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { execSync } from "node:child_process";
 import {
   _readState,
   _cleanupState,
@@ -792,6 +793,45 @@ describe("handleSessionEnd", () => {
       if (prev === undefined) delete process.env["CLAUDE_CODE_USE_BEDROCK"];
       else process.env["CLAUDE_CODE_USE_BEDROCK"] = prev;
     }
+  });
+
+  it("computes the git diff from the session's cwd, not the hook process cwd", async () => {
+    // Build a real throwaway git repo under tmpHome with one unstaged
+    // modification. The vitest process itself runs from the agentops repo,
+    // so if finalizeSession ran git without a cwd it would diff THIS repo
+    // (and never see the marker below).
+    const repoDir = join(tmpHome, "session-repo");
+    mkdirSync(repoDir, { recursive: true });
+    const g = (cmd: string) =>
+      execSync(`git ${cmd}`, { cwd: repoDir, stdio: ["pipe", "pipe", "pipe"] });
+    g("init");
+    writeFileSync(join(repoDir, "tracked.txt"), "original contents\n", "utf-8");
+    g("add tracked.txt");
+    g('-c user.email=t@t.test -c user.name=t commit -m init');
+    writeFileSync(
+      join(repoDir, "tracked.txt"),
+      "MARKER-changed-in-session-repo\n",
+      "utf-8",
+    );
+
+    const sid = freshSessionId();
+    await _handleSessionStart({ session_id: sid, cwd: repoDir }, testDbPath);
+    const state = _readState(sid)!;
+
+    await runHook(() => _handleSessionEnd({ session_id: sid, cwd: repoDir }, testDbPath));
+
+    const db = getDb(testDbPath);
+    const run = getRun(db, createRunId(state.runId))!;
+    const diffs = run.artifacts.flatMap((a) => a.diffs).join("\n");
+    expect(diffs).toContain("MARKER-changed-in-session-repo");
+
+    // changedFilesCount flows into the run.completed event payload.
+    const events = listEvents(db, { limit: 20 });
+    const completed = events.find(
+      (e) => e.type === "run.completed" && e.sourceId === state.runId,
+    )!;
+    expect(completed).toBeDefined();
+    expect((completed.payload as { filesChanged?: number }).filesChanged).toBe(1);
   });
 
   it("emits run.completed event", async () => {
