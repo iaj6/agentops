@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { getDb } from "../connection.js";
-import { insertPolicy, listPolicies, getPolicy, updatePolicy, getPolicyStats, insertPolicyResult, getPolicyResults } from "../policies.js";
+import { insertPolicy, listPolicies, getPolicy, updatePolicy, getPolicyStats, insertPolicyResult, getPolicyResults, deletePolicy } from "../policies.js";
 import { insertRun } from "../runs.js";
 import { policyResults } from "../schema.js";
 import type { AgentOpsDb } from "../connection.js";
@@ -421,6 +421,121 @@ describe("Policies repository", () => {
       const phases = rows.map((r) => (r.details as { phase: string }).phase);
       expect(phases).toContain("pre-tool");
       expect(phases).toContain("run-complete");
+    });
+  });
+
+  describe("deletePolicy", () => {
+    function makeRun(id: string): Run {
+      return {
+        id: createRunId(id),
+        status: RunStatus.Completed,
+        goal: {
+          humanReadable: "Test",
+          structured: { type: "task", description: "Test", parameters: {} },
+        },
+        agents: [],
+        environment: {
+          repo: "test/repo",
+          branch: "main",
+          permissions: [],
+          sandbox: { enabled: false, isolationLevel: "none" },
+        },
+        actions: [],
+        artifacts: [],
+        metrics: {
+          tokenUsage: { input: 100, output: 50, total: 150 },
+          wallTimeMs: 1000,
+          costUsd: 0.5,
+          flakeRate: 0,
+        },
+        evaluations: [],
+        decisions: [],
+        createdAt: "2025-01-01T00:00:00.000Z",
+        updatedAt: "2025-01-01T00:00:00.000Z",
+      };
+    }
+
+    function seedPolicy(id: string): void {
+      insertPolicy(db, {
+        id: createPolicyId(id),
+        name: "Cost ceiling",
+        type: PolicyType.CostCeiling,
+        config: { type: PolicyType.CostCeiling, maxUsd: 10 },
+        severity: PolicySeverity.Error,
+        enabled: true,
+        createdAt: "2025-01-01T00:00:00.000Z",
+      });
+    }
+
+    it("deletes a policy that has never been evaluated", () => {
+      seedPolicy("p_fresh");
+      const { policyResults: deleted } = deletePolicy(db, createPolicyId("p_fresh"));
+      expect(deleted).toBe(0);
+      expect(getPolicy(db, createPolicyId("p_fresh"))).toBeNull();
+    });
+
+    it("deletes an evaluated policy despite the FK on policy_results (regression)", () => {
+      // policy_results.policy_id is NOT NULL REFERENCES policies(id) and
+      // connections run with foreign_keys = ON. finalizeRun writes one
+      // result row per active policy on every completed run, so this is
+      // the normal state of any policy that has existed during a run —
+      // the old deletePolicy threw SQLITE_CONSTRAINT_FOREIGNKEY here.
+      seedPolicy("p_used");
+      insertRun(db, makeRun("run_del_1"));
+      insertPolicyResult(db, {
+        id: "pr_del_1",
+        runId: "run_del_1",
+        policyId: "p_used",
+        passed: true,
+        message: "ok",
+        details: {},
+        evaluatedAt: "2025-06-01T14:00:00.000Z",
+      });
+      insertPolicyResult(db, {
+        id: "pr_del_2",
+        runId: "run_del_1",
+        policyId: "p_used",
+        passed: false,
+        message: "over budget",
+        details: {},
+        evaluatedAt: "2025-06-02T14:00:00.000Z",
+      });
+
+      const { policyResults: deleted } = deletePolicy(db, createPolicyId("p_used"));
+      expect(deleted).toBe(2);
+      expect(getPolicy(db, createPolicyId("p_used"))).toBeNull();
+      expect(getPolicyResults(db, createRunId("run_del_1"))).toHaveLength(0);
+    });
+
+    it("does not touch other policies' results", () => {
+      seedPolicy("p_keep");
+      seedPolicy("p_drop");
+      insertRun(db, makeRun("run_del_2"));
+      insertPolicyResult(db, {
+        id: "pr_keep_1",
+        runId: "run_del_2",
+        policyId: "p_keep",
+        passed: true,
+        message: "ok",
+        details: {},
+        evaluatedAt: "2025-06-01T14:00:00.000Z",
+      });
+      insertPolicyResult(db, {
+        id: "pr_drop_1",
+        runId: "run_del_2",
+        policyId: "p_drop",
+        passed: true,
+        message: "ok",
+        details: {},
+        evaluatedAt: "2025-06-01T14:00:00.000Z",
+      });
+
+      const { policyResults: deleted } = deletePolicy(db, createPolicyId("p_drop"));
+      expect(deleted).toBe(1);
+      expect(getPolicy(db, createPolicyId("p_keep"))).not.toBeNull();
+      const remaining = getPolicyResults(db, createRunId("run_del_2"));
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]!.policyId).toBe("p_keep");
     });
   });
 });
