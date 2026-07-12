@@ -47,34 +47,37 @@ describe("summarizePolicyConfig", () => {
 
   // TestEnforcement
   describe("TestEnforcement", () => {
-    it("shows both require-passing and min-coverage", () => {
+    it("shows require-passing", () => {
       expect(
         summarizePolicyConfig({
           type: PolicyType.TestEnforcement,
           requirePassing: true,
-          minCoverage: 80,
-        }),
-      ).toBe("tests must pass, min 80% coverage");
-    });
-
-    it("shows only require-passing when minCoverage is 0", () => {
-      expect(
-        summarizePolicyConfig({
-          type: PolicyType.TestEnforcement,
-          requirePassing: true,
-          minCoverage: 0,
         }),
       ).toBe("tests must pass");
     });
 
-    it("returns No requirements when both flags are off", () => {
+    it("returns No requirements when require-passing is off", () => {
       expect(
         summarizePolicyConfig({
           type: PolicyType.TestEnforcement,
           requirePassing: false,
-          minCoverage: 0,
         }),
       ).toBe("No requirements");
+    });
+
+    it("never claims coverage enforcement, even for legacy rows with minCoverage in the stored config", () => {
+      // Pre-removal DB rows can still carry minCoverage in their JSON blob.
+      // The summary must not surface it — coverage is not enforced anywhere.
+      const legacyConfig = {
+        type: PolicyType.TestEnforcement,
+        requirePassing: true,
+        minCoverage: 80,
+      };
+      expect(
+        summarizePolicyConfig(
+          legacyConfig as unknown as Parameters<typeof summarizePolicyConfig>[0],
+        ),
+      ).toBe("tests must pass");
     });
   });
 

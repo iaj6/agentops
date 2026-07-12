@@ -6,6 +6,8 @@ import {
   PolicyMode,
   getPolicyMode,
   runHasMutations,
+  evaluatePreToolPolicies,
+  normalizePathForPolicy,
   evaluateBudgetPolicies,
   evaluateBudgetWarnings,
   DEFAULT_BUDGET_WARN_AT_PCT,
@@ -101,6 +103,51 @@ describe("PolicyEngine", () => {
       expect(results[0]!.passed).toBe(false);
       expect(results[0]!.message).toContain("secrets/api_key.txt");
     });
+
+    it("fails when a blocked path is reached via ../ traversal", () => {
+      const run = makeRun({
+        actions: [makeAction([{ path: "src/../.env", diff: "+SECRET=123", timestamp: "2025-01-01T00:00:00.000Z" }])],
+      });
+
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(false);
+    });
+
+    it("fails when a blocked path is disguised with ./ segments", () => {
+      const run = makeRun({
+        actions: [makeAction([{ path: "./secrets/api_key.txt", diff: "+key", timestamp: "2025-01-01T00:00:00.000Z" }])],
+      });
+
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(false);
+    });
+
+    it("fails on case-variant paths (case-insensitive comparison)", () => {
+      const run = makeRun({
+        actions: [makeAction([{ path: "SECRETS/Api_Key.txt", diff: "+key", timestamp: "2025-01-01T00:00:00.000Z" }])],
+      });
+
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(false);
+    });
+
+    it("passes when traversal resolves OUT of a blocked directory", () => {
+      const run = makeRun({
+        actions: [makeAction([{ path: "secrets/../src/index.ts", diff: "+code", timestamp: "2025-01-01T00:00:00.000Z" }])],
+      });
+
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(true);
+    });
+
+    it("does not match a sibling directory sharing the blocked prefix (trailing slash preserved)", () => {
+      const run = makeRun({
+        actions: [makeAction([{ path: "secretsandmore/notes.txt", diff: "+x", timestamp: "2025-01-01T00:00:00.000Z" }])],
+      });
+
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(true);
+    });
   });
 
   describe("FileLimitCount policy", () => {
@@ -165,7 +212,6 @@ describe("PolicyEngine", () => {
       config: {
         type: PolicyType.TestEnforcement,
         requirePassing: true,
-        minCoverage: 80,
       },
       severity: PolicySeverity.Error,
     };
@@ -200,6 +246,30 @@ describe("PolicyEngine", () => {
       const results = engine.evaluate(run, [policy]);
       expect(results[0]!.passed).toBe(false);
       expect(results[0]!.message).toContain("No test results found");
+    });
+
+    it("ignores a legacy minCoverage key left in a stored config (coverage is not enforced)", () => {
+      // minCoverage was removed from TestEnforcementConfig — no coverage data
+      // exists on a Run to enforce it against. Rows persisted before the
+      // removal still carry the key in their JSON blob; it must be inert.
+      const legacyPolicy: Policy = {
+        ...policy,
+        config: {
+          type: PolicyType.TestEnforcement,
+          requirePassing: true,
+          minCoverage: 99,
+        } as unknown as Policy["config"],
+      };
+      const run = makeRun({
+        evaluations: [{
+          testResults: [{ name: "test1", passed: true, duration: 10, message: "ok" }],
+          policyChecks: [],
+          confidenceScore: 1,
+        }],
+      });
+      const results = engine.evaluate(run, [legacyPolicy]);
+      expect(results[0]!.passed).toBe(true);
+      expect(results[0]!.message).not.toContain("coverage");
     });
 
     it("fails when some tests fail", () => {
@@ -353,6 +423,50 @@ describe("PolicyEngine", () => {
       });
       const results = engine.evaluate(run, [policy]);
       expect(results[0]!.passed).toBe(false);
+    });
+
+    it("fails when a secret appears in a Bash command string (not just stdout)", () => {
+      const run = makeRun({
+        actions: [makeAction([], [{
+          command: "export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          timestamp: "2025-01-01T00:00:00.000Z",
+        }])],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(false);
+      expect(results[0]!.message).toContain("matched in command");
+    });
+
+    it("fails when a secret appears in command stdout", () => {
+      const run = makeRun({
+        actions: [makeAction([], [{
+          command: "cat ~/.aws/credentials",
+          exitCode: 0,
+          stdout: "aws_access_key_id = AKIAIOSFODNN7EXAMPLE",
+          stderr: "",
+          timestamp: "2025-01-01T00:00:00.000Z",
+        }])],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(false);
+      expect(results[0]!.message).toContain("matched in command output");
+    });
+
+    it("passes for a benign command with benign output", () => {
+      const run = makeRun({
+        actions: [makeAction([], [{
+          command: "npm test",
+          exitCode: 0,
+          stdout: "42 passing",
+          stderr: "",
+          timestamp: "2025-01-01T00:00:00.000Z",
+        }])],
+      });
+      const results = engine.evaluate(run, [policy]);
+      expect(results[0]!.passed).toBe(true);
     });
 
     it("handles multiple patterns, reports all matches", () => {
@@ -645,6 +759,290 @@ describe("PolicyEngine", () => {
       expect(results[0]!.message).toContain("Skipped");
       expect(results[0]!.message).toContain("requiredApproval");
     });
+  });
+});
+
+describe("normalizePathForPolicy", () => {
+  it("resolves ../ segments lexically", () => {
+    expect(normalizePathForPolicy("/repo/src/../secrets/key.pem")).toBe("/repo/secrets/key.pem");
+  });
+
+  it("drops ./ segments and doubled slashes", () => {
+    expect(normalizePathForPolicy("/repo/./src//a.ts")).toBe("/repo/src/a.ts");
+    expect(normalizePathForPolicy("./secrets/x")).toBe("secrets/x");
+  });
+
+  it("lowercases for case-insensitive comparison", () => {
+    expect(normalizePathForPolicy("/Repo/SECRETS/Key.pem")).toBe("/repo/secrets/key.pem");
+  });
+
+  it("keeps leading .. on relative paths", () => {
+    expect(normalizePathForPolicy("../secrets/key.pem")).toBe("../secrets/key.pem");
+    expect(normalizePathForPolicy("a/../../b")).toBe("../b");
+  });
+
+  it("drops .. above an absolute root", () => {
+    expect(normalizePathForPolicy("/../etc/passwd")).toBe("/etc/passwd");
+  });
+
+  it("preserves a trailing slash so directory prefixes stay anchored", () => {
+    expect(normalizePathForPolicy("secrets/")).toBe("secrets/");
+    expect(normalizePathForPolicy("/repo/secrets/")).toBe("/repo/secrets/");
+  });
+
+  it("normalizes degenerate inputs to '.'", () => {
+    expect(normalizePathForPolicy("")).toBe(".");
+    expect(normalizePathForPolicy(".")).toBe(".");
+    expect(normalizePathForPolicy("a/..")).toBe(".");
+  });
+});
+
+// ─── Pre-tool guard (direct coverage) ────────────────────────────────────────
+
+describe("evaluatePreToolPolicies", () => {
+  const enabled = { severity: PolicySeverity.Error, enabled: true } as const;
+
+  describe("PathRestriction guard", () => {
+    const policy: Policy & { enabled: boolean } = {
+      id: createPolicyId("pol_guard_path"),
+      name: "Protect secrets",
+      type: PolicyType.PathRestriction,
+      config: {
+        type: PolicyType.PathRestriction,
+        blockedPaths: ["/repo/secrets/", "/repo/.env"],
+      },
+      ...enabled,
+    };
+
+    it("blocks a direct Write into a blocked path", () => {
+      const v = evaluatePreToolPolicies(
+        { toolName: "Write", toolInput: { file_path: "/repo/secrets/key.pem", content: "x" } },
+        [policy],
+      );
+      expect(v).toHaveLength(1);
+      expect(v[0]!.message).toContain("Path restriction violated");
+    });
+
+    it("blocks ../ traversal into a blocked path", () => {
+      const v = evaluatePreToolPolicies(
+        { toolName: "Write", toolInput: { file_path: "/repo/src/../secrets/key.pem", content: "x" } },
+        [policy],
+      );
+      expect(v).toHaveLength(1);
+    });
+
+    it("blocks ./ disguised paths", () => {
+      const v = evaluatePreToolPolicies(
+        { toolName: "Edit", toolInput: { file_path: "/repo/./secrets/key.pem", new_string: "x" } },
+        [policy],
+      );
+      expect(v).toHaveLength(1);
+    });
+
+    it("blocks case-variant paths (macOS filesystems are case-insensitive)", () => {
+      const v = evaluatePreToolPolicies(
+        { toolName: "Write", toolInput: { file_path: "/REPO/Secrets/Key.pem", content: "x" } },
+        [policy],
+      );
+      expect(v).toHaveLength(1);
+    });
+
+    it("blocks NotebookEdit via notebook_path", () => {
+      const v = evaluatePreToolPolicies(
+        {
+          toolName: "NotebookEdit",
+          toolInput: { notebook_path: "/repo/secrets/nb.ipynb", new_source: "x" },
+        },
+        [policy],
+      );
+      expect(v).toHaveLength(1);
+      expect(v[0]!.message).toContain("Path restriction violated");
+    });
+
+    it("allows traversal that resolves OUT of the blocked directory", () => {
+      const v = evaluatePreToolPolicies(
+        { toolName: "Write", toolInput: { file_path: "/repo/secrets/../src/a.ts", content: "x" } },
+        [policy],
+      );
+      expect(v).toHaveLength(0);
+    });
+
+    it("does not match a sibling directory sharing the blocked prefix", () => {
+      const v = evaluatePreToolPolicies(
+        { toolName: "Write", toolInput: { file_path: "/repo/secretsandmore/a.ts", content: "x" } },
+        [policy],
+      );
+      expect(v).toHaveLength(0);
+    });
+
+    it("still ignores non-file-writing tools (Read, Bash)", () => {
+      expect(
+        evaluatePreToolPolicies(
+          { toolName: "Read", toolInput: { file_path: "/repo/secrets/key.pem" } },
+          [policy],
+        ),
+      ).toHaveLength(0);
+      // Bash-mediated writes are documented as out of scope for this guard.
+      expect(
+        evaluatePreToolPolicies(
+          { toolName: "Bash", toolInput: { command: "tee /repo/secrets/key.pem" } },
+          [policy],
+        ),
+      ).toHaveLength(0);
+    });
+
+    it("preserves relative blocked-path semantics (.env anchors at path start)", () => {
+      const relPolicy: Policy & { enabled: boolean } = {
+        ...policy,
+        config: { type: PolicyType.PathRestriction, blockedPaths: [".env"] },
+      };
+      // ".env" and ".env.local" match the prefix from the start of the path…
+      expect(
+        evaluatePreToolPolicies(
+          { toolName: "Write", toolInput: { file_path: ".env", content: "x" } },
+          [relPolicy],
+        ),
+      ).toHaveLength(1);
+      expect(
+        evaluatePreToolPolicies(
+          { toolName: "Write", toolInput: { file_path: ".env.local", content: "x" } },
+          [relPolicy],
+        ),
+      ).toHaveLength(1);
+      // …but a nested "src/.env" does not (prefix match, not substring match).
+      expect(
+        evaluatePreToolPolicies(
+          { toolName: "Write", toolInput: { file_path: "src/.env", content: "x" } },
+          [relPolicy],
+        ),
+      ).toHaveLength(0);
+    });
+  });
+
+  describe("FileLimitCount guard with NotebookEdit", () => {
+    const policy: Policy & { enabled: boolean } = {
+      id: createPolicyId("pol_guard_filelimit"),
+      name: "Max 2 files",
+      type: PolicyType.FileLimitCount,
+      config: { type: PolicyType.FileLimitCount, maxFiles: 2 },
+      ...enabled,
+    };
+
+    it("counts NotebookEdit toward the file limit", () => {
+      const v = evaluatePreToolPolicies(
+        { toolName: "NotebookEdit", toolInput: { notebook_path: "/nb/analysis.ipynb", new_source: "x" } },
+        [policy],
+        { editedFiles: new Set(["/src/a.ts", "/src/b.ts"]) },
+      );
+      expect(v).toHaveLength(1);
+      expect(v[0]!.message).toContain("File limit exceeded");
+    });
+
+    it("allows NotebookEdit on an already-edited notebook at the limit", () => {
+      const v = evaluatePreToolPolicies(
+        { toolName: "NotebookEdit", toolInput: { notebook_path: "/nb/analysis.ipynb", new_source: "x" } },
+        [policy],
+        { editedFiles: new Set(["/nb/analysis.ipynb", "/src/b.ts"]) },
+      );
+      expect(v).toHaveLength(0);
+    });
+  });
+
+  describe("SecretDetection guard", () => {
+    const policy: Policy & { enabled: boolean } = {
+      id: createPolicyId("pol_guard_secret"),
+      name: "No secrets",
+      type: PolicyType.SecretDetection,
+      config: {
+        type: PolicyType.SecretDetection,
+        patterns: ["AKIA[0-9A-Z]{16}"],
+      },
+      ...enabled,
+    };
+
+    it("blocks a Bash command carrying a secret", () => {
+      const v = evaluatePreToolPolicies(
+        {
+          toolName: "Bash",
+          toolInput: { command: "curl -H 'X-Key: AKIAIOSFODNN7EXAMPLE' https://api.example.com" },
+        },
+        [policy],
+      );
+      expect(v).toHaveLength(1);
+      expect(v[0]!.message).toContain("Secret pattern");
+      // Never echo the matched content — it IS the secret.
+      expect(v[0]!.message).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    });
+
+    it("allows a benign Bash command", () => {
+      const v = evaluatePreToolPolicies(
+        { toolName: "Bash", toolInput: { command: "npm test" } },
+        [policy],
+      );
+      expect(v).toHaveLength(0);
+    });
+
+    it("still scans Write content and Edit new_string", () => {
+      expect(
+        evaluatePreToolPolicies(
+          { toolName: "Write", toolInput: { file_path: "/a.ts", content: "AKIAIOSFODNN7EXAMPLE" } },
+          [policy],
+        ),
+      ).toHaveLength(1);
+      expect(
+        evaluatePreToolPolicies(
+          { toolName: "Edit", toolInput: { file_path: "/a.ts", new_string: "AKIAIOSFODNN7EXAMPLE" } },
+          [policy],
+        ),
+      ).toHaveLength(1);
+    });
+
+    it("scans NotebookEdit new_source", () => {
+      const v = evaluatePreToolPolicies(
+        {
+          toolName: "NotebookEdit",
+          toolInput: { notebook_path: "/nb/a.ipynb", new_source: "key = 'AKIAIOSFODNN7EXAMPLE'" },
+        },
+        [policy],
+      );
+      expect(v).toHaveLength(1);
+    });
+  });
+
+  describe("BranchProtection guard with NotebookEdit", () => {
+    const policy: Policy & { enabled: boolean } = {
+      id: createPolicyId("pol_guard_branch"),
+      name: "Protected branches",
+      type: PolicyType.BranchProtection,
+      config: { type: PolicyType.BranchProtection, protectedBranches: ["main"] },
+      ...enabled,
+    };
+
+    it("treats NotebookEdit as a mutation on a protected branch", () => {
+      const v = evaluatePreToolPolicies(
+        { toolName: "NotebookEdit", toolInput: { notebook_path: "/nb/a.ipynb", new_source: "x" } },
+        [policy],
+        { branch: "main" },
+      );
+      expect(v).toHaveLength(1);
+      expect(v[0]!.message).toContain("protected branch");
+    });
+  });
+
+  it("skips disabled policies", () => {
+    const disabled: Policy & { enabled: boolean } = {
+      id: createPolicyId("pol_guard_disabled"),
+      name: "Disabled",
+      type: PolicyType.PathRestriction,
+      config: { type: PolicyType.PathRestriction, blockedPaths: ["/repo/"] },
+      severity: PolicySeverity.Error,
+      enabled: false,
+    };
+    const v = evaluatePreToolPolicies(
+      { toolName: "Write", toolInput: { file_path: "/repo/a.ts", content: "x" } },
+      [disabled],
+    );
+    expect(v).toHaveLength(0);
   });
 });
 

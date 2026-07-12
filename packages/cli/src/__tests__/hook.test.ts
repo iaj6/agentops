@@ -172,6 +172,8 @@ describe("Tool-to-action mapping", () => {
     expect(action.toolCalls[0]!.name).toBe("Edit");
     expect(action.fileEdits).toHaveLength(1);
     expect(action.fileEdits[0]!.path).toBe("/src/index.ts");
+    // diff carries the written content so post-hoc SecretDetection can scan it
+    expect(action.fileEdits[0]!.diff).toBe("bar");
     expect(action.commands).toHaveLength(0);
   });
 
@@ -186,6 +188,44 @@ describe("Tool-to-action mapping", () => {
 
     expect(action.fileEdits).toHaveLength(1);
     expect(action.fileEdits[0]!.path).toBe("/src/new.ts");
+    expect(action.fileEdits[0]!.diff).toBe("hello");
+  });
+
+  it("truncates oversized written content in the diff field", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Write",
+      tool_input: { file_path: "/src/big.ts", content: "x".repeat(20000) },
+    };
+
+    const action = _mapToolToAction(input);
+    expect(action.fileEdits[0]!.diff).toHaveLength(10000);
+  });
+
+  it("falls back to empty diff when written content is missing", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Edit",
+      tool_input: { file_path: "/src/index.ts" },
+    };
+
+    const action = _mapToolToAction(input);
+    expect(action.fileEdits).toHaveLength(1);
+    expect(action.fileEdits[0]!.diff).toBe("");
+  });
+
+  it("maps NotebookEdit tool to a file edit via notebook_path", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "NotebookEdit",
+      tool_input: { notebook_path: "/nb/analysis.ipynb", new_source: "print('hi')" },
+    };
+
+    const action = _mapToolToAction(input);
+    expect(action.fileEdits).toHaveLength(1);
+    expect(action.fileEdits[0]!.path).toBe("/nb/analysis.ipynb");
+    expect(action.fileEdits[0]!.diff).toBe("print('hi')");
+    expect(action.commands).toHaveLength(0);
   });
 
   it("maps Read tool to action with no edits", () => {
@@ -326,6 +366,40 @@ describe("Pre-tool-use policy checking", () => {
     const violations = _checkPreToolPolicies(input, [pathPolicy]);
     expect(violations).toHaveLength(1);
     expect(violations[0]!.message).toContain("~/.ssh/");
+  });
+
+  it("detects blocked file paths reached via ../ traversal", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Write",
+      tool_input: { file_path: "/tmp/../etc/passwd" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [pathPolicy]);
+    expect(violations).toHaveLength(1);
+  });
+
+  it("detects blocked file paths with case variants", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Edit",
+      tool_input: { file_path: "/ETC/passwd" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [pathPolicy]);
+    expect(violations).toHaveLength(1);
+  });
+
+  it("detects blocked file paths on NotebookEdit via notebook_path", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "NotebookEdit",
+      tool_input: { notebook_path: "/etc/evil.ipynb", new_source: "x" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [pathPolicy]);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.message).toContain("/etc/");
   });
 
   it("returns no violations for safe commands", () => {
@@ -533,6 +607,31 @@ describe("Pre-tool-use policy checking", () => {
       session_id: "test",
       tool_name: "Write",
       tool_input: { file_path: "/src/index.ts", content: "export const foo = 42;" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [secretPolicy]);
+    expect(violations).toHaveLength(0);
+  });
+
+  it("blocks Bash command carrying a secret", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Bash",
+      tool_input: { command: "export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE" },
+    };
+
+    const violations = _checkPreToolPolicies(input, [secretPolicy]);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.message).toContain("Secret pattern");
+    // The block message must never echo the secret it caught.
+    expect(violations[0]!.message).not.toContain("AKIAIOSFODNN7EXAMPLE");
+  });
+
+  it("allows Bash command with no secrets", () => {
+    const input: HookInput = {
+      session_id: "test",
+      tool_name: "Bash",
+      tool_input: { command: "npm run build" },
     };
 
     const violations = _checkPreToolPolicies(input, [secretPolicy]);

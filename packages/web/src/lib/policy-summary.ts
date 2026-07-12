@@ -16,13 +16,11 @@ export function summarizePolicyConfig(config: PolicyConfig): string {
         : `Block paths: ${config.blockedPaths.join(", ")}`;
     case PolicyType.FileLimitCount:
       return `Max ${config.maxFiles} file${config.maxFiles === 1 ? "" : "s"} per session`;
-    case PolicyType.TestEnforcement: {
-      const parts = [];
-      if (config.requirePassing) parts.push("tests must pass");
-      if (config.minCoverage > 0)
-        parts.push(`min ${config.minCoverage}% coverage`);
-      return parts.length > 0 ? parts.join(", ") : "No requirements";
-    }
+    case PolicyType.TestEnforcement:
+      // minCoverage was removed from the config: it was rendered here but
+      // never enforced anywhere (no coverage data exists on a Run), so the
+      // summary was claiming enforcement that couldn't happen.
+      return config.requirePassing ? "tests must pass" : "No requirements";
     case PolicyType.RiskyOpFlag:
       return config.riskyPatterns.length === 0
         ? "No patterns"

@@ -72,7 +72,11 @@ export interface FileLimitCountConfig {
 export interface TestEnforcementConfig {
   readonly type: PolicyType.TestEnforcement;
   readonly requirePassing: boolean;
-  readonly minCoverage: number;
+  // NOTE: a `minCoverage` field used to live here. It was declared, persisted,
+  // and rendered in the dashboard but never enforced — no coverage number
+  // exists anywhere in the domain model (TestResult carries name/passed/
+  // duration/message only). Removed rather than left as UI theater; legacy
+  // rows that still carry the key in their JSON config are ignored.
 }
 
 export interface RiskyOpFlagConfig {
@@ -119,14 +123,66 @@ export function runHasMutations(run: Run): boolean {
   );
 }
 
+// ─── Path normalization for PathRestriction ──────────────────────────────────
+//
+// A raw startsWith prefix check is trivially bypassed with "../" traversal
+// ("/repo/src/../secrets/key.pem"), redundant "./" segments, doubled
+// separators, or — on case-insensitive filesystems like the macOS default —
+// a case change ("/repo/SECRETS/key.pem"). Both the pre-tool guard and the
+// post-hoc evaluator therefore compare *normalized* paths.
+//
+// Normalization is purely lexical (node:path posix-normalize semantics,
+// reimplemented here so core stays dependency-free and browser-safe): the
+// guard must work for files that don't exist yet, so no fs access. "." and
+// empty segments are dropped; ".." pops the previous segment (or is dropped
+// at an absolute root, kept at the head of a relative path); a trailing
+// slash is preserved so a "secrets/" prefix can't match "secretsandmore/".
+// Finally the result is lowercased. Lowercasing can over-block on
+// case-sensitive filesystems (Linux), but for a guard, failing closed on a
+// case collision is the right trade.
+export function normalizePathForPolicy(p: string): string {
+  const absolute = p.startsWith("/");
+  const hadTrailingSlash = p.endsWith("/");
+  const segments: string[] = [];
+  for (const seg of p.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      const top = segments[segments.length - 1];
+      if (top !== undefined && top !== "..") {
+        segments.pop();
+      } else if (!absolute) {
+        segments.push("..");
+      }
+      // ".." at an absolute root is dropped — nothing above "/".
+      continue;
+    }
+    segments.push(seg);
+  }
+  let out = (absolute ? "/" : "") + segments.join("/");
+  if (out === "") out = ".";
+  if (hadTrailingSlash && !out.endsWith("/")) out += "/";
+  return out.toLowerCase();
+}
+
+/** Blocked-path entries whose normalized form is a prefix of the normalized file path. */
+function matchBlockedPaths(
+  filePath: string,
+  blockedPaths: ReadonlyArray<string>,
+): string[] {
+  const normalized = normalizePathForPolicy(filePath);
+  return blockedPaths.filter((blocked) =>
+    normalized.startsWith(normalizePathForPolicy(blocked)),
+  );
+}
+
 // ─── Policy engine ───────────────────────────────────────────────────────────
 
 function evaluatePathRestriction(run: Run, policy: Policy, config: PathRestrictionConfig): PolicyResult {
   const editedPaths = run.actions.flatMap((a) =>
     a.fileEdits.map((e) => e.path)
   );
-  const violations = editedPaths.filter((p) =>
-    config.blockedPaths.some((blocked) => p.startsWith(blocked))
+  const violations = editedPaths.filter(
+    (p) => matchBlockedPaths(p, config.blockedPaths).length > 0
   );
   return {
     passed: violations.length === 0,
@@ -260,6 +316,12 @@ function evaluateSecretDetection(run: Run, policy: Policy, config: SecretDetecti
     }
     for (const cmd of action.commands) {
       for (const { source, re } of compiledPatterns) {
+        // Scan the command string itself, not just its output — a secret
+        // pasted into `export AWS_KEY=...` or `curl -H "Authorization: ..."`
+        // never appears in stdout.
+        if (re.test(cmd.command)) {
+          matched.push(`Pattern "${source}" matched in command`);
+        }
         if (re.test(cmd.stdout)) {
           matched.push(`Pattern "${source}" matched in command output`);
         }
@@ -433,6 +495,52 @@ function summarizeCommand(cmd: string): string {
   return cmd.length > 80 ? cmd.slice(0, 77) + "..." : cmd;
 }
 
+// Target path of a pending file write, for the tools that declare one.
+// Edit/Write use `file_path`; NotebookEdit uses `notebook_path` (previously
+// never inspected, so notebooks were a blanket bypass for path policies).
+//
+// LIMITATION: Bash-mediated writes are NOT intercepted. A `tee`, `>`
+// redirect, `cp`, or heredoc can still touch a blocked path — parsing shell
+// commands for write targets is out of scope for this guard (and the
+// post-hoc evaluator has the same blind spot). Pair a PathRestriction with
+// RiskyOpFlag patterns if shell writes to sensitive paths are a concern.
+function fileWriteTargetPath(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+): string | null {
+  const key =
+    toolName === "Edit" || toolName === "Write"
+      ? "file_path"
+      : toolName === "NotebookEdit"
+        ? "notebook_path"
+        : null;
+  if (key === null) return null;
+  const value = toolInput[key];
+  return typeof value === "string" ? value : null;
+}
+
+// Content a pending tool call is about to write (or run), for SecretDetection.
+// Bash is included: a secret embedded in the command string itself (env
+// export, curl auth header) would otherwise reach the shell unscanned.
+function scannableToolContent(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+): string {
+  const key =
+    toolName === "Write"
+      ? "content"
+      : toolName === "Edit"
+        ? "new_string"
+        : toolName === "NotebookEdit"
+          ? "new_source"
+          : toolName === "Bash"
+            ? "command"
+            : null;
+  if (key === null) return "";
+  const value = toolInput[key];
+  return typeof value === "string" ? value : "";
+}
+
 export function evaluatePreToolPolicies(
   invocation: ToolInvocation,
   activePolicies: ReadonlyArray<Policy & { enabled: boolean }>,
@@ -467,48 +575,39 @@ export function evaluatePreToolPolicies(
       }
     }
 
-    if (
-      policy.config.type === PolicyType.PathRestriction &&
-      (toolName === "Edit" || toolName === "Write") &&
-      typeof toolInput["file_path"] === "string"
-    ) {
-      const filePath = toolInput["file_path"] as string;
-      const blocked = policy.config.blockedPaths.filter((p) =>
-        filePath.startsWith(p),
-      );
-      if (blocked.length > 0) {
-        violations.push({
-          policy: policy.name,
-          message: `Path restriction violated: ${summarizePath(filePath)} matches blocked path(s): ${blocked.join(", ")}`,
-          severity: policy.severity,
-        });
+    if (policy.config.type === PolicyType.PathRestriction) {
+      // Normalized + case-insensitive comparison; see normalizePathForPolicy
+      // and the Bash-write limitation documented on fileWriteTargetPath.
+      const filePath = fileWriteTargetPath(toolName, toolInput);
+      if (filePath !== null) {
+        const blocked = matchBlockedPaths(filePath, policy.config.blockedPaths);
+        if (blocked.length > 0) {
+          violations.push({
+            policy: policy.name,
+            message: `Path restriction violated: ${summarizePath(filePath)} matches blocked path(s): ${blocked.join(", ")}`,
+            severity: policy.severity,
+          });
+        }
       }
     }
 
-    if (
-      policy.config.type === PolicyType.FileLimitCount &&
-      (toolName === "Edit" || toolName === "Write") &&
-      typeof toolInput["file_path"] === "string"
-    ) {
-      const filePath = toolInput["file_path"] as string;
-      const config = policy.config as FileLimitCountConfig;
-      const currentFiles = context?.editedFiles ?? new Set<string>();
-      if (!currentFiles.has(filePath) && currentFiles.size >= config.maxFiles) {
-        violations.push({
-          policy: policy.name,
-          message: `File limit exceeded: editing "${summarizePath(filePath)}" would be file ${currentFiles.size + 1}, limit is ${config.maxFiles}`,
-          severity: policy.severity,
-        });
+    if (policy.config.type === PolicyType.FileLimitCount) {
+      const filePath = fileWriteTargetPath(toolName, toolInput);
+      if (filePath !== null) {
+        const config = policy.config as FileLimitCountConfig;
+        const currentFiles = context?.editedFiles ?? new Set<string>();
+        if (!currentFiles.has(filePath) && currentFiles.size >= config.maxFiles) {
+          violations.push({
+            policy: policy.name,
+            message: `File limit exceeded: editing "${summarizePath(filePath)}" would be file ${currentFiles.size + 1}, limit is ${config.maxFiles}`,
+            severity: policy.severity,
+          });
+        }
       }
     }
 
-    if (
-      policy.config.type === PolicyType.SecretDetection &&
-      (toolName === "Write" || toolName === "Edit")
-    ) {
-      const content = toolName === "Write"
-        ? (typeof toolInput["content"] === "string" ? toolInput["content"] as string : "")
-        : (typeof toolInput["new_string"] === "string" ? toolInput["new_string"] as string : "");
+    if (policy.config.type === PolicyType.SecretDetection) {
+      const content = scannableToolContent(toolName, toolInput);
 
       if (content) {
         const config = policy.config as SecretDetectionConfig;
@@ -530,7 +629,10 @@ export function evaluatePreToolPolicies(
 
     if (
       policy.config.type === PolicyType.BranchProtection &&
-      (toolName === "Write" || toolName === "Edit" || toolName === "Bash")
+      (toolName === "Write" ||
+        toolName === "Edit" ||
+        toolName === "NotebookEdit" ||
+        toolName === "Bash")
     ) {
       const branch = context?.branch;
       if (branch) {
