@@ -635,13 +635,13 @@ describe("handleStop", () => {
     const cwd = "/tmp/test-cwd";
     await _handleSessionStart({ session_id: sid, cwd }, testDbPath);
 
-    // Ceiling chosen so 5000 input tokens on opus 4.7 (~$0.075) lands
-    // squarely in the 80–99% warning band: maxUsd ≈ $0.085.
+    // Ceiling chosen so 5000 input tokens on opus 4.7 (~$0.025 at $5/MTok)
+    // lands squarely in the 80–99% warning band: maxUsd ≈ $0.028.
     insertPolicy(getDb(testDbPath), {
       id: createPolicyId("p_warn_band"),
       name: "Soft ceiling",
       type: PolicyType.CostCeiling,
-      config: { type: PolicyType.CostCeiling, maxUsd: 0.085 },
+      config: { type: PolicyType.CostCeiling, maxUsd: 0.028 },
       severity: PolicySeverity.Error,
       enabled: true,
       createdAt: new Date().toISOString(),
@@ -758,11 +758,11 @@ describe("handleSessionEnd", () => {
     await runHook(() => _handleSessionEnd({ session_id: sid, cwd }, testDbPath));
 
     const run = getRun(getDb(testDbPath), createRunId(state.runId))!;
-    expect(run.metrics.costUsd).toBeCloseTo(15, 4);
+    expect(run.metrics.costUsd).toBeCloseTo(5, 4);
     expect(run.metrics.tokenUsage.input).toBe(1_000_000);
     // Backend + per-model cost are captured (no env => direct Anthropic).
     expect(run.metrics.backend).toBe("anthropic");
-    expect(run.metrics.byModel?.["claude-opus-4-7"]).toBeCloseTo(15, 4);
+    expect(run.metrics.byModel?.["claude-opus-4-7"]).toBeCloseTo(5, 4);
   });
 
   it("tags the run 'bedrock' when CLAUDE_CODE_USE_BEDROCK is set", async () => {
@@ -784,10 +784,10 @@ describe("handleSessionEnd", () => {
 
       const run = getRun(getDb(testDbPath), createRunId(state.runId))!;
       expect(run.metrics.backend).toBe("bedrock");
-      expect(run.metrics.costUsd).toBeCloseTo(15, 4);
+      expect(run.metrics.costUsd).toBeCloseTo(5, 4);
       expect(
         run.metrics.byModel?.["us.anthropic.claude-opus-4-7-v1:0"],
-      ).toBeCloseTo(15, 4);
+      ).toBeCloseTo(5, 4);
     } finally {
       if (prev === undefined) delete process.env["CLAUDE_CODE_USE_BEDROCK"];
       else process.env["CLAUDE_CODE_USE_BEDROCK"] = prev;

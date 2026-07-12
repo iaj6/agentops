@@ -14,6 +14,24 @@ describe("resolvePricing", () => {
     );
   });
 
+  it("resolves the current model generation", () => {
+    expect(resolvePricing("claude-opus-4-8")).toBe(ANTHROPIC_PRICING["claude-opus-4-8"]);
+    expect(resolvePricing("claude-sonnet-5")).toBe(ANTHROPIC_PRICING["claude-sonnet-5"]);
+    expect(resolvePricing("claude-fable-5")).toBe(ANTHROPIC_PRICING["claude-fable-5"]);
+  });
+
+  it("resolves dated variants of both claude-sonnet-4-5 and claude-sonnet-5", () => {
+    // "claude-sonnet-5-..." must not prefix-match "claude-sonnet-4-5" or vice
+    // versa; both should land on the Sonnet tier via their own keys.
+    expect(resolvePricing("claude-sonnet-4-5-20250929")?.inputPerMTok).toBe(3);
+    expect(resolvePricing("claude-sonnet-5-20260201")?.inputPerMTok).toBe(3);
+  });
+
+  it("prices pre-4.5 Opus at the legacy $15/$75 tier", () => {
+    expect(resolvePricing("claude-opus-4-1")!.inputPerMTok).toBe(15);
+    expect(resolvePricing("claude-opus-4-8")!.inputPerMTok).toBe(5);
+  });
+
   it("matches by prefix for dated suffixes", () => {
     expect(resolvePricing("claude-sonnet-4-5-20250929")).toBe(
       ANTHROPIC_PRICING["claude-sonnet-4-5"],
@@ -83,28 +101,37 @@ describe("Bedrock/Anthropic parity (as of 2026-05-13)", () => {
 
 describe("computeCost", () => {
   it("computes base input + output for Opus 4.7", () => {
-    // 1M input @ $15 + 1M output @ $75 = $90
+    // 1M input @ $5 + 1M output @ $25 = $30
     const cost = computeCost("claude-opus-4-7", {
       input_tokens: 1_000_000,
       output_tokens: 1_000_000,
     });
-    expect(cost).toBeCloseTo(90, 6);
+    expect(cost).toBeCloseTo(30, 6);
   });
 
   it("applies 0.10x rate to cache reads", () => {
-    // 1M cache reads on Opus = $1.50
+    // 1M cache reads on Opus = $0.50
     const cost = computeCost("claude-opus-4-7", {
       cache_read_input_tokens: 1_000_000,
     });
-    expect(cost).toBeCloseTo(1.5, 6);
+    expect(cost).toBeCloseTo(0.5, 6);
   });
 
   it("applies 1.25x rate to cache writes", () => {
-    // 1M cache writes on Opus = $18.75
+    // 1M cache writes on Opus = $6.25
     const cost = computeCost("claude-opus-4-7", {
       cache_creation_input_tokens: 1_000_000,
     });
-    expect(cost).toBeCloseTo(18.75, 6);
+    expect(cost).toBeCloseTo(6.25, 6);
+  });
+
+  it("computes Fable 5 at the Mythos-class tier", () => {
+    // 1M input @ $10 + 1M output @ $50 = $60
+    const cost = computeCost("claude-fable-5", {
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+    });
+    expect(cost).toBeCloseTo(60, 6);
   });
 
   it("computes mixed usage for Sonnet 4.6", () => {
@@ -136,10 +163,10 @@ describe("computeCost", () => {
       { input_tokens: 1_000_000, output_tokens: 0 },
       "bedrock",
     );
-    expect(cost).toBeCloseTo(15, 4);
+    expect(cost).toBeCloseTo(5, 4);
   });
 
-  it("returns 0 when model is unknown to selected backend", () => {
+  it("resolves a Bedrock-formatted id even against the anthropic table", () => {
     // Forcing anthropic backend on a Bedrock-formatted id (no normalization
     // path that matches an Anthropic key)
     const cost = computeCost(
@@ -150,23 +177,23 @@ describe("computeCost", () => {
     // Anthropic table doesn't normalize Bedrock prefixes the same way,
     // but normalizeModelId is shared — so it WILL resolve. Document the
     // current behavior rather than over-constraining.
-    expect(cost).toBeCloseTo(15, 4);
+    expect(cost).toBeCloseTo(5, 4);
   });
 
   it("matches real transcript line for Opus 4.7", () => {
     // Realistic line from a session:
     //   input=6, cache_creation=14483, cache_read=16963, output=472
-    // 6*15/1e6 = 0.00009
-    // 14483*18.75/1e6 = 0.27155625
-    // 16963*1.5/1e6 = 0.0254445
-    // 472*75/1e6 = 0.0354
-    // sum ~= 0.3324907
+    // 6*5/1e6 = 0.00003
+    // 14483*6.25/1e6 = 0.09051875
+    // 16963*0.5/1e6 = 0.0084815
+    // 472*25/1e6 = 0.0118
+    // sum ~= 0.11083025
     const cost = computeCost("claude-opus-4-7", {
       input_tokens: 6,
       cache_creation_input_tokens: 14483,
       cache_read_input_tokens: 16963,
       output_tokens: 472,
     });
-    expect(cost).toBeCloseTo(0.3324907, 4);
+    expect(cost).toBeCloseTo(0.11083025, 4);
   });
 });

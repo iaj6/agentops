@@ -109,6 +109,7 @@ function cleanupState(claudeSessionId: string): void {
 interface HookInput {
   session_id: string;
   cwd?: string;
+  transcript_path?: string;
   hook_event_name?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
@@ -117,6 +118,34 @@ interface HookInput {
   agent_type?: string;
   agent_transcript_path?: string;
   tool_use_id?: string;
+}
+
+// ─── Transcript usage for a hook event ───────────────────────────────────────
+//
+// Prefer the transcript_path Claude Code sends in every hook payload — it is
+// authoritative. Reconstructing the path from cwd is the fallback, and it can
+// miss (the encoding must match Claude Code's exactly), which silently reads
+// as $0 spend. Unknown-model pricing is the same failure mode, so both warn
+// on stderr instead of failing silent: a cost pipeline that quietly reports
+// $0 defeats every budget policy downstream.
+
+function readHookUsage(
+  input: HookInput,
+  state: HookState,
+): { usage: SessionUsage; backend: Backend } {
+  const backend = state.backend ?? detectBackend();
+  const cwd = state.cwd ?? input.cwd;
+  const path =
+    input.transcript_path ?? (cwd ? transcriptPath(cwd, input.session_id) : null);
+  const usage = path ? readSessionUsage(path, backend) : ZERO_USAGE;
+  if (usage.unknownModels.length > 0) {
+    process.stderr.write(
+      `[agentops] ⚠ No pricing entry for model(s): ${usage.unknownModels.join(", ")}. ` +
+        `Their spend is recorded as $0, so cost ceilings and budgets cannot see it. ` +
+        `Update ANTHROPIC_PRICING in @agentops/core.\n`,
+    );
+  }
+  return { usage, backend };
 }
 
 // ─── Stale state detection ───────────────────────────────────────────────────
@@ -334,11 +363,7 @@ async function handlePreToolUse(input: HookInput, dbPath?: string): Promise<void
   // We compute cumulative cost client-side and pass it to the ops layer;
   // the server (in SDK mode) trusts our number, the local DB uses it the
   // same way.
-  const cwd = state.cwd ?? input.cwd;
-  const backend = state.backend ?? detectBackend();
-  const usage: SessionUsage = cwd
-    ? readSessionUsage(transcriptPath(cwd, input.session_id), backend)
-    : ZERO_USAGE;
+  const { usage, backend } = readHookUsage(input, state);
 
   const ops = createOps(opsConfigFromState(state, dbPath), input.session_id);
 
@@ -426,11 +451,7 @@ async function finalizeSession(input: HookInput, state: HookState, dbPath?: stri
   const wallTimeMs = Date.now() - new Date(state.startTime).getTime();
 
   // Read final cost/token usage from the local transcript.
-  const cwd = state.cwd ?? input.cwd;
-  const backend = state.backend ?? detectBackend();
-  const usage: SessionUsage = cwd
-    ? readSessionUsage(transcriptPath(cwd, input.session_id), backend)
-    : ZERO_USAGE;
+  const { usage, backend } = readHookUsage(input, state);
 
   const metrics = {
     tokenUsage: {
@@ -520,11 +541,7 @@ async function handleUserPromptSubmit(input: HookInput, dbPath?: string): Promis
     process.exit(0);
   }
 
-  const cwd = state.cwd ?? input.cwd;
-  const backend = state.backend ?? detectBackend();
-  const usage: SessionUsage = cwd
-    ? readSessionUsage(transcriptPath(cwd, input.session_id), backend)
-    : ZERO_USAGE;
+  const { usage, backend } = readHookUsage(input, state);
 
   const ops = createOps(opsConfigFromState(state, dbPath), input.session_id);
 
@@ -586,11 +603,7 @@ async function handleStop(input: HookInput, dbPath?: string): Promise<void> {
     process.exit(0);
   }
 
-  const cwd = state.cwd ?? input.cwd;
-  const backend = state.backend ?? detectBackend();
-  const usage: SessionUsage = cwd
-    ? readSessionUsage(transcriptPath(cwd, input.session_id), backend)
-    : ZERO_USAGE;
+  const { usage, backend } = readHookUsage(input, state);
 
   const ops = createOps(opsConfigFromState(state, dbPath), input.session_id);
 

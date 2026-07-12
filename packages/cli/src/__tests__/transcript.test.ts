@@ -16,6 +16,21 @@ describe("transcriptPath", () => {
       join(homedir(), ".claude", "projects", "-Users-x-code-repo", "abc-123.jsonl"),
     );
   });
+
+  it("encodes dots, underscores, and spaces like Claude Code does", () => {
+    // Claude Code replaces every non-alphanumeric character, not just "/".
+    // A dot-only replacement resolves to a nonexistent dir and reads $0 usage.
+    const path = transcriptPath("/Users/x/my.app_v2/sub dir", "abc-123");
+    expect(path).toBe(
+      join(
+        homedir(),
+        ".claude",
+        "projects",
+        "-Users-x-my-app-v2-sub-dir",
+        "abc-123.jsonl",
+      ),
+    );
+  });
 });
 
 describe("readSessionUsage", () => {
@@ -135,8 +150,8 @@ describe("readSessionUsage", () => {
     writeFileSync(path, lines.join("\n"), "utf-8");
 
     const usage = readSessionUsage(path, "bedrock");
-    expect(usage.totalCostUsd).toBeCloseTo(15, 4);
-    expect(usage.byModel["us.anthropic.claude-opus-4-7-v1:0"]).toBeCloseTo(15, 4);
+    expect(usage.totalCostUsd).toBeCloseTo(5, 4);
+    expect(usage.byModel["us.anthropic.claude-opus-4-7-v1:0"]).toBeCloseTo(5, 4);
   });
 
   it("aggregates costs per model across mixed-model sessions", () => {
@@ -160,9 +175,90 @@ describe("readSessionUsage", () => {
     writeFileSync(path, lines.join("\n"), "utf-8");
 
     const usage = readSessionUsage(path);
-    expect(usage.byModel["claude-opus-4-7"]).toBeCloseTo(15, 4);
+    expect(usage.byModel["claude-opus-4-7"]).toBeCloseTo(5, 4);
     expect(usage.byModel["claude-haiku-4-5"]).toBeCloseTo(1, 4);
-    expect(usage.totalCostUsd).toBeCloseTo(16, 4);
+    expect(usage.totalCostUsd).toBeCloseTo(6, 4);
+  });
+
+  it("counts each message.id once even when repeated across content-block lines", () => {
+    // Claude Code writes one transcript line per content block; every line
+    // for the same API response carries the same message.id and identical
+    // usage. This is the real transcript shape — summing per-line inflates
+    // cost by blocks-per-message.
+    const path = join(tmpDir, "dupes.jsonl");
+    const usageBlock = {
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+    };
+    const lines = [
+      // Same message, three content blocks
+      ...Array.from({ length: 3 }, () =>
+        JSON.stringify({
+          type: "assistant",
+          message: { id: "msg_aaa", model: "claude-opus-4-8", usage: usageBlock },
+        }),
+      ),
+      // A different message
+      JSON.stringify({
+        type: "assistant",
+        message: { id: "msg_bbb", model: "claude-opus-4-8", usage: usageBlock },
+      }),
+    ];
+    writeFileSync(path, lines.join("\n"), "utf-8");
+
+    const usage = readSessionUsage(path);
+    // 2 unique messages x (1M in @ $5 + 1M out @ $25) = $60, not $120
+    expect(usage.totalCostUsd).toBeCloseTo(60, 4);
+    expect(usage.inputTokens).toBe(2_000_000);
+    expect(usage.outputTokens).toBe(2_000_000);
+  });
+
+  it("still counts every line when message ids are absent", () => {
+    const path = join(tmpDir, "no-ids.jsonl");
+    const lines = Array.from({ length: 2 }, () =>
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          model: "claude-haiku-4-5",
+          usage: { input_tokens: 1_000_000, output_tokens: 0 },
+        },
+      }),
+    );
+    writeFileSync(path, lines.join("\n"), "utf-8");
+
+    const usage = readSessionUsage(path);
+    expect(usage.inputTokens).toBe(2_000_000);
+    expect(usage.totalCostUsd).toBeCloseTo(2, 4);
+  });
+
+  it("reports models with no pricing entry instead of silently pricing $0", () => {
+    const path = join(tmpDir, "unknown-model.jsonl");
+    const lines = [
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg_x",
+          model: "claude-nova-9",
+          usage: { input_tokens: 1_000_000, output_tokens: 0 },
+        },
+      }),
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg_y",
+          model: "claude-haiku-4-5",
+          usage: { input_tokens: 1_000_000, output_tokens: 0 },
+        },
+      }),
+    ];
+    writeFileSync(path, lines.join("\n"), "utf-8");
+
+    const usage = readSessionUsage(path);
+    expect(usage.unknownModels).toEqual(["claude-nova-9"]);
+    // Tokens still counted, cost only from the known model
+    expect(usage.inputTokens).toBe(2_000_000);
+    expect(usage.totalCostUsd).toBeCloseTo(1, 4);
+    expect(usage.byModel["claude-nova-9"]).toBe(0);
   });
 });
 

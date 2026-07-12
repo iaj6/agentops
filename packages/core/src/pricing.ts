@@ -23,48 +23,76 @@ export interface ModelPricing {
   readonly cacheReadPerMTok: number;
 }
 
+// Rates verified against platform.claude.com pricing on 2026-07-11.
+// Opus 4.5 dropped the Opus tier to $5/$25; every Opus since (4.6/4.7/4.8)
+// stays there. Only the pre-4.5 Opus models (4.0/4.1) bill at $15/$75.
+export const PRICING_VERIFIED_DATE = "2026-07-11";
+
+const OPUS_TIER: ModelPricing = {
+  inputPerMTok: 5,
+  outputPerMTok: 25,
+  cacheWritePerMTok: 6.25,
+  cacheReadPerMTok: 0.5,
+};
+
+const SONNET_TIER: ModelPricing = {
+  inputPerMTok: 3,
+  outputPerMTok: 15,
+  cacheWritePerMTok: 3.75,
+  cacheReadPerMTok: 0.3,
+};
+
+const LEGACY_OPUS_TIER: ModelPricing = {
+  inputPerMTok: 15,
+  outputPerMTok: 75,
+  cacheWritePerMTok: 18.75,
+  cacheReadPerMTok: 1.5,
+};
+
 export const ANTHROPIC_PRICING: Record<string, ModelPricing> = {
-  "claude-opus-4-7": {
-    inputPerMTok: 15,
-    outputPerMTok: 75,
-    cacheWritePerMTok: 18.75,
-    cacheReadPerMTok: 1.5,
+  // Mythos-class tier ($10/$50)
+  "claude-fable-5": {
+    inputPerMTok: 10,
+    outputPerMTok: 50,
+    cacheWritePerMTok: 12.5,
+    cacheReadPerMTok: 1,
   },
-  "claude-opus-4-6": {
-    inputPerMTok: 15,
-    outputPerMTok: 75,
-    cacheWritePerMTok: 18.75,
-    cacheReadPerMTok: 1.5,
+  "claude-mythos-5": {
+    inputPerMTok: 10,
+    outputPerMTok: 50,
+    cacheWritePerMTok: 12.5,
+    cacheReadPerMTok: 1,
   },
-  "claude-sonnet-4-6": {
-    inputPerMTok: 3,
-    outputPerMTok: 15,
-    cacheWritePerMTok: 3.75,
-    cacheReadPerMTok: 0.3,
-  },
-  "claude-sonnet-4-5": {
-    inputPerMTok: 3,
-    outputPerMTok: 15,
-    cacheWritePerMTok: 3.75,
-    cacheReadPerMTok: 0.3,
-  },
+  // Opus tier ($5/$25 since Opus 4.5)
+  "claude-opus-4-8": OPUS_TIER,
+  "claude-opus-4-7": OPUS_TIER,
+  "claude-opus-4-6": OPUS_TIER,
+  "claude-opus-4-5": OPUS_TIER,
+  // Sonnet tier ($3/$15). Sonnet 5 has an intro rate of $2/$10 through
+  // 2026-08-31; we bill at the sticker rate, which slightly overestimates
+  // until then — the safe direction for budget enforcement.
+  "claude-sonnet-5": SONNET_TIER,
+  "claude-sonnet-4-6": SONNET_TIER,
+  "claude-sonnet-4-5": SONNET_TIER,
+  // Haiku tier
   "claude-haiku-4-5": {
     inputPerMTok: 1,
     outputPerMTok: 5,
     cacheWritePerMTok: 1.25,
     cacheReadPerMTok: 0.1,
   },
+  // Pre-4.5 Opus (deprecated but still billable on old transcripts)
+  "claude-opus-4-1": LEGACY_OPUS_TIER,
+  "claude-opus-4-0": LEGACY_OPUS_TIER,
 };
 
 // Verified parity with Anthropic-direct rates for us-east-1 / us-west-2 on
 // 2026-05-13. If you ship into a non-US region or AWS adjusts published
-// rates, override these entries.
+// rates, override individual entries here. Spreading the whole table keeps
+// Bedrock in lockstep as models are added, so new models never silently
+// price at $0 on one backend only.
 export const BEDROCK_PRICING: Record<string, ModelPricing> = {
-  "claude-opus-4-7": ANTHROPIC_PRICING["claude-opus-4-7"]!,
-  "claude-opus-4-6": ANTHROPIC_PRICING["claude-opus-4-6"]!,
-  "claude-sonnet-4-6": ANTHROPIC_PRICING["claude-sonnet-4-6"]!,
-  "claude-sonnet-4-5": ANTHROPIC_PRICING["claude-sonnet-4-5"]!,
-  "claude-haiku-4-5": ANTHROPIC_PRICING["claude-haiku-4-5"]!,
+  ...ANTHROPIC_PRICING,
 };
 
 // BEDROCK_PRICING above is a parity copy of the Anthropic-direct rates, not
