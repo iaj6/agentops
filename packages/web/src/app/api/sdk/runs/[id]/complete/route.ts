@@ -61,6 +61,13 @@ export async function POST(
       );
     }
 
+    if (body.artifacts !== undefined && !Array.isArray(body.artifacts)) {
+      return NextResponse.json(
+        { error: "artifacts must be an array" },
+        { status: 400 },
+      );
+    }
+
     const evaluation: Evaluation = {
       testResults: (body.testResults as Evaluation["testResults"]) ?? [],
       policyChecks: (body.policyChecks as Evaluation["policyChecks"]) ?? [],

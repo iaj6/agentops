@@ -3,6 +3,7 @@ import {
   createRunId,
   createSessionId,
   createAgentId,
+  createArtifactId,
   AgentRole,
 } from "@agentops/core";
 import { AgentOpsClient, AgentOpsError, createClient } from "../client.js";
@@ -123,6 +124,13 @@ describe("AgentOpsClient", () => {
 
       expect(result.runId).toBe(testRunId);
       expect(result.status).toBe("running");
+
+      // The declared agents must actually go over the wire — the server
+      // persists them onto the run (request-side contract).
+      const sentBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string);
+      expect(sentBody.agents).toEqual([
+        { id: "agent-1", model: "claude-opus-4-6", role: "implementer" },
+      ]);
     });
   });
 
@@ -174,6 +182,20 @@ describe("AgentOpsClient", () => {
       });
 
       expect(result.runId).toBe(testRunId);
+    });
+
+    it("sends backend and byModel for Bedrock spend attribution", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse<ReportMetricsResponse>({ runId: testRunId }));
+
+      await client.reportMetrics(testRunId, {
+        costUsd: 2.5,
+        backend: "bedrock",
+        byModel: { "us.anthropic.claude-opus-4-7-v1:0": 2.5 },
+      });
+
+      const sentBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string);
+      expect(sentBody.backend).toBe("bedrock");
+      expect(sentBody.byModel).toEqual({ "us.anthropic.claude-opus-4-7-v1:0": 2.5 });
     });
   });
 
@@ -248,7 +270,7 @@ describe("AgentOpsClient", () => {
       expect(result.runId).toBe(testRunId);
     });
 
-    it("sends result when provided", async () => {
+    it("sends result when provided (deprecated, still transmitted)", async () => {
       mockFetch.mockResolvedValueOnce(
         jsonResponse({ runId: testRunId } as unknown as CompleteRunResponse),
       );
@@ -257,6 +279,50 @@ describe("AgentOpsClient", () => {
 
       const sentBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string);
       expect(sentBody.result).toBe("Bug fixed successfully");
+    });
+
+    it("sends testResults / policyChecks / confidenceScore / artifacts", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ runId: testRunId } as unknown as CompleteRunResponse),
+      );
+
+      await client.completeRun(testRunId, {
+        testResults: [{ name: "unit", passed: false, duration: 5, message: "boom" }],
+        policyChecks: [],
+        confidenceScore: 0.8,
+        artifacts: [
+          {
+            id: createArtifactId("artifact_1"),
+            diffs: [],
+            logs: [],
+            testOutputs: ["1 failed"],
+            reports: [],
+          },
+        ],
+      });
+
+      const sentBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string);
+      expect(sentBody.testResults).toEqual([
+        { name: "unit", passed: false, duration: 5, message: "boom" },
+      ]);
+      expect(sentBody.policyChecks).toEqual([]);
+      expect(sentBody.confidenceScore).toBe(0.8);
+      expect(sentBody.artifacts).toHaveLength(1);
+      expect(sentBody.artifacts[0].id).toBe("artifact_1");
+    });
+  });
+
+  describe("terminateSession", () => {
+    it("posts to /api/sdk/sessions/:id/terminate and returns { status }", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ status: "terminated" }));
+
+      const result = await client.terminateSession(testSessionId);
+
+      expect(result.status).toBe("terminated");
+      expect(mockFetch).toHaveBeenCalledWith(
+        `${BASE_URL}/api/sdk/sessions/${testSessionId}/terminate`,
+        expect.objectContaining({ method: "POST" }),
+      );
     });
   });
 

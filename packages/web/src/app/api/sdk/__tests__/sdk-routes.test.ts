@@ -231,6 +231,50 @@ describe("POST /api/sdk/runs", () => {
     const res = await createRunRoute(req);
     expect(res.status).toBe(400);
   });
+
+  it("persists reported agents on the created run", async () => {
+    const req = authedRequest("http://localhost/api/sdk/runs", {
+      token: alice.token,
+      body: {
+        ...validBody,
+        agents: [{ id: "claude-code", model: "claude-opus-4-6", role: "lead" }],
+      },
+    });
+    const res = await createRunRoute(req);
+    expect(res.status).toBe(201);
+    const body = (await jsonOf(res)) as { runId: string };
+    const { createRunId } = await import("@agentops/core");
+    const saved = getRun(db, createRunId(body.runId))!;
+    expect(saved.agents).toEqual([
+      { id: "claude-code", model: "claude-opus-4-6", role: "lead" },
+    ]);
+  });
+
+  it("defaults agents to [] when omitted (minimal clients keep working)", async () => {
+    const req = authedRequest("http://localhost/api/sdk/runs", {
+      token: alice.token,
+      body: validBody,
+    });
+    const res = await createRunRoute(req);
+    expect(res.status).toBe(201);
+    const body = (await jsonOf(res)) as { runId: string };
+    const { createRunId } = await import("@agentops/core");
+    expect(getRun(db, createRunId(body.runId))!.agents).toEqual([]);
+  });
+
+  it.each([
+    { label: "non-array", agents: { id: "x", model: "m", role: "lead" } },
+    { label: "missing model", agents: [{ id: "x", role: "lead" }] },
+    { label: "empty id", agents: [{ id: "", model: "m", role: "lead" }] },
+    { label: "unknown role", agents: [{ id: "x", model: "m", role: "supervisor" }] },
+  ])("400 on malformed agents ($label)", async ({ agents }) => {
+    const req = authedRequest("http://localhost/api/sdk/runs", {
+      token: alice.token,
+      body: { ...validBody, agents },
+    });
+    const res = await createRunRoute(req);
+    expect(res.status).toBe(400);
+  });
 });
 
 // ─── POST /api/sdk/runs/[id]/actions ──────────────────────────────────────
@@ -392,6 +436,57 @@ describe("POST /api/sdk/runs/[id]/metrics", () => {
     const res = await reportMetricsRoute(req, withParams({ id: runId }));
     expect(res.status).toBe(400);
   });
+
+  it("merges partial reports: a later costUsd-only report preserves earlier tokenUsage", async () => {
+    const { runId } = seedRun(alice);
+    const post = (body: Record<string, unknown>) =>
+      reportMetricsRoute(
+        authedRequest(`http://localhost/api/sdk/runs/${runId}/metrics`, {
+          token: alice.token,
+          body,
+        }),
+        withParams({ id: runId }),
+      );
+
+    await post({ tokenUsage: { input: 100, output: 50, total: 150 }, wallTimeMs: 5000 });
+    const res = await post({ costUsd: 1.5 });
+    expect(res.status).toBe(200);
+
+    const { createRunId } = await import("@agentops/core");
+    const run = getRun(db, createRunId(runId))!;
+    expect(run.metrics.tokenUsage).toEqual({ input: 100, output: 50, total: 150 });
+    expect(run.metrics.wallTimeMs).toBe(5000);
+    expect(run.metrics.costUsd).toBe(1.5);
+
+    // The run_metrics table row is updated with the same MERGED values,
+    // not zero-filled ones — both stores must agree.
+    const { getRunMetrics } = await import("@agentops/db");
+    const row = getRunMetrics(db, createRunId(runId))!;
+    expect(row.tokenUsage).toEqual({ input: 100, output: 50, total: 150 });
+    expect(row.wallTimeMs).toBe(5000);
+    expect(row.costUsd).toBe(1.5);
+  });
+
+  it("merge preserves previously reported backend/byModel when omitted", async () => {
+    const { runId } = seedRun(alice);
+    const post = (body: Record<string, unknown>) =>
+      reportMetricsRoute(
+        authedRequest(`http://localhost/api/sdk/runs/${runId}/metrics`, {
+          token: alice.token,
+          body,
+        }),
+        withParams({ id: runId }),
+      );
+
+    await post({ backend: "bedrock", byModel: { "us.anthropic.claude-opus-4-7-v1:0": 1 } });
+    await post({ flakeRate: 0.1 });
+
+    const { createRunId } = await import("@agentops/core");
+    const run = getRun(db, createRunId(runId))!;
+    expect(run.metrics.backend).toBe("bedrock");
+    expect(run.metrics.byModel).toEqual({ "us.anthropic.claude-opus-4-7-v1:0": 1 });
+    expect(run.metrics.flakeRate).toBe(0.1);
+  });
 });
 
 // ─── POST /api/sdk/runs/[id]/complete ─────────────────────────────────────
@@ -456,6 +551,61 @@ describe("POST /api/sdk/runs/[id]/complete", () => {
       (r) => (r.details as { source?: string }).source,
     );
     expect(rollupSources.every((s) => s === "run-complete")).toBe(true);
+  });
+
+  it("stores reported testResults on the run's evaluation", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest(`http://localhost/api/sdk/runs/${runId}/complete`, {
+      token: alice.token,
+      body: {
+        testResults: [{ name: "unit", passed: true, duration: 3, message: "" }],
+        policyChecks: [],
+        confidenceScore: 0.9,
+      },
+    });
+    const res = await completeRunRoute(req, withParams({ id: runId }));
+    expect(res.status).toBe(200);
+
+    const { createRunId } = await import("@agentops/core");
+    const saved = getRun(db, createRunId(runId))!;
+    expect(saved.evaluations).toHaveLength(1);
+    expect(saved.evaluations[0]!.testResults).toEqual([
+      { name: "unit", passed: true, duration: 3, message: "" },
+    ]);
+    expect(saved.evaluations[0]!.confidenceScore).toBe(0.9);
+  });
+
+  it("appends reported artifacts to the run", async () => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest(`http://localhost/api/sdk/runs/${runId}/complete`, {
+      token: alice.token,
+      body: {
+        artifacts: [
+          { id: "artifact_done", diffs: [], logs: ["done"], testOutputs: [], reports: [] },
+        ],
+      },
+    });
+    const res = await completeRunRoute(req, withParams({ id: runId }));
+    expect(res.status).toBe(200);
+
+    const { createRunId } = await import("@agentops/core");
+    const saved = getRun(db, createRunId(runId))!;
+    expect(saved.artifacts.map((a) => a.id as string)).toContain("artifact_done");
+  });
+
+  it.each([
+    { field: "testResults", value: "not-an-array" },
+    { field: "policyChecks", value: 42 },
+    { field: "confidenceScore", value: "high" },
+    { field: "artifacts", value: { id: "not-an-array" } },
+  ])("400 on non-conforming $field", async ({ field, value }) => {
+    const { runId } = seedRun(alice);
+    const req = authedRequest(`http://localhost/api/sdk/runs/${runId}/complete`, {
+      token: alice.token,
+      body: { [field]: value },
+    });
+    const res = await completeRunRoute(req, withParams({ id: runId }));
+    expect(res.status).toBe(400);
   });
 });
 

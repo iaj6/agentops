@@ -103,45 +103,48 @@ export async function POST(
       }
     }
 
-    const tokenUsage = (body.tokenUsage as Record<string, unknown>) ?? {
-      input: 0,
-      output: 0,
-      total: 0,
-    };
-    const costUsd = (body.costUsd as number) ?? 0;
-    const wallTimeMs = (body.wallTimeMs as number) ?? 0;
-    const flakeRate = (body.flakeRate as number) ?? 0;
-
+    const tokenUsage = body.tokenUsage as
+      | { input: number; output: number; total: number }
+      | undefined;
+    const costUsd = body.costUsd as number | undefined;
+    const wallTimeMs = body.wallTimeMs as number | undefined;
+    const flakeRate = body.flakeRate as number | undefined;
     const backend = body.backend as "anthropic" | "bedrock" | undefined;
     const byModel = body.byModel as Record<string, number> | undefined;
 
-    // Update the run's embedded metrics. backend/byModel live only in this
-    // JSON blob (no run_metrics column yet) — nothing queries run_metrics for
+    // MERGE into the run's embedded metrics rather than replace: every
+    // request field is optional (partial-update semantics), so an omitted
+    // field must preserve the previously reported value — replacing would
+    // zero-fill it (e.g. reporting tokenUsage, then later only costUsd,
+    // used to wipe the tokens). backend/byModel live only in this JSON
+    // blob (no run_metrics column yet) — nothing queries run_metrics for
     // backend, so a column would be speculative denormalization for now.
     const metrics = {
-      tokenUsage: tokenUsage as { input: number; output: number; total: number },
-      wallTimeMs,
-      costUsd,
-      flakeRate,
-      ...(backend ? { backend } : {}),
-      ...(byModel ? { byModel } : {}),
+      ...run.metrics,
+      ...(tokenUsage !== undefined ? { tokenUsage } : {}),
+      ...(wallTimeMs !== undefined ? { wallTimeMs } : {}),
+      ...(costUsd !== undefined ? { costUsd } : {}),
+      ...(flakeRate !== undefined ? { flakeRate } : {}),
+      ...(backend !== undefined ? { backend } : {}),
+      ...(byModel !== undefined ? { byModel } : {}),
     };
     updateRun(db(), run.id, {
       metrics,
       updatedAt: new Date().toISOString(),
     });
 
-    // Upsert into run_metrics table
+    // Upsert into run_metrics table using the same merged values so both
+    // stores stay consistent.
     const existing = getRunMetrics(db(), run.id);
     const now = new Date().toISOString();
     if (existing) {
       db()
         .update(runMetrics)
         .set({
-          tokenUsage: tokenUsage as Record<string, unknown>,
-          wallTimeMs,
-          costCents: costUsd * 100,
-          flakeRate,
+          tokenUsage: metrics.tokenUsage as unknown as Record<string, unknown>,
+          wallTimeMs: metrics.wallTimeMs,
+          costCents: metrics.costUsd * 100,
+          flakeRate: metrics.flakeRate,
           recordedAt: now,
         })
         .where(eq(runMetrics.runId, id))
@@ -152,17 +155,18 @@ export async function POST(
         .values({
           id: `rm_${Date.now()}`,
           runId: id,
-          tokenUsage: tokenUsage as Record<string, unknown>,
-          wallTimeMs,
-          costCents: costUsd * 100,
-          flakeRate,
+          tokenUsage: metrics.tokenUsage as unknown as Record<string, unknown>,
+          wallTimeMs: metrics.wallTimeMs,
+          costCents: metrics.costUsd * 100,
+          flakeRate: metrics.flakeRate,
           recordedAt: now,
         })
         .run();
     }
 
-    // Emit cost threshold event when cost is reported
-    if (costUsd > 0) {
+    // Emit cost threshold event when cost is reported in THIS request
+    // (merged totals must not re-emit for a previously reported cost).
+    if (costUsd !== undefined && costUsd > 0) {
       const event = createEvent(
         EventCategory.Cost,
         EVENT_TYPES["cost.threshold"],

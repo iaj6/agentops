@@ -15,6 +15,7 @@ import type {
   CheckPolicyRequest,
   CheckPolicyResponse,
   HeartbeatResponse,
+  TerminateSessionResponse,
   CompleteRunRequest,
   CompleteRunResponse,
   FailRunRequest,
@@ -154,6 +155,20 @@ export class AgentOpsClient {
   async heartbeat(sessionId: SessionId): Promise<HeartbeatResponse> {
     return this.request<HeartbeatResponse>(
       `/api/sdk/sessions/${sessionId}/heartbeat`,
+      {},
+    );
+  }
+
+  /**
+   * Gracefully end a session: archives its current run and marks it
+   * terminated. Without this, SDK-created sessions only end when the
+   * server's staleness reaper gives up on their heartbeats.
+   */
+  async terminateSession(
+    sessionId: SessionId,
+  ): Promise<TerminateSessionResponse> {
+    return this.request<TerminateSessionResponse>(
+      `/api/sdk/sessions/${sessionId}/terminate`,
       {},
     );
   }
