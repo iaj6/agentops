@@ -83,12 +83,20 @@ export function useRuns(
     timeoutsRef.current.set(runId, timeout);
   }, []);
 
+  const scopeView = scope?.view ?? undefined;
+  const scopeUserId = scope?.userId ?? undefined;
+
   const onEvent = useCallback(
     (event: SSEEvent) => {
       // Only handle run events (not AgentEvents from the event bus)
       if (!("status" in event.data && "goal" in event.data)) return;
       const run = event.data as Run;
       const runId = run.id as string;
+
+      // Belt-and-suspenders: the SSE URL already carries the view scope,
+      // but drop runs outside an explicit user filter in case a stale
+      // connection delivers unscoped data.
+      if (scopeUserId && run.userId !== scopeUserId) return;
 
       setRunsWithSummaries((prev) => {
         if (event.type === "run_created") {
@@ -112,10 +120,17 @@ export function useRuns(
 
       markUpdated(runId);
     },
-    [markUpdated],
+    [markUpdated, scopeUserId],
   );
 
-  const { connected } = useEventSource({ onEvent });
+  // Forward the view scope to the SSE connection. Without these params
+  // the server resolves an admin's stream to the team-wide view, mixing
+  // other users' live runs into a ?userId=X filtered page.
+  const { connected } = useEventSource({
+    view: scopeView,
+    userId: scopeUserId,
+    onEvent,
+  });
 
   // Cleanup timeouts on unmount
   useEffect(() => {

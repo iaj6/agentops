@@ -35,6 +35,14 @@ interface UseEventSourceOptions {
   category?: string;
   /** Optional type filter for persisted events */
   eventType?: string;
+  /**
+   * View scope forwarded to the SSE endpoint (e.g. "mine"). Without it
+   * the server resolves the connection's default scope, which for an
+   * admin is the whole team — not what a scoped page is showing.
+   */
+  view?: string;
+  /** User scope forwarded to the SSE endpoint (admin drill-down). */
+  userId?: string;
   /** Callback for each event received */
   onEvent?: (event: SSEEvent) => void;
 }
@@ -70,11 +78,14 @@ const ALL_EVENT_TYPES: SSEEventType[] = [
 export function useEventSource(
   options: UseEventSourceOptions = {},
 ): UseEventSourceReturn {
-  const { runId, category, eventType, onEvent } = options;
+  const { runId, category, eventType, view, userId, onEvent } = options;
   const [connected, setConnected] = useState(false);
   const [lastEvent, setLastEvent] = useState<SSEEvent | null>(null);
   const retriesRef = useRef(0);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const onEventRef = useRef(onEvent);
   // Keep the latest onEvent in a ref without writing it during render
   // (react-hooks/refs). It's only read inside async SSE handlers that fire
@@ -84,6 +95,13 @@ export function useEventSource(
   }, [onEvent]);
 
   const connect = useCallback(() => {
+    // Cancel any pending reconnect so a filter-change reconnect can't
+    // race a backoff timer into opening a second stream.
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
     // Close any existing connection
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -94,6 +112,8 @@ export function useEventSource(
     if (runId) params.set("runId", runId);
     if (category) params.set("category", category);
     if (eventType) params.set("type", eventType);
+    if (view) params.set("view", view);
+    if (userId) params.set("userId", userId);
 
     const qs = params.toString();
     const url = qs ? `/api/events?${qs}` : "/api/events";
@@ -137,16 +157,23 @@ export function useEventSource(
         // Self-reference is runtime-safe: this async error handler only fires
         // after `connect` is fully defined, so the reconnect closes over the
         // assigned const. (react-hooks/immutability flags the textual order.)
+        // The handle is stored so unmount/filter-change cleanup can cancel
+        // the pending reconnect — otherwise it would open an EventSource
+        // nobody closes.
         // eslint-disable-next-line react-hooks/immutability
-        setTimeout(connect, delay);
+        reconnectTimerRef.current = setTimeout(connect, delay);
       }
     };
-  }, [runId, category, eventType]);
+  }, [runId, category, eventType, view, userId]);
 
   useEffect(() => {
     connect();
 
     return () => {
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;

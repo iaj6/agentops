@@ -96,6 +96,17 @@ describe("Events repository", () => {
       expect(results).toHaveLength(2);
     });
 
+    it("since is inclusive of the boundary timestamp", () => {
+      // Poll cursors (SSE route, CLI tail) rely on gte semantics so a
+      // second event sharing the boundary timestamp is never dropped.
+      insertEvent(db, makeEvent("evt_1", { timestamp: "2025-01-05T00:00:00.000Z" }));
+      insertEvent(db, makeEvent("evt_2", { timestamp: "2025-01-06T00:00:00.000Z" }));
+
+      const results = listEvents(db, { since: "2025-01-05T00:00:00.000Z" });
+      expect(results).toHaveLength(2);
+      expect(results.map((e) => e.id)).toContain("evt_1");
+    });
+
     it("filters by until timestamp", () => {
       insertEvent(db, makeEvent("evt_1", { timestamp: "2025-01-01T00:00:00.000Z" }));
       insertEvent(db, makeEvent("evt_2", { timestamp: "2025-01-05T00:00:00.000Z" }));

@@ -1,6 +1,12 @@
 import { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { listRuns, getRun, listEvents } from "@agentops/db";
+import {
+  listRuns,
+  getRun,
+  listEvents,
+  createEventPollCursor,
+  advanceEventPollCursor,
+} from "@agentops/db";
 import { createRunId } from "@agentops/core";
 import type { Run } from "@agentops/core";
 import { db } from "@/lib/db";
@@ -39,13 +45,16 @@ export async function GET(request: NextRequest) {
     const categoryParam = request.nextUrl.searchParams.get("category");
     const typeParam = request.nextUrl.searchParams.get("type");
 
-    // Resolve view scope once at stream start. The user's owned
-    // sourceIds are captured here so the poll loop can filter every
-    // batch through the same set — without this an admin filtered to
-    // one user would still stream the team's events back.
+    // Resolve view scope at stream start. The user's owned sourceIds
+    // are captured here so the poll loop can filter every batch through
+    // the scoped set — without this an admin filtered to one user would
+    // still stream the team's events back. The ownership set is
+    // re-resolved on every poll (cheap indexed lookups) so runs and
+    // sessions created after connect appear in the owner's live stream
+    // without a reconnect.
     const scope = resolveViewScope(user, request.nextUrl.searchParams);
-    const scopedSourceIds = resolveOwnedSourceIds(scope.userId);
-    const scopedSourceIdSet = scopedSourceIds
+    let scopedSourceIds = resolveOwnedSourceIds(scope.userId);
+    let scopedSourceIdSet = scopedSourceIds
       ? new Set(scopedSourceIds)
       : null;
 
@@ -56,7 +65,10 @@ export async function GET(request: NextRequest) {
       async start(controller) {
         // Snapshot: track known state
         const knownRuns = new Map<string, Run>();
-        let lastEventTimestamp = new Date().toISOString();
+        // The cursor pairs an inclusive (gte) `since` boundary with the
+        // IDs already emitted at that exact timestamp, so events sharing
+        // a timestamp are neither dropped nor re-emitted across polls.
+        let eventCursor = createEventPollCursor(new Date().toISOString());
 
         function loadSnapshot() {
           if (runIdParam) {
@@ -105,6 +117,15 @@ export async function GET(request: NextRequest) {
           }
 
           try {
+            // Refresh the ownership set so entities created after the
+            // stream opened are visible to their owner immediately.
+            if (scope.userId) {
+              scopedSourceIds = resolveOwnedSourceIds(scope.userId);
+              scopedSourceIdSet = scopedSourceIds
+                ? new Set(scopedSourceIds)
+                : null;
+            }
+
             // Poll persisted events from events table
             const eventFilters: {
               since?: string;
@@ -113,19 +134,23 @@ export async function GET(request: NextRequest) {
               sourceIds?: ReadonlyArray<string>;
               limit?: number;
             } = {
-              since: lastEventTimestamp,
+              since: eventCursor.since,
               limit: 100,
             };
             if (categoryParam) eventFilters.category = categoryParam;
             if (typeParam) eventFilters.type = typeParam;
             if (scopedSourceIds) eventFilters.sourceIds = scopedSourceIds;
 
-            const newEvents = listEvents(db(), eventFilters);
-            for (const evt of newEvents.reverse()) {
+            const batch = listEvents(db(), eventFilters);
+            const { fresh, next } = advanceEventPollCursor(
+              eventCursor,
+              batch,
+            );
+            eventCursor = next;
+            for (const evt of fresh) {
               controller.enqueue(
                 encoder.encode(sseMessage(evt.type, evt)),
               );
-              lastEventTimestamp = evt.timestamp;
             }
 
             // Backward compat: still detect run changes via diffing

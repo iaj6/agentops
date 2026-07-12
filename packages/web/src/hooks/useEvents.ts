@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import type { AgentEvent } from "@agentops/core";
+import { applyLiveEvent, type LiveEventState } from "@/lib/live-events";
 import { useEventSource, type SSEEvent } from "./useEventSource";
 
 interface UseEventsOptions {
@@ -21,9 +22,11 @@ interface UseEventsReturn {
 
 export function useEvents(options: UseEventsOptions = {}): UseEventsReturn {
   const { category, type, userId, since } = options;
-  const [events, setEvents] = useState<AgentEvent[]>([]);
+  // Events list + total live in one state object so the SSE handler can
+  // update both through the pure applyLiveEvent reducer — the total must
+  // only grow when an event is genuinely new, not on every delivery.
+  const [live, setLive] = useState<LiveEventState>({ events: [], total: 0 });
   const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,8 +43,7 @@ export function useEvents(options: UseEventsOptions = {}): UseEventsReturn {
         const res = await fetch(`/api/events/list?${params.toString()}`);
         if (res.ok && !cancelled) {
           const data = await res.json();
-          setEvents(data.events);
-          setTotal(data.total);
+          setLive({ events: data.events, total: data.total });
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -62,23 +64,23 @@ export function useEvents(options: UseEventsOptions = {}): UseEventsReturn {
       if (category && agentEvent.category !== category) return;
       if (type && agentEvent.type !== type) return;
 
-      setEvents((prev) => {
-        // Prepend new event if not already present
-        if (prev.some((e) => (e.id as string) === (agentEvent.id as string))) {
-          return prev;
-        }
-        return [agentEvent, ...prev];
-      });
-      setTotal((prev) => prev + 1);
+      // Prepend new event if not already present; the total only moves
+      // when the event was genuinely inserted (applyLiveEvent returns
+      // the previous state unchanged for duplicates).
+      setLive((prev) => applyLiveEvent(prev, agentEvent));
     },
     [category, type],
   );
 
+  // Forward the user scope to the SSE endpoint — without it the server
+  // resolves an admin connection to the team-wide stream and the live
+  // feed mixes other users' events into a user-filtered page.
   const { connected } = useEventSource({
     category,
     eventType: type,
+    userId,
     onEvent,
   });
 
-  return { events, loading, connected, total };
+  return { events: live.events, loading, connected, total: live.total };
 }
