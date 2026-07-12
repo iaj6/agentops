@@ -15,6 +15,45 @@ This section accumulates work going into the first tagged customer release.
 Phase tags (A, B, C) match the customer-trial roadmap and the commit prefix
 convention used in the git log.
 
+### June 2026 audit sweep (PRs #1–#16)
+
+A 14-agent review (2026-06-02) produced 28 findings; all shipped by 2026-06-09:
+SDK contract + rate-limit fixes, low-tier hardening, a green Playwright smoke
+test in CI, a repo-wide lint pass + CI Lint job, `eslint-plugin-react-hooks`
+7.1.x upgrade, `checkSameOrigin` CSRF guard rolled out to all cookie-auth
+mutation routes, repo-identity normalization and user attribution fixed at
+write time, SSRF hardening for 6to4/NAT64 IPv6 wrappers, Usage-page backend
+segmentation (Bedrock vs direct) with a per-user spend table, and
+better-sqlite3 12.11.1 + CI Node 22 for Node 26 support.
+
+### July 2026 revival audit (PRs #17–#23)
+
+A follow-up 4-agent review (2026-07-11) found the cost pipeline and several
+security gaps; all critical/high findings shipped the same day:
+
+- **Cost pipeline repaired (#17).** The model pricing table had gone stale —
+  current models (Opus 4.8, Sonnet 5, Fable 5) silently priced at $0 and
+  Opus 4.6/4.7 at 3× their real rate; the transcript reader double-counted
+  usage 2–7× (Claude Code writes one line per content block; now deduped by
+  `message.id`); and transcript paths were mis-derived for project dirs with
+  non-alphanumeric characters (hooks now use the payload's `transcript_path`).
+  Unknown models now warn on stderr instead of failing open at $0.
+- **Four unauthenticated GET routes gated (#18).** `runs/[id]/{agents,metrics,
+  policies}` and `policies/[id]/results` leaked cross-tenant data; they now
+  enforce the same owner-or-admin + 404-on-non-owner rules as their siblings,
+  and policy results are scoped to the member's own runs.
+- **Dependency advisories cleared (#19, #21).** Next.js 16.1.6 → 16.2.10 and
+  drizzle-orm 0.39 → 0.45.2 clear every high advisory in `npm audit`.
+- **Usage page org-wide section works for the first time (#22).** The Admin
+  API proxies sent parameters the API doesn't accept and the page parsed
+  fields that don't exist in the responses; the routes now send RFC 3339
+  `starting_at`, follow pagination, and normalize amounts (decimal-string
+  cents) server-side. The Activity Summary card (which could only render
+  zeros) was removed pending Claude Code Analytics API integration.
+- **Policies are deletable again (#23).** Deleting any evaluated policy hit a
+  foreign-key constraint and 500'd; `deletePolicy` now cascades its
+  `policy_results` in a transaction and reports the count in the audit log.
+
 ### Added
 
 #### Phase A — trial-blocking foundations

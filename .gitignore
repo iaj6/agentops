@@ -14,3 +14,4 @@ dist/
 
 # Debugging screenshots and scratch artifacts captured during dev
 *.png
+packages/cli/src/build-info.ts

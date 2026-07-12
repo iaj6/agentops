@@ -25,7 +25,11 @@ dbs:
         # Prefix within the bucket. Lets one bucket back up multiple DBs.
         path: ${AGENTOPS_S3_PREFIX:-agentops}
         region: ${AWS_REGION:-us-east-1}
-        # Optional endpoint override for S3-compatible stores.
+        # Using an S3-compatible store (MinIO, R2, Wasabi)? Set
+        # AGENTOPS_S3_ENDPOINT in .env AND uncomment the next line — the
+        # env var alone does nothing while this stays commented. Leave it
+        # commented for real AWS S3 (an empty endpoint can break the AWS
+        # default resolution).
         # endpoint: ${AGENTOPS_S3_ENDPOINT}
         # 14 days of point-in-time recovery. Tune for your RPO needs;
         # the cost of WAL frames at AgentOps scale is sub-cent / day.
