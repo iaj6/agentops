@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAdminStatus, useAdminCost, useAdminAnalytics } from "@/hooks/useAdminApi";
+import {
+  useAdminStatus,
+  useAdminCost,
+  useAdminAnalytics,
+  type CostData,
+  type AnalyticsData,
+} from "@/hooks/useAdminApi";
 import { MetricCard } from "@/components/MetricCard";
 
 function formatCost(usd: number): string {
@@ -167,52 +173,64 @@ function NotConfiguredBanner() {
   );
 }
 
-function CostOverview({ data }: { data: Record<string, unknown> }) {
-  const totalSpend =
-    typeof data.total_cost === "number" ? data.total_cost : 0;
-  const dailyData = Array.isArray(data.daily) ? data.daily : [];
-  const dailyAvg =
-    dailyData.length > 0 ? totalSpend / dailyData.length : 0;
-  const periodDays = dailyData.length || 1;
+function CostOverview({ data }: { data: CostData }) {
+  const totalSpend = data.totalCostUsd;
+  // Average over days with actual spend rather than the whole window, so a
+  // week-old org doesn't see its daily rate diluted by 23 empty days.
+  const activeDays = data.daily.filter((d) => d.costUsd > 0).length || 1;
+  const dailyAvg = totalSpend / activeDays;
 
   return (
     <div>
       <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-[#888]">
-        Cost Overview
+        Cost Overview{" "}
+        <span className="normal-case tracking-normal text-[#666]">
+          (org-wide, last {data.days}d)
+        </span>
       </h2>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <MetricCard label="Total Spend" value={formatCost(totalSpend)} />
         <MetricCard
           label="Daily Average"
           value={formatCost(dailyAvg)}
-          sub={`over ${periodDays} days`}
+          sub={`over ${activeDays} active day${activeDays === 1 ? "" : "s"}`}
         />
-        <MetricCard
-          label="Period"
-          value={`${periodDays}d`}
-          sub="date range"
-        />
+        <MetricCard label="Period" value={`${data.days}d`} sub="date range" />
         <MetricCard
           label="Projected Monthly"
           value={formatCost(dailyAvg * 30)}
           sub="at current rate"
         />
       </div>
+      {data.truncated && (
+        <p className="mt-2 text-xs text-[#666]">
+          Partial data: the Anthropic cost report returned more pages than were
+          fetched.
+        </p>
+      )}
     </div>
   );
 }
 
-function TokenUsage({ data }: { data: Record<string, unknown> }) {
+function TokenUsage({ data }: { data: AnalyticsData }) {
   const inputTokens =
-    typeof data.input_tokens === "number" ? data.input_tokens : 0;
-  const outputTokens =
-    typeof data.output_tokens === "number" ? data.output_tokens : 0;
+    data.uncachedInputTokens +
+    data.cacheReadInputTokens +
+    data.cacheCreationInputTokens;
+  const outputTokens = data.outputTokens;
   const totalTokens = inputTokens + outputTokens;
+  const cachedShare =
+    inputTokens > 0
+      ? (data.cacheReadInputTokens / inputTokens) * 100
+      : 0;
 
   return (
     <div>
       <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-[#888]">
-        Token Usage
+        Token Usage{" "}
+        <span className="normal-case tracking-normal text-[#666]">
+          (org-wide, last {data.days}d)
+        </span>
       </h2>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <MetricCard label="Total Tokens" value={formatTokens(totalTokens)} />
@@ -220,8 +238,8 @@ function TokenUsage({ data }: { data: Record<string, unknown> }) {
           label="Input Tokens"
           value={formatTokens(inputTokens)}
           sub={
-            totalTokens > 0
-              ? `${((inputTokens / totalTokens) * 100).toFixed(0)}% of total`
+            inputTokens > 0
+              ? `${cachedShare.toFixed(0)}% served from cache`
               : undefined
           }
         />
@@ -234,37 +252,6 @@ function TokenUsage({ data }: { data: Record<string, unknown> }) {
               : undefined
           }
         />
-      </div>
-    </div>
-  );
-}
-
-function ActivitySummary({ data }: { data: Record<string, unknown> }) {
-  const sessions =
-    typeof data.total_sessions === "number" ? data.total_sessions : 0;
-  const linesOfCode =
-    typeof data.lines_of_code === "number" ? data.lines_of_code : null;
-  const requests =
-    typeof data.total_requests === "number" ? data.total_requests : 0;
-
-  return (
-    <div>
-      <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-[#888]">
-        Activity Summary
-      </h2>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-        <MetricCard label="API Requests" value={String(requests)} />
-        <MetricCard label="Sessions" value={String(sessions)} />
-        {linesOfCode !== null && (
-          <MetricCard
-            label="Lines of Code"
-            value={
-              linesOfCode >= 1000
-                ? `${(linesOfCode / 1000).toFixed(1)}K`
-                : String(linesOfCode)
-            }
-          />
-        )}
       </div>
     </div>
   );
@@ -464,10 +451,7 @@ export default function UsagePage() {
               </p>
             </div>
           ) : analyticsData ? (
-            <>
-              <TokenUsage data={analyticsData} />
-              <ActivitySummary data={analyticsData} />
-            </>
+            <TokenUsage data={analyticsData} />
           ) : null}
         </>
       )}
