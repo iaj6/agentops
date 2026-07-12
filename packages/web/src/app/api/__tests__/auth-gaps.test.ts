@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   insertRun,
   insertPolicy,
+  insertPolicyResult,
   insertSession,
+  runMetrics,
   type AgentOpsDb,
 } from "@agentops/db";
 import {
@@ -65,6 +67,10 @@ import { GET as activeSessionsRoute } from "@/app/api/sessions/active/route";
 import { GET as usageLocalRoute } from "@/app/api/usage/local/route";
 import { GET as usageByUserRoute } from "@/app/api/usage/by-user/route";
 import { POST as searchMetaRoute } from "@/app/api/runs/search/route";
+import { GET as runAgentsRoute } from "@/app/api/runs/[id]/agents/route";
+import { GET as runMetricsRoute } from "@/app/api/runs/[id]/metrics/route";
+import { GET as runPoliciesRoute } from "@/app/api/runs/[id]/policies/route";
+import { GET as policyResultsRoute } from "@/app/api/policies/[id]/results/route";
 
 let db: AgentOpsDb;
 let admin: TestUser;
@@ -492,5 +498,132 @@ describe("POST /api/runs/search (filter options) scoping", () => {
     );
     const body = (await jsonOf(res)) as { repos: string[] };
     expect(body.repos).toEqual(["owner/repo"]);
+  });
+});
+
+// ─── Run sub-resource + policy-results routes (July 2026 audit) ────────────────
+// These four GET routes shipped without requireUser or ownership checks and
+// leaked cross-tenant metrics, event timelines, and policy results.
+
+describe("run sub-resource routes ownership", () => {
+  function seedMetrics(runId: string) {
+    db.insert(runMetrics)
+      .values({
+        id: `rm_${runId}`,
+        runId,
+        tokenUsage: { input: 100, output: 50, total: 150 },
+        wallTimeMs: 1000,
+        costCents: 500,
+        flakeRate: 0,
+        recordedAt: "2025-01-01T00:00:00.000Z",
+      })
+      .run();
+  }
+
+  const cases = [
+    {
+      name: "GET /api/runs/[id]/metrics",
+      call: (runId: string, token?: string) =>
+        runMetricsRoute(
+          token
+            ? authedRequest(`http://localhost/api/runs/${runId}/metrics`, { method: "GET", token })
+            : anonRequest(`http://localhost/api/runs/${runId}/metrics`, { method: "GET" }),
+          withParams({ id: runId }),
+        ),
+    },
+    {
+      name: "GET /api/runs/[id]/agents",
+      call: (runId: string, token?: string) =>
+        runAgentsRoute(
+          token
+            ? authedRequest(`http://localhost/api/runs/${runId}/agents`, { method: "GET", token })
+            : anonRequest(`http://localhost/api/runs/${runId}/agents`, { method: "GET" }),
+          withParams({ id: runId }),
+        ),
+    },
+    {
+      name: "GET /api/runs/[id]/policies",
+      call: (runId: string, token?: string) =>
+        runPoliciesRoute(
+          token
+            ? authedRequest(`http://localhost/api/runs/${runId}/policies`, { method: "GET", token })
+            : anonRequest(`http://localhost/api/runs/${runId}/policies`, { method: "GET" }),
+          withParams({ id: runId }),
+        ),
+    },
+  ];
+
+  for (const { name, call } of cases) {
+    it(`${name}: 401 anon, 404 non-owner, 200 owner, 200 admin`, async () => {
+      const run = makeRun({ userId: owner.user.id });
+      seedMetrics(run.id as string);
+
+      expect((await call(run.id as string)).status).toBe(401);
+      // 404 (not 403) for the non-owner — no existence leak.
+      expect((await call(run.id as string, other.token)).status).toBe(404);
+      expect((await call(run.id as string, owner.token)).status).toBe(200);
+      expect((await call(run.id as string, admin.token)).status).toBe(200);
+    });
+
+    it(`${name}: null-owner (pre-auth) runs are admin-only`, async () => {
+      const run = makeRun({});
+      seedMetrics(run.id as string);
+      expect((await call(run.id as string, owner.token)).status).toBe(404);
+      expect((await call(run.id as string, admin.token)).status).toBe(200);
+    });
+  }
+});
+
+describe("GET /api/policies/[id]/results scoping", () => {
+  function seedResult(id: string, runId: string, policyId = "pol_test") {
+    insertPolicyResult(db, {
+      id,
+      runId,
+      policyId,
+      passed: true,
+      message: "ok",
+      details: {},
+      evaluatedAt: "2025-01-01T00:00:00.000Z",
+    });
+  }
+
+  it("401 without auth", async () => {
+    seedPolicy();
+    const res = await policyResultsRoute(
+      anonRequest("http://localhost/api/policies/pol_test/results", { method: "GET" }),
+      withParams({ id: "pol_test" }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("members only see results for their own runs; admins see all", async () => {
+    seedPolicy();
+    const ownerRun = makeRun({ userId: owner.user.id });
+    const otherRun = makeRun({ userId: other.user.id });
+    seedResult("pr_owner", ownerRun.id as string);
+    seedResult("pr_other", otherRun.id as string);
+
+    const memberRes = await policyResultsRoute(
+      authedRequest("http://localhost/api/policies/pol_test/results", {
+        method: "GET",
+        token: owner.token,
+      }),
+      withParams({ id: "pol_test" }),
+    );
+    expect(memberRes.status).toBe(200);
+    const memberBody = (await jsonOf(memberRes)) as Array<{ runId: string }>;
+    expect(memberBody.map((r) => r.runId)).toEqual([ownerRun.id as string]);
+
+    const adminRes = await policyResultsRoute(
+      authedRequest("http://localhost/api/policies/pol_test/results", {
+        method: "GET",
+        token: admin.token,
+      }),
+      withParams({ id: "pol_test" }),
+    );
+    const adminBody = (await jsonOf(adminRes)) as Array<{ runId: string }>;
+    expect(adminBody.map((r) => r.runId).sort()).toEqual(
+      [ownerRun.id as string, otherRun.id as string].sort(),
+    );
   });
 });
