@@ -5,12 +5,23 @@ interface AdminStatus {
   configured: boolean;
 }
 
-interface CostData {
-  [key: string]: unknown;
+// Normalized shapes returned by /api/admin/{cost,analytics} — the routes
+// aggregate the raw Anthropic Admin API reports server-side.
+export interface CostData {
+  totalCostUsd: number;
+  daily: Array<{ date: string; costUsd: number }>;
+  days: number;
+  truncated: boolean;
 }
 
-interface AnalyticsData {
-  [key: string]: unknown;
+export interface AnalyticsData {
+  uncachedInputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  outputTokens: number;
+  webSearchRequests: number;
+  days: number;
+  truncated: boolean;
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -53,7 +64,7 @@ export function useAdminStatus() {
   return { configured, loading };
 }
 
-export function useAdminCost(startDate?: string, endDate?: string) {
+export function useAdminCost(days?: number) {
   const [data, setData] = useState<CostData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +72,7 @@ export function useAdminCost(startDate?: string, endDate?: string) {
   const cacheKeyRef = useRef<string>("");
 
   const fetchCost = useCallback(async () => {
-    const cacheKey = `cost:${startDate ?? ""}:${endDate ?? ""}`;
+    const cacheKey = `cost:${days ?? ""}`;
 
     // Check cache
     if (
@@ -79,8 +90,7 @@ export function useAdminCost(startDate?: string, endDate?: string) {
 
     try {
       const params = new URLSearchParams();
-      if (startDate) params.set("start_date", startDate);
-      if (endDate) params.set("end_date", endDate);
+      if (days !== undefined) params.set("days", String(days));
 
       const queryString = params.toString();
       const url = `/api/admin/cost${queryString ? `?${queryString}` : ""}`;
@@ -102,7 +112,7 @@ export function useAdminCost(startDate?: string, endDate?: string) {
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate]);
+  }, [days]);
 
   useEffect(() => {
     fetchCost();
@@ -111,7 +121,7 @@ export function useAdminCost(startDate?: string, endDate?: string) {
   return { data, loading, error };
 }
 
-export function useAdminAnalytics(startDate?: string, endDate?: string) {
+export function useAdminAnalytics(days?: number) {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +129,7 @@ export function useAdminAnalytics(startDate?: string, endDate?: string) {
   const cacheKeyRef = useRef<string>("");
 
   const fetchAnalytics = useCallback(async () => {
-    const cacheKey = `analytics:${startDate ?? ""}:${endDate ?? ""}`;
+    const cacheKey = `analytics:${days ?? ""}`;
 
     // Check cache
     if (
@@ -137,8 +147,7 @@ export function useAdminAnalytics(startDate?: string, endDate?: string) {
 
     try {
       const params = new URLSearchParams();
-      if (startDate) params.set("start_date", startDate);
-      if (endDate) params.set("end_date", endDate);
+      if (days !== undefined) params.set("days", String(days));
 
       const queryString = params.toString();
       const url = `/api/admin/analytics${queryString ? `?${queryString}` : ""}`;
@@ -160,7 +169,7 @@ export function useAdminAnalytics(startDate?: string, endDate?: string) {
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate]);
+  }, [days]);
 
   useEffect(() => {
     fetchAnalytics();
