@@ -1,9 +1,9 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { PolicyId, RunId } from "@agentops/core";
 import { createPolicyId } from "@agentops/core";
 import type { Policy, PolicySeverity } from "@agentops/core";
 import type { AgentOpsDb } from "./connection.js";
-import { policies, policyResults } from "./schema.js";
+import { policies, policyResults, runs } from "./schema.js";
 
 interface ListPoliciesFilters {
   type?: string;
@@ -224,6 +224,10 @@ export function deletePolicy(
 export function getPolicyResultsForPolicy(
   db: AgentOpsDb,
   policyId: PolicyId,
+  // When set, only results whose run belongs to this user are returned.
+  // Policy results reference runs across every user, so member-facing
+  // callers must pass their own user id; omitting it is the admin view.
+  ownedByUserId?: string,
 ): Array<{
   id: string;
   runId: string;
@@ -233,11 +237,34 @@ export function getPolicyResultsForPolicy(
   details: Record<string, unknown>;
   evaluatedAt: string;
 }> {
-  const rows = db
-    .select()
-    .from(policyResults)
-    .where(eq(policyResults.policyId, policyId as string))
-    .all() as DbPolicyResult[];
+  const resultColumns = {
+    id: policyResults.id,
+    runId: policyResults.runId,
+    policyId: policyResults.policyId,
+    passed: policyResults.passed,
+    message: policyResults.message,
+    details: policyResults.details,
+    evaluatedAt: policyResults.evaluatedAt,
+  };
+  const rows = (
+    ownedByUserId === undefined
+      ? db
+          .select(resultColumns)
+          .from(policyResults)
+          .where(eq(policyResults.policyId, policyId as string))
+          .all()
+      : db
+          .select(resultColumns)
+          .from(policyResults)
+          .innerJoin(runs, eq(policyResults.runId, runs.id))
+          .where(
+            and(
+              eq(policyResults.policyId, policyId as string),
+              eq(runs.userId, ownedByUserId),
+            ),
+          )
+          .all()
+  ) as DbPolicyResult[];
 
   return rows.map((row) => ({
     id: row.id,
