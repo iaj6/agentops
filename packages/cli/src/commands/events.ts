@@ -1,7 +1,14 @@
 import { Command } from "commander";
 import { EventCategory } from "@agentops/core";
 import type { AgentEvent } from "@agentops/core";
-import { getDb, listEvents, getEventsBySource, getRecentEvents } from "@agentops/db";
+import {
+  getDb,
+  listEvents,
+  getEventsBySource,
+  getRecentEvents,
+  createEventPollCursor,
+  advanceEventPollCursor,
+} from "@agentops/db";
 import { table } from "../format.js";
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
@@ -97,21 +104,26 @@ export function registerEventsCommands(program: Command): void {
       console.log(dim("Press Ctrl+C to stop"));
       console.log();
 
-      let lastTimestamp = new Date().toISOString();
+      // listEvents' `since` is inclusive (gte) so equal-timestamp events
+      // are never dropped; the cursor tracks IDs already printed at the
+      // boundary timestamp so nothing is printed twice.
+      let cursor = createEventPollCursor(new Date().toISOString());
 
       const interval = setInterval(() => {
-        const results = listEvents(db, {
+        const batch = listEvents(db, {
           type: opts.type,
-          since: lastTimestamp,
+          since: cursor.since,
           limit: 100,
         });
 
-        for (const event of results.reverse()) {
+        const { fresh, next } = advanceEventPollCursor(cursor, batch);
+        cursor = next;
+
+        for (const event of fresh) {
           const now = new Date().toLocaleTimeString();
           console.log(
             `${dim(now)} ${colorCategory(event.category)} ${cyan(event.type)} ${dim(event.sourceId)}`,
           );
-          lastTimestamp = event.timestamp;
         }
       }, 1000);
 

@@ -77,6 +77,7 @@ export { insertSession, getSession, listSessions, updateSession, getActiveSessio
 
 // Event repository (WS3)
 export { insertEvent, getEvent, listEvents, countEvents, getEventsBySource, getRecentEvents } from "./events.js";
+export { createEventPollCursor, advanceEventPollCursor, type EventPollCursor } from "./event-cursor.js";
 
 // Lock repository (WS4)
 export { insertLock, getLock, listLocks, updateLock, getActiveLocks, getActiveLocksForHolder, releaseLocksForHolder, releaseExpiredLocks } from "./locks.js";
