@@ -21,6 +21,7 @@ export type {
   CheckPolicyResponse,
   PolicyViolation,
   HeartbeatResponse,
+  TerminateSessionResponse,
   CompleteRunRequest,
   CompleteRunResponse,
   FailRunRequest,

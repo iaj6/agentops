@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { Goal, Environment } from "@agentops/core";
+import type { Goal, Environment, Agent } from "@agentops/core";
 import {
   createRun,
   startRun,
   assignRun,
+  createAgentId,
   createSessionId,
   createEvent,
   EventCategory,
   EVENT_TYPES,
   normalizeRepo,
+  AgentRole,
 } from "@agentops/core";
 import { insertRun, insertEvent, getSession, updateSession } from "@agentops/db";
 import { db } from "@/lib/db";
@@ -76,6 +78,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // agents: validate-if-present and persist. StartRunRequest declares
+    // agents, and dropping them here left run.agents forever [] — the
+    // dashboard could never attribute an SDK run to the model/role that
+    // performed it. Optional so minimal clients keep working.
+    const validRoles = new Set<string>(Object.values(AgentRole));
+    const rawAgents = body.agents;
+    if (rawAgents !== undefined) {
+      const shapeOk =
+        Array.isArray(rawAgents) &&
+        rawAgents.every((a: unknown) => {
+          if (a === null || typeof a !== "object") return false;
+          const agent = a as Record<string, unknown>;
+          return (
+            typeof agent.id === "string" &&
+            agent.id.length > 0 &&
+            typeof agent.model === "string" &&
+            agent.model.length > 0 &&
+            typeof agent.role === "string" &&
+            validRoles.has(agent.role)
+          );
+        });
+      if (!shapeOk) {
+        return NextResponse.json(
+          {
+            error: `agents must be an array of { id, model, role } objects with role one of: ${[...validRoles].join(", ")}`,
+          },
+          { status: 400 },
+        );
+      }
+    }
+    const agents: ReadonlyArray<Agent> = (
+      (rawAgents as Array<{ id: string; model: string; role: string }> | undefined) ?? []
+    ).map((a) => ({
+      id: createAgentId(a.id),
+      model: a.model,
+      role: a.role as AgentRole,
+    }));
+
     // Canonicalize the repo identity at the write boundary so SDK-supplied
     // values bucket the same way as CLI-produced ones (lowercase owner/name);
     // otherwise the same repo fragments across the dashboard's analytics.
@@ -95,8 +135,9 @@ export async function POST(request: NextRequest) {
 
     const baseRun = startRun(createRun(goal, normalizedEnvironment));
     // Tag the run with the authenticated user so the dashboard can scope
-    // by owner. Both insertRun and rowToRun round-trip this field.
-    const run = { ...baseRun, userId: user.id };
+    // by owner, and attach the reported agents at creation (runs are
+    // immutable — spread into a new object, never mutate).
+    const run = { ...baseRun, agents, userId: user.id };
 
     insertRun(db(), run);
 

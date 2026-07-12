@@ -6,6 +6,7 @@ import type {
   Metrics,
   Agent,
   Environment,
+  Evaluation,
   Goal,
   ScoreCard,
   MergeRecommendation,
@@ -47,11 +48,18 @@ export interface ReportArtifactRequest {
   readonly reports?: Artifact["reports"];
 }
 
+// Partial-update semantics: every field is optional, and the server MERGES
+// each report into the run's stored metrics — an omitted field preserves the
+// previously reported value (it is never reset to zero).
 export interface ReportMetricsRequest {
   readonly tokenUsage?: Metrics["tokenUsage"];
   readonly wallTimeMs?: number;
   readonly costUsd?: number;
   readonly flakeRate?: number;
+  /** Which API backend served the traffic ("anthropic" | "bedrock"). */
+  readonly backend?: Metrics["backend"];
+  /** Per-model cost in USD, keyed by raw model id (Bedrock ids stay namespaced). */
+  readonly byModel?: Metrics["byModel"];
 }
 
 export interface CheckPolicyRequest {
@@ -62,8 +70,25 @@ export interface CheckPolicyRequest {
   readonly editedFiles?: ReadonlyArray<string>;
 }
 
+// Mirrors what /api/sdk/runs/[id]/complete actually consumes: the evaluation
+// (test results, policy checks, confidence) plus any final artifacts to
+// append. Without testResults the scorer has nothing to grade — correctness
+// reads "not scored" and mutating runs can reach Merge with no tests run.
 export interface CompleteRunRequest {
+  /**
+   * @deprecated The server has never read this field; it is silently
+   * dropped. Report outcome data via testResults / policyChecks /
+   * confidenceScore instead. Kept only so existing callers keep compiling.
+   */
   readonly result?: string;
+  /** Test outcomes for the run — these drive the correctness score. */
+  readonly testResults?: Evaluation["testResults"];
+  /** Client-side policy check outcomes to record on the evaluation. */
+  readonly policyChecks?: Evaluation["policyChecks"];
+  /** Agent self-reported confidence, 0-1. Defaults to 0 server-side. */
+  readonly confidenceScore?: number;
+  /** Final artifacts to append to the run before scoring. */
+  readonly artifacts?: ReadonlyArray<Artifact>;
 }
 
 export interface FailRunRequest {
@@ -116,6 +141,10 @@ export interface CheckPolicyResponse {
 export interface HeartbeatResponse {
   readonly ok: true;
   readonly commands: ReadonlyArray<unknown>;
+}
+
+export interface TerminateSessionResponse {
+  readonly status: string;
 }
 
 export interface CompleteRunResponse {

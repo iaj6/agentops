@@ -50,6 +50,7 @@ import { POST as reportMetricsRoute } from "@/app/api/sdk/runs/[id]/metrics/rout
 import { POST as completeRunRoute } from "@/app/api/sdk/runs/[id]/complete/route";
 import { POST as failRunRoute } from "@/app/api/sdk/runs/[id]/fail/route";
 import { POST as heartbeatRoute } from "@/app/api/sdk/sessions/[id]/heartbeat/route";
+import { POST as terminateSessionRoute } from "@/app/api/sdk/sessions/[id]/terminate/route";
 import { POST as policyCheckRoute } from "@/app/api/sdk/policy/check/route";
 
 let db: AgentOpsDb;
@@ -177,6 +178,21 @@ describe("SDK route ⇄ type contract", () => {
     expect(Array.isArray(body.commands)).toBe(true);
   });
 
+  it("terminateSession → { status }  (TerminateSessionResponse)", async () => {
+    const { insertSession } = await import("@agentops/db");
+    const { createSession, activateSession } = await import("@agentops/core");
+    const session = { ...activateSession(createSession("agent", {})), userId: alice.user.id };
+    insertSession(db, session);
+    const res = await terminateSessionRoute(
+      reqFor(`/api/sdk/sessions/${session.id}/terminate`, {}),
+      withParams({ id: session.id as string }),
+    );
+    expect(res.status).toBe(200);
+    const body = await bodyOf(res);
+    expect(Object.keys(body)).toEqual(["status"]);
+    expect(body.status).toBe("terminated");
+  });
+
   it("policy check (allow) → { decision, violations, warnings }  (CheckPolicyResponse)", async () => {
     const runId = seedRun();
     const res = await policyCheckRoute(reqFor("/api/sdk/policy/check", { runId, toolName: "Read", toolInput: {} }));
@@ -210,5 +226,103 @@ describe("SDK route ⇄ type contract", () => {
     expect(Array.isArray(body.violations)).toBe(true);
     expect((body.violations as unknown[]).length).toBeGreaterThan(0);
     expect(Array.isArray(body.warnings)).toBe(true);
+  });
+});
+
+// Request-side contract: bodies shaped exactly like the SDK's REQUEST types
+// must be consumed by the routes, not silently dropped. This is the drift the
+// response-only tests above couldn't see (StartRunRequest.agents was ignored,
+// CompleteRunRequest couldn't carry testResults, ReportMetricsRequest
+// replaced instead of merged).
+
+describe("SDK request type ⇄ route contract", () => {
+  it("StartRunRequest.agents is persisted onto the run", async () => {
+    // Body shaped like StartRunRequest, agents included.
+    const res = await createRunRoute(
+      reqFor("/api/sdk/runs", {
+        goal: { humanReadable: "t", structured: { type: "t", description: "t", parameters: {} } },
+        agents: [
+          { id: "agent-1", model: "claude-opus-4-6", role: "implementer" },
+          { id: "agent-2", model: "claude-haiku-4-5", role: "reviewer" },
+        ],
+        environment: { repo: "acme/test", branch: "main", permissions: [], sandbox: { enabled: false, isolationLevel: "none" } },
+      }),
+    );
+    expect(res.status).toBe(201);
+    const { runId } = (await bodyOf(res)) as { runId: string };
+    const { getRun } = await import("@agentops/db");
+    const { createRunId } = await import("@agentops/core");
+    const saved = getRun(db, createRunId(runId))!;
+    expect(saved.agents).toEqual([
+      { id: "agent-1", model: "claude-opus-4-6", role: "implementer" },
+      { id: "agent-2", model: "claude-haiku-4-5", role: "reviewer" },
+    ]);
+  });
+
+  it("CompleteRunRequest.testResults reach the stored run AND drive scoring", async () => {
+    const runId = seedRun();
+    // Body shaped like CompleteRunRequest (post-fix): failing test included.
+    const res = await completeRunRoute(
+      reqFor(`/api/sdk/runs/${runId}/complete`, {
+        testResults: [
+          { name: "passes", passed: true, duration: 10, message: "" },
+          { name: "fails", passed: false, duration: 12, message: "assertion failed" },
+        ],
+        policyChecks: [],
+        confidenceScore: 0.7,
+        artifacts: [
+          { id: "artifact_final", diffs: ["+x"], logs: [], testOutputs: ["1 failed"], reports: [] },
+        ],
+      }),
+      withParams({ id: runId }),
+    );
+    expect(res.status).toBe(200);
+    const body = await bodyOf(res);
+
+    // Scoring saw the tests: correctness is 1/2, not the "not scored" 1.0
+    // that let mutating runs reach Merge with zero tests run.
+    const score = body.score as { correctness: { score: number; rationale: string } };
+    expect(score.correctness.score).toBe(0.5);
+    expect(score.correctness.rationale).toContain("1/2 tests passing");
+
+    // Round-trip: the evaluation + artifacts landed on the stored run.
+    const { getRun } = await import("@agentops/db");
+    const { createRunId } = await import("@agentops/core");
+    const saved = getRun(db, createRunId(runId))!;
+    expect(saved.evaluations).toHaveLength(1);
+    expect(saved.evaluations[0]!.testResults).toHaveLength(2);
+    expect(saved.evaluations[0]!.confidenceScore).toBe(0.7);
+    expect(saved.artifacts.map((a) => a.id as string)).toContain("artifact_final");
+  });
+
+  it("ReportMetricsRequest is a partial update: omitted fields keep stored values", async () => {
+    const runId = seedRun();
+    // First report: tokens only.
+    await reportMetricsRoute(
+      reqFor(`/api/sdk/runs/${runId}/metrics`, {
+        tokenUsage: { input: 100, output: 50, total: 150 },
+      }),
+      withParams({ id: runId }),
+    );
+    // Second report: cost + backend attribution only (ReportMetricsRequest
+    // now declares backend/byModel so SDK clients can set Bedrock spend).
+    const res = await reportMetricsRoute(
+      reqFor(`/api/sdk/runs/${runId}/metrics`, {
+        costUsd: 2.5,
+        backend: "bedrock",
+        byModel: { "us.anthropic.claude-opus-4-7-v1:0": 2.5 },
+      }),
+      withParams({ id: runId }),
+    );
+    expect(res.status).toBe(200);
+
+    const { getRun } = await import("@agentops/db");
+    const { createRunId } = await import("@agentops/core");
+    const saved = getRun(db, createRunId(runId))!;
+    // Tokens from report #1 survived report #2 (previously zero-filled).
+    expect(saved.metrics.tokenUsage).toEqual({ input: 100, output: 50, total: 150 });
+    expect(saved.metrics.costUsd).toBe(2.5);
+    expect(saved.metrics.backend).toBe("bedrock");
+    expect(saved.metrics.byModel).toEqual({ "us.anthropic.claude-opus-4-7-v1:0": 2.5 });
   });
 });
