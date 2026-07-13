@@ -13,10 +13,10 @@ import { createEventId, EventCategory } from "@agentops/core";
 function makeEvent(id: string, timestamp: string, overrides: Partial<AgentEvent> = {}): AgentEvent {
   return {
     id: createEventId(id),
-    category: EventCategory.Job,
-    type: "job.queued",
-    payload: { jobId: "job_1" },
-    sourceId: "job_1",
+    category: EventCategory.Run,
+    type: "run.started",
+    payload: { jobId: "run_1" },
+    sourceId: "run_1",
     timestamp,
     ...overrides,
   };

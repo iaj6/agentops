@@ -7,9 +7,6 @@ import { TimeAgo } from "./TimeAgo";
 import Link from "next/link";
 
 function getSourceLink(sourceId: string): { href: string; label: string } | null {
-  if (sourceId.startsWith("job_")) {
-    return { href: `/jobs/${sourceId}`, label: sourceId };
-  }
   if (sourceId.startsWith("session_")) {
     return { href: `/sessions/${sourceId}`, label: sourceId };
   }

@@ -11,10 +11,8 @@ export type AgentId = Brand<string, "AgentId">;
 export type ActionId = Brand<string, "ActionId">;
 export type ArtifactId = Brand<string, "ArtifactId">;
 export type DecisionId = Brand<string, "DecisionId">;
-export type JobId = Brand<string, "JobId">;
 export type SessionId = Brand<string, "SessionId">;
 export type EventId = Brand<string, "EventId">;
-export type LockId = Brand<string, "LockId">;
 
 export function createRunId(value: string): RunId {
   return value as RunId;
@@ -34,17 +32,11 @@ export function createArtifactId(value: string): ArtifactId {
 export function createDecisionId(value: string): DecisionId {
   return value as DecisionId;
 }
-export function createJobId(value: string): JobId {
-  return value as JobId;
-}
 export function createSessionId(value: string): SessionId {
   return value as SessionId;
 }
 export function createEventId(value: string): EventId {
   return value as EventId;
-}
-export function createLockId(value: string): LockId {
-  return value as LockId;
 }
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
@@ -66,22 +58,6 @@ export enum AgentRole {
   Policy = "policy",
 }
 
-export enum JobStatus {
-  Queued = "queued",
-  Dispatched = "dispatched",
-  Running = "running",
-  Completed = "completed",
-  Failed = "failed",
-  Cancelled = "cancelled",
-}
-
-export enum JobPriority {
-  Critical = "critical",
-  High = "high",
-  Normal = "normal",
-  Low = "low",
-}
-
 export enum SessionStatus {
   Provisioning = "provisioning",
   Active = "active",
@@ -89,19 +65,12 @@ export enum SessionStatus {
 }
 
 export enum EventCategory {
-  Job = "job",
   Run = "run",
   Session = "session",
   Policy = "policy",
   Cost = "cost",
   Action = "action",
   Agent = "agent",
-}
-
-export enum LockType {
-  Repo = "repo",
-  Path = "path",
-  Branch = "branch",
 }
 
 // ─── Goal ────────────────────────────────────────────────────────────────────
@@ -263,39 +232,6 @@ export interface Run {
   readonly updatedAt: string;
 }
 
-// ─── Job ─────────────────────────────────────────────────────────────────────
-
-export interface ConcurrencyLimits {
-  readonly perRepo: number;
-  readonly perOrg: number;
-  readonly global: number;
-}
-
-export interface RetryPolicy {
-  readonly maxRetries: number;
-  readonly backoffMs: number;
-  readonly backoffMultiplier: number;
-}
-
-export interface Job {
-  readonly id: JobId;
-  readonly status: JobStatus;
-  readonly priority: JobPriority;
-  readonly goal: Goal;
-  readonly environment: Environment;
-  readonly retryPolicy: RetryPolicy;
-  readonly concurrencyLimits: ConcurrencyLimits;
-  readonly runIds: ReadonlyArray<RunId>;
-  readonly sessionId: SessionId | null;
-  readonly attempt: number;
-  readonly maxAttempts: number;
-  readonly queuedAt: string;
-  readonly dispatchedAt: string | null;
-  readonly completedAt: string | null;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-}
-
 // ─── Session ─────────────────────────────────────────────────────────────────
 
 export interface ResourceUsage {
@@ -334,14 +270,3 @@ export interface AgentEvent {
   readonly timestamp: string;
 }
 
-// ─── Lock ────────────────────────────────────────────────────────────────────
-
-export interface ResourceLock {
-  readonly id: LockId;
-  readonly lockType: LockType;
-  readonly resource: string;
-  readonly holderId: string;
-  readonly acquiredAt: string;
-  readonly expiresAt: string;
-  readonly released: boolean;
-}

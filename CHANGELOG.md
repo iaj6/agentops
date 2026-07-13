@@ -54,6 +54,21 @@ security gaps; all critical/high findings shipped the same day:
   foreign-key constraint and 500'd; `deletePolicy` now cascades its
   `policy_results` in a transaction and reports the count in the audit log.
 
+### Removed
+
+- **The unused orchestration layer.** Jobs, the dispatcher, the orchestrator,
+  and coordination locks (core), their `jobs`/`locks` tables (db), and the
+  `job`, `lock`, and `dispatch` CLI commands were dead weight: nothing in the
+  hook-driven product path ever created a job or acquired a lock, dispatch
+  could never match a hook-created session, and the lock-expiry SQL was
+  broken. The dashboard's Jobs/Locks/Coordination pages were removed long
+  ago for the same reason. Databases created before this change keep their
+  empty `jobs`/`locks` tables; they are inert.
+- **`agentops pr`.** It could never create a PR (`gh pr create` rejects the
+  `--json` flag it passed, and the error was swallowed), so every invocation
+  printed "Failed to create PR". `agentops link` (read-only PR/issue
+  linking) is unaffected.
+
 ### Added
 
 #### Phase A — trial-blocking foundations

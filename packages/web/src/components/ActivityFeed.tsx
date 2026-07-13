@@ -15,8 +15,6 @@ interface FeedEvent {
 
 function sourceLink(category: string, sourceId: string): string {
   switch (category) {
-    case "job":
-      return `/jobs/${sourceId}`;
     case "run":
       return `/runs/${sourceId}`;
     case "session":

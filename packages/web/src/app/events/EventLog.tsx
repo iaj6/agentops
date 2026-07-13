@@ -8,7 +8,6 @@ import { useEvents } from "@/hooks/useEvents";
 
 const CATEGORIES = [
   { label: "All", value: "" },
-  { label: "Job", value: EventCategory.Job },
   { label: "Run", value: EventCategory.Run },
   { label: "Session", value: EventCategory.Session },
   { label: "Policy", value: EventCategory.Policy },

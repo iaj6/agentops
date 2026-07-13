@@ -1,7 +1,6 @@
 import { EventCategory } from "@agentops/core";
 
 const categoryColors: Record<string, string> = {
-  [EventCategory.Job]: "bg-blue/15 text-blue border-blue/30",
   [EventCategory.Run]: "bg-green/15 text-green border-green/30",
   [EventCategory.Session]: "bg-yellow/15 text-yellow border-yellow/30",
   [EventCategory.Policy]: "bg-red/15 text-red border-red/30",

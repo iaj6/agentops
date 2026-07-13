@@ -21,8 +21,6 @@ const magenta = (s: string) => `\x1b[35m${s}\x1b[0m`;
 
 function colorCategory(category: string): string {
   switch (category) {
-    case EventCategory.Job:
-      return cyan(category);
     case EventCategory.Run:
       return green(category);
     case EventCategory.Session:

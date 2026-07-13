@@ -1363,10 +1363,6 @@ function seedSessions(db: AgentOpsDb): number {
 
 function seedEvents(db: AgentOpsDb): number {
   const EVENT_DEFS: Array<{ category: string; type: string; sourcePrefix: string; payloadFn: () => Record<string, unknown> }> = [
-    { category: EventCategory.Job, type: "job.queued", sourcePrefix: "job_", payloadFn: () => ({ priority: pick(["critical", "high", "normal", "low"]), repo: pick(REPOS) }) },
-    { category: EventCategory.Job, type: "job.dispatched", sourcePrefix: "job_", payloadFn: () => ({ sessionId: `session_${uid()}`, dispatchedAt: new Date().toISOString() }) },
-    { category: EventCategory.Job, type: "job.completed", sourcePrefix: "job_", payloadFn: () => ({ durationMs: randInt(30000, 600000), runCount: randInt(1, 5) }) },
-    { category: EventCategory.Job, type: "job.failed", sourcePrefix: "job_", payloadFn: () => ({ reason: pick(["timeout", "crash", "policy violation", "resource exhaustion"]), attempt: randInt(1, 3) }) },
     { category: EventCategory.Run, type: "run.started", sourcePrefix: "run_", payloadFn: () => ({ repo: pick(REPOS), branch: pick(BRANCHES) }) },
     { category: EventCategory.Run, type: "run.completed", sourcePrefix: "run_", payloadFn: () => ({ durationMs: randInt(30000, 900000), costUsd: randFloat(0.10, 4.50) }) },
     { category: EventCategory.Run, type: "run.failed", sourcePrefix: "run_", payloadFn: () => ({ error: pick(["test failure", "build error", "lint violation", "timeout"]), testsRun: randInt(5, 50) }) },
@@ -1513,10 +1509,8 @@ async function main() {
 
   // Clear existing seed data
   const { sql } = await import("drizzle-orm");
-  db.run(sql`DELETE FROM locks`);
   db.run(sql`DELETE FROM events`);
   db.run(sql`DELETE FROM sessions`);
-  db.run(sql`DELETE FROM jobs`);
   db.run(sql`DELETE FROM policy_results`);
   db.run(sql`DELETE FROM run_metrics`);
   db.run(sql`DELETE FROM runs`);

@@ -6,10 +6,8 @@ export type {
   ActionId,
   ArtifactId,
   DecisionId,
-  JobId,
   SessionId,
   EventId,
-  LockId,
   Goal,
   StructuredTask,
   Agent,
@@ -27,34 +25,25 @@ export type {
   Evaluation,
   Decision,
   Run,
-  ConcurrencyLimits,
-  RetryPolicy,
-  Job,
   ResourceUsage,
   Session,
   AgentEvent,
-  ResourceLock,
 } from "./types.js";
 
 export {
   RunStatus,
   AgentRole,
   DecisionType,
-  JobStatus,
-  JobPriority,
   SessionStatus,
   EventCategory,
-  LockType,
   createRunId,
   createPolicyId,
   createAgentId,
   createActionId,
   createArtifactId,
   createDecisionId,
-  createJobId,
   createSessionId,
   createEventId,
-  createLockId,
 } from "./types.js";
 
 // Policy
@@ -119,26 +108,6 @@ export {
   RUN_STALE_THRESHOLD_MS,
 } from "./run.js";
 
-// Job builder (WS1)
-export {
-  createJob,
-  dispatchJob,
-  startJobRun,
-  completeJob,
-  failJob,
-  cancelJob,
-  retryJob,
-} from "./job.js";
-export type { CreateJobOptions } from "./job.js";
-
-// Dispatcher (WS1)
-export {
-  evaluateDispatch,
-  selectNextJob,
-  matchSession,
-} from "./dispatcher.js";
-export type { DispatchConfig, DispatchDecision } from "./dispatcher.js";
-
 // Session builder (WS2)
 export {
   createSession,
@@ -167,38 +136,6 @@ export type {
   BudgetStatus,
   BudgetState,
 } from "./budget.js";
-
-// Coordination (WS4)
-export type {
-  ConflictCheckResult,
-  BranchStrategy,
-  PathPartition,
-  PartitionStrategy,
-} from "./coordination.js";
-
-export {
-  createLock,
-  releaseLock,
-  isLockExpired,
-  isLockHeld,
-  checkConflicts,
-  generateWorkBranch,
-  partitionByPath,
-} from "./coordination.js";
-
-// Orchestrator (Sprint 5)
-export type { DispatchResult, ExecutionResult, OrchestratorDb } from "./orchestrator.js";
-
-export {
-  submitAndQueueJob,
-  dispatchNextJob,
-  startJobExecution,
-  completeJobExecution,
-  failJobExecution,
-  terminateSessionGracefully,
-  cleanupStaleSessions,
-  cleanupExpiredLocks,
-} from "./orchestrator.js";
 
 // Agent tree (Sprint 12)
 export type { AgentNode, AgentCommunication, AgentTimeline } from "./agent-tree.js";
