@@ -8,10 +8,10 @@ import { createEventId, EventCategory } from "@agentops/core";
 function makeEvent(id: string, overrides: Partial<AgentEvent> = {}): AgentEvent {
   return {
     id: createEventId(id),
-    category: EventCategory.Job,
-    type: "job.queued",
-    payload: { jobId: "job_1" },
-    sourceId: "job_1",
+    category: EventCategory.Run,
+    type: "run.started",
+    payload: { jobId: "run_1" },
+    sourceId: "run_1",
     timestamp: "2025-01-01T00:00:00.000Z",
     ...overrides,
   };
@@ -32,10 +32,10 @@ describe("Events repository", () => {
       const retrieved = getEvent(db, createEventId("evt_1"));
       expect(retrieved).not.toBeNull();
       expect(retrieved!.id).toBe("evt_1");
-      expect(retrieved!.category).toBe(EventCategory.Job);
-      expect(retrieved!.type).toBe("job.queued");
-      expect(retrieved!.sourceId).toBe("job_1");
-      expect(retrieved!.payload).toEqual({ jobId: "job_1" });
+      expect(retrieved!.category).toBe(EventCategory.Run);
+      expect(retrieved!.type).toBe("run.started");
+      expect(retrieved!.sourceId).toBe("run_1");
+      expect(retrieved!.payload).toEqual({ jobId: "run_1" });
     });
 
     it("returns null for non-existent event", () => {
@@ -58,33 +58,33 @@ describe("Events repository", () => {
     });
 
     it("filters by category", () => {
-      insertEvent(db, makeEvent("evt_1", { category: EventCategory.Job }));
-      insertEvent(db, makeEvent("evt_2", { category: EventCategory.Run }));
-      insertEvent(db, makeEvent("evt_3", { category: EventCategory.Job }));
+      insertEvent(db, makeEvent("evt_1", { category: EventCategory.Run }));
+      insertEvent(db, makeEvent("evt_2", { category: EventCategory.Session }));
+      insertEvent(db, makeEvent("evt_3", { category: EventCategory.Run }));
 
-      const results = listEvents(db, { category: "job" });
+      const results = listEvents(db, { category: "run" });
       expect(results).toHaveLength(2);
-      expect(results.every((e) => e.category === EventCategory.Job)).toBe(true);
+      expect(results.every((e) => e.category === EventCategory.Run)).toBe(true);
     });
 
     it("filters by type", () => {
-      insertEvent(db, makeEvent("evt_1", { type: "job.queued" }));
+      insertEvent(db, makeEvent("evt_1", { type: "run.started" }));
       insertEvent(db, makeEvent("evt_2", { type: "job.completed" }));
-      insertEvent(db, makeEvent("evt_3", { type: "job.queued" }));
+      insertEvent(db, makeEvent("evt_3", { type: "run.started" }));
 
-      const results = listEvents(db, { type: "job.queued" });
+      const results = listEvents(db, { type: "run.started" });
       expect(results).toHaveLength(2);
-      expect(results.every((e) => e.type === "job.queued")).toBe(true);
+      expect(results.every((e) => e.type === "run.started")).toBe(true);
     });
 
     it("filters by sourceId", () => {
-      insertEvent(db, makeEvent("evt_1", { sourceId: "job_1" }));
-      insertEvent(db, makeEvent("evt_2", { sourceId: "job_2" }));
-      insertEvent(db, makeEvent("evt_3", { sourceId: "job_1" }));
+      insertEvent(db, makeEvent("evt_1", { sourceId: "run_1" }));
+      insertEvent(db, makeEvent("evt_2", { sourceId: "run_2" }));
+      insertEvent(db, makeEvent("evt_3", { sourceId: "run_1" }));
 
-      const results = listEvents(db, { sourceId: "job_1" });
+      const results = listEvents(db, { sourceId: "run_1" });
       expect(results).toHaveLength(2);
-      expect(results.every((e) => e.sourceId === "job_1")).toBe(true);
+      expect(results.every((e) => e.sourceId === "run_1")).toBe(true);
     });
 
     it("filters by since timestamp", () => {
@@ -143,34 +143,34 @@ describe("Events repository", () => {
     });
 
     it("counts events with filters", () => {
-      insertEvent(db, makeEvent("evt_1", { category: EventCategory.Job }));
-      insertEvent(db, makeEvent("evt_2", { category: EventCategory.Run }));
-      insertEvent(db, makeEvent("evt_3", { category: EventCategory.Job }));
+      insertEvent(db, makeEvent("evt_1", { category: EventCategory.Run }));
+      insertEvent(db, makeEvent("evt_2", { category: EventCategory.Session }));
+      insertEvent(db, makeEvent("evt_3", { category: EventCategory.Run }));
 
-      expect(countEvents(db, { category: "job" })).toBe(2);
+      expect(countEvents(db, { category: "run" })).toBe(2);
     });
   });
 
   describe("getEventsBySource", () => {
     it("returns events for a specific source", () => {
-      insertEvent(db, makeEvent("evt_1", { sourceId: "job_1" }));
-      insertEvent(db, makeEvent("evt_2", { sourceId: "job_2" }));
-      insertEvent(db, makeEvent("evt_3", { sourceId: "job_1" }));
+      insertEvent(db, makeEvent("evt_1", { sourceId: "run_1" }));
+      insertEvent(db, makeEvent("evt_2", { sourceId: "run_2" }));
+      insertEvent(db, makeEvent("evt_3", { sourceId: "run_1" }));
 
-      const results = getEventsBySource(db, "job_1");
+      const results = getEventsBySource(db, "run_1");
       expect(results).toHaveLength(2);
-      expect(results.every((e) => e.sourceId === "job_1")).toBe(true);
+      expect(results.every((e) => e.sourceId === "run_1")).toBe(true);
     });
 
     it("respects limit parameter", () => {
       for (let i = 0; i < 10; i++) {
         insertEvent(db, makeEvent(`evt_${i}`, {
-          sourceId: "job_1",
+          sourceId: "run_1",
           timestamp: `2025-01-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`,
         }));
       }
 
-      const results = getEventsBySource(db, "job_1", 3);
+      const results = getEventsBySource(db, "run_1", 3);
       expect(results).toHaveLength(3);
     });
   });

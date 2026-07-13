@@ -4,12 +4,6 @@ import { EventCategory, createEventId } from "./types.js";
 // ─── Event type constants ────────────────────────────────────────────────────
 
 export const EVENT_TYPES = {
-  // Job events
-  "job.queued": "job.queued",
-  "job.dispatched": "job.dispatched",
-  "job.completed": "job.completed",
-  "job.failed": "job.failed",
-
   // Run events
   "run.started": "run.started",
   "run.completed": "run.completed",

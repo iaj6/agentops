@@ -8,10 +8,8 @@ export {
   policies,
   policyResults,
   runMetrics,
-  jobs,
   sessions,
   events,
-  locks,
   users,
   apiTokens,
   authSessions,
@@ -70,7 +68,6 @@ export {
 export type { AuditLogEntry, InsertAuditLogArgs, ListAuditLogsFilters } from "./audit.js";
 
 // Job repository (WS1)
-export { insertJob, getJob, listJobs, updateJob, countJobsByRepo, countJobsActive, getQueuedJobs } from "./jobs.js";
 
 // Session repository (WS2)
 export { insertSession, getSession, listSessions, updateSession, getActiveSessions, countActiveSessions, getStaleSessions } from "./sessions.js";
@@ -80,7 +77,6 @@ export { insertEvent, getEvent, listEvents, countEvents, getEventsBySource, getR
 export { createEventPollCursor, advanceEventPollCursor, type EventPollCursor } from "./event-cursor.js";
 
 // Lock repository (WS4)
-export { insertLock, getLock, listLocks, updateLock, getActiveLocks, getActiveLocksForHolder, releaseLocksForHolder, releaseExpiredLocks } from "./locks.js";
 
 // Seed
 export { seed } from "./seed.js";

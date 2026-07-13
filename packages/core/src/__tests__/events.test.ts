@@ -4,13 +4,6 @@ import { EventCategory } from "../types.js";
 import type { AgentEvent } from "../types.js";
 
 describe("EVENT_TYPES", () => {
-  it("has all expected job event types", () => {
-    expect(EVENT_TYPES["job.queued"]).toBe("job.queued");
-    expect(EVENT_TYPES["job.dispatched"]).toBe("job.dispatched");
-    expect(EVENT_TYPES["job.completed"]).toBe("job.completed");
-    expect(EVENT_TYPES["job.failed"]).toBe("job.failed");
-  });
-
   it("has all expected run event types", () => {
     expect(EVENT_TYPES["run.started"]).toBe("run.started");
     expect(EVENT_TYPES["run.completed"]).toBe("run.completed");
@@ -35,16 +28,16 @@ describe("EVENT_TYPES", () => {
 describe("createEvent", () => {
   it("creates an event with all required fields", () => {
     const event = createEvent(
-      EventCategory.Job,
-      EVENT_TYPES["job.queued"],
-      "job_123",
+      EventCategory.Run,
+      EVENT_TYPES["run.started"],
+      "run_123",
       { priority: "high" },
     );
 
     expect(event.id).toContain("evt_");
-    expect(event.category).toBe(EventCategory.Job);
-    expect(event.type).toBe("job.queued");
-    expect(event.sourceId).toBe("job_123");
+    expect(event.category).toBe(EventCategory.Run);
+    expect(event.type).toBe("run.started");
+    expect(event.sourceId).toBe("run_123");
     expect(event.payload).toEqual({ priority: "high" });
     expect(event.timestamp).toBeTruthy();
   });

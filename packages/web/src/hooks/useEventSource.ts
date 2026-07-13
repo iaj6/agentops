@@ -9,10 +9,6 @@ export type SSEEventType =
   | "run_updated"
   | "run_completed"
   | "run_failed"
-  | "job.queued"
-  | "job.dispatched"
-  | "job.completed"
-  | "job.failed"
   | "run.started"
   | "run.completed"
   | "run.failed"
@@ -61,10 +57,6 @@ const ALL_EVENT_TYPES: SSEEventType[] = [
   "run_updated",
   "run_completed",
   "run_failed",
-  "job.queued",
-  "job.dispatched",
-  "job.completed",
-  "job.failed",
   "run.started",
   "run.completed",
   "run.failed",

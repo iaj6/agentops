@@ -66,29 +66,6 @@ export const runMetrics = sqliteTable("run_metrics", {
   recordedAt: text("recorded_at").notNull(),
 });
 
-// ─── Jobs table ────────────────────────────────────────────────────────────
-
-export const jobs = sqliteTable("jobs", {
-  id: text("id").primaryKey(),
-  status: text("status").notNull(),
-  priority: text("priority").notNull(),
-  goal: text("goal", { mode: "json" }).notNull(),
-  environment: text("environment", { mode: "json" }).notNull(),
-  repo: text("repo").notNull(),
-  branch: text("branch").notNull(),
-  retryPolicy: text("retry_policy", { mode: "json" }).notNull(),
-  concurrencyLimits: text("concurrency_limits", { mode: "json" }).notNull(),
-  runIds: text("run_ids", { mode: "json" }).notNull(),
-  sessionId: text("session_id"),
-  attempt: integer("attempt").notNull().default(0),
-  maxAttempts: integer("max_attempts").notNull().default(3),
-  queuedAt: text("queued_at").notNull(),
-  dispatchedAt: text("dispatched_at"),
-  completedAt: text("completed_at"),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
-});
-
 // ─── Sessions table ────────────────────────────────────────────────────────
 
 export const sessions = sqliteTable("sessions", {
@@ -117,18 +94,6 @@ export const events = sqliteTable("events", {
   payload: text("payload", { mode: "json" }).notNull(),
   sourceId: text("source_id").notNull(),
   timestamp: text("timestamp").notNull(),
-});
-
-// ─── Locks table ───────────────────────────────────────────────────────────
-
-export const locks = sqliteTable("locks", {
-  id: text("id").primaryKey(),
-  lockType: text("lock_type").notNull(),
-  resource: text("resource").notNull(),
-  holderId: text("holder_id").notNull(),
-  acquiredAt: text("acquired_at").notNull(),
-  expiresAt: text("expires_at").notNull(),
-  released: integer("released", { mode: "boolean" }).notNull().default(false),
 });
 
 // ─── Auth: users ───────────────────────────────────────────────────────────
